@@ -1277,51 +1277,216 @@ async function getProjectAssets() {
   return assets;
 }
 
-async function publishSite(account, project, token) {
-  setStatus("Composing pages...");
-  const pages = await getComposedPages();
-  const assets = await getProjectAssets();
+// ---- Cloudflare Pages Direct Upload — a content-hash-addressed protocol ----
+// This is NOT a single multipart POST of raw files + a size manifest (an
+// earlier version of this function assumed that, and produced deployments
+// that looked correct in Cloudflare's dashboard but 404'd everywhere —
+// Cloudflare accepted the upload but never actually indexed it as servable
+// content). The real flow, reverse-engineered from Wrangler's own CLI
+// source (packages/wrangler/src/pages/upload.ts / src/api/pages/deploy.ts):
+// get an upload token, BLAKE3-hash every file, ask Cloudflare which hashes
+// it doesn't already have cached, upload only those, then create the
+// deployment referencing a manifest of hashes (not sizes).
 
-  setStatus(`Uploading ${Object.keys(pages).length} file(s) to Cloudflare Pages...`);
-
-  // Cloudflare's Direct Upload flow expects a multipart manifest of files.
-  // See: https://developers.cloudflare.com/pages/configuration/direct-upload/
-  const formData = new FormData();
-  const manifest = {};
-  for (const [name, content] of Object.entries(pages)) {
-    const blob = new Blob([content], { type: "text/html" });
-    formData.append(name, blob, name);
-    manifest[name] = { size: blob.size };
+// Converts an ArrayBuffer to base64 without spreading the whole byte array
+// into String.fromCharCode at once — that blows the call stack on anything
+// more than a few MB. 32KB slices avoid that.
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const CHUNK_SIZE = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK_SIZE));
   }
-  // Assets get their own loop (not folded into the one above) because they
-  // need a real MIME type from the extension, not the pages' hardcoded
-  // "text/html" — reusing that for an uploaded PNG would serve it with the
-  // wrong Content-Type and visibly break it once published.
+  return btoa(binary);
+}
+
+// Cloudflare's hash algorithm needs the extension exactly as Node's
+// path.extname() would produce it — case-preserving, no dot. Deliberately
+// separate from assetExtension() above, which lowercases for MIME lookup,
+// an unrelated concern.
+function hashExtension(filePath) {
+  const slash = filePath.lastIndexOf("/");
+  const name = slash === -1 ? filePath : filePath.slice(slash + 1);
+  const dot = name.lastIndexOf(".");
+  return dot === -1 ? "" : name.slice(dot + 1);
+}
+
+function withCharset(mimeType) {
+  return mimeType.startsWith("text/") ? `${mimeType}; charset=utf-8` : mimeType;
+}
+
+// Normalizes composed pages (strings) and raw assets (ArrayBuffers) into
+// one list, with the leading-slash paths Cloudflare's manifest requires.
+function buildPagesFileList(pages, assets) {
+  const files = [];
+  for (const [name, html] of Object.entries(pages)) {
+    files.push({
+      path: "/" + name,
+      arrayBuffer: new TextEncoder().encode(html).buffer,
+      contentType: withCharset("text/html"),
+    });
+  }
   for (const [name, arrayBuffer] of Object.entries(assets)) {
-    const path = "assets/" + name;
-    const blob = new Blob([arrayBuffer], { type: assetMimeType(name) });
-    formData.append(path, blob, path);
-    manifest[path] = { size: blob.size };
+    files.push({
+      path: "/assets/" + name,
+      arrayBuffer,
+      contentType: withCharset(assetMimeType(name)),
+    });
   }
-  formData.append("manifest", JSON.stringify(manifest));
+  return files;
+}
 
+// hash = blake3(base64(fileBytes) + extensionNoDot, 128 bits).hex() — cross-
+// validated this exact algorithm against the real blake3-wasm package
+// Wrangler uses, byte-identical output on the same input.
+async function hashFileList(files) {
+  for (const file of files) {
+    file.base64 = arrayBufferToBase64(file.arrayBuffer);
+    file.hash = await hashwasm.blake3(file.base64 + hashExtension(file.path), 128);
+  }
+}
+
+async function getPagesUploadToken(account, project, token) {
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/pages/projects/${project}/upload-token`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const data = await res.json();
+  if (!data.success) throw new Error("Could not get upload token: " + JSON.stringify(data.errors));
+  return data.result.jwt;
+}
+
+async function checkMissingHashes(jwt, hashes) {
+  const res = await fetch("https://api.cloudflare.com/client/v4/pages/assets/check-missing", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ hashes }),
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error("Could not check asset cache: " + JSON.stringify(data.errors));
+  return new Set(data.result);
+}
+
+const UPLOAD_BATCH_MAX_FILES = 200;
+const UPLOAD_BATCH_MAX_BYTES = 35 * 1024 * 1024; // conservative, under Cloudflare's 40MB/batch limit
+
+function chunkForUpload(files) {
+  const batches = [];
+  let current = [];
+  let currentBytes = 0;
+  for (const file of files) {
+    const size = file.base64.length;
+    const wouldOverflow =
+      current.length >= UPLOAD_BATCH_MAX_FILES || currentBytes + size > UPLOAD_BATCH_MAX_BYTES;
+    if (wouldOverflow && current.length) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(file);
+    currentBytes += size;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+async function uploadBatch(jwt, batch) {
+  const payload = batch.map((f) => ({
+    key: f.hash,
+    value: f.base64,
+    metadata: { contentType: f.contentType },
+    base64: true,
+  }));
+  const res = await fetch("https://api.cloudflare.com/client/v4/pages/assets/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error("Batch upload failed: " + JSON.stringify(data.errors));
+}
+
+// Sequential batches — this project's realistic file counts don't need
+// Wrangler's concurrent-bucket-packing — with one retry per batch before
+// letting a real failure abort the publish (a missing file means a broken
+// deployment, the same 404 symptom this whole rewrite exists to fix).
+async function uploadMissingFiles(jwt, files, onProgress) {
+  const batches = chunkForUpload(files);
+  for (let i = 0; i < batches.length; i++) {
+    try {
+      await uploadBatch(jwt, batches[i]);
+    } catch (err) {
+      await uploadBatch(jwt, batches[i]);
+    }
+    onProgress(i + 1, batches.length);
+  }
+}
+
+// Best-effort cache warming — Wrangler treats this as non-fatal, so a
+// failure here is logged but never aborts the publish.
+async function upsertHashes(jwt, hashes) {
   try {
-    const res = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${account}/pages/projects/${project}/deployments`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      }
-    );
-    const data = await res.json();
+    await fetch("https://api.cloudflare.com/client/v4/pages/assets/upsert-hashes", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ hashes }),
+    });
+  } catch (err) {
+    console.warn("upsert-hashes failed (non-fatal):", err);
+  }
+}
+
+async function createPagesDeployment(account, project, token, manifest) {
+  const formData = new FormData();
+  formData.append("manifest", JSON.stringify(manifest));
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/pages/projects/${project}/deployments`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData }
+  );
+  return res.json();
+}
+
+async function publishSite(account, project, token) {
+  try {
+    setStatus("Composing pages...");
+    const pages = await getComposedPages();
+    const assets = await getProjectAssets();
+    const files = buildPagesFileList(pages, assets);
+
+    setStatus(`Hashing ${files.length} file(s)...`);
+    await hashFileList(files);
+
+    setStatus("Requesting upload token...");
+    const jwt = await getPagesUploadToken(account, project, token);
+
+    setStatus("Checking Cloudflare's asset cache...");
+    const missing = await checkMissingHashes(jwt, files.map((f) => f.hash));
+    const toUpload = files.filter((f) => missing.has(f.hash));
+
+    if (toUpload.length) {
+      setStatus(`Uploading ${toUpload.length} of ${files.length} file(s)...`);
+      await uploadMissingFiles(jwt, toUpload, (done, total) =>
+        setStatus(`Uploading batch ${done}/${total}...`)
+      );
+    } else {
+      setStatus("All files already cached by Cloudflare — nothing to upload.");
+    }
+
+    await upsertHashes(jwt, files.map((f) => f.hash));
+
+    setStatus("Finalizing deployment...");
+    const manifest = {};
+    for (const f of files) manifest[f.path] = f.hash;
+    const data = await createPagesDeployment(account, project, token, manifest);
+
     if (data.success) {
       setStatus(`Published! Live at: ${data.result.url}`);
     } else {
       setStatus("Publish failed: " + JSON.stringify(data.errors));
     }
   } catch (err) {
-    setStatus("Publish request failed: " + err.message);
+    setStatus("Publish failed: " + err.message);
   }
 }
 
