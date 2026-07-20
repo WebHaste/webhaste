@@ -14,6 +14,28 @@ let currentFileHandle = null;  // handle for whatever file is open in the editor
 let currentFileName = null;
 const fileCache = new Map();   // name -> text content, kept in sync with disk
 
+// CodeMirror replaces the plain #codeArea textarea for the "Code" view.
+// fromTextArea() hides the original textarea and inserts its own wrapper
+// element right after it, so all reads/writes go through the `cm` API
+// instead of `.value` from here on.
+const cm = CodeMirror.fromTextArea(document.getElementById("codeArea"), {
+  mode: "htmlmixed",
+  theme: "dracula",
+  lineNumbers: true,
+  matchBrackets: true,
+  autoCloseTags: true,
+  styleActiveLine: true,
+  tabSize: 2,
+  indentUnit: 2,
+});
+cm.getWrapperElement().classList.add("hidden");
+// setValue() (used when loading a file or switching views) fires "change"
+// too — only autosave on edits that actually came from the user typing.
+cm.on("change", (instance, changeObj) => {
+  if (changeObj.origin === "setValue") return;
+  scheduleSave();
+});
+
 const DB_NAME = "site-builder";
 const STORE = "handles";
 
@@ -78,6 +100,50 @@ const DEFAULT_NAV = {
 
 async function getConfigDir(create = true) {
   return dirHandle.getDirectoryHandle(".chromesite", { create });
+}
+
+// ---- assets/ — a published (not dot-prefixed) folder for images/files the
+// user inserts into pages. Unlike .chromesite/, it doesn't exist until the
+// first upload, so callers that only want to *read* it (listing, publish)
+// pass create=false and must handle a null return.
+async function getAssetsDirHandle(create = false) {
+  try {
+    return await dirHandle.getDirectoryHandle("assets", { create });
+  } catch (err) {
+    if (err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
+const ASSET_MIME_TYPES = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+  pdf: "application/pdf",
+};
+const ASSET_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp"]);
+
+function assetExtension(name) {
+  const dot = name.lastIndexOf(".");
+  return dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+function assetMimeType(name) {
+  return ASSET_MIME_TYPES[assetExtension(name)] || "application/octet-stream";
+}
+
+function isImageAsset(name) {
+  return ASSET_IMAGE_EXTENSIONS.has(assetExtension(name));
+}
+
+// Snippet inserted into page content for a given uploaded asset.
+function assetSnippet(name) {
+  return isImageAsset(name)
+    ? `<img src="assets/${name}" alt="${name}">`
+    : `<a href="assets/${name}">${name}</a>`;
 }
 
 async function ensureScaffold() {
@@ -205,7 +271,7 @@ async function openFile(name, handle) {
   const file = await handle.getFile();
   const text = await file.text();
   fileCache.set(name, text);
-  document.getElementById("codeArea").value = text;
+  cm.setValue(text);
   document.getElementById("visualArea").innerHTML = text;
   renderPreview();
   highlightActiveFile(name);
@@ -216,12 +282,55 @@ async function openFile(name, handle) {
 // views just serializes whichever one was active into that shared string.
 let currentView = "visual";
 
+// <img src="assets/x.jpg"> is correct for the saved file and for published
+// output (a real relative path next to the page), but it can't resolve
+// inside editor.html itself — that's chrome-extension://<id>/, and the
+// actual bytes live only in the user's local project folder, reachable
+// only through the File System Access handle, not any URL the browser can
+// fetch on its own. So the browser fires an "error" event for every such
+// <img> the moment it's inserted (openFile, switchView, or a fresh
+// insert). Rather than intercepting every insertion point separately, one
+// capture-phase listener (media "error"/"load" don't bubble) catches all of
+// them uniformly and swaps in a blob: URL built from the real file — purely
+// for display. The clean "assets/x.jpg" value is preserved in
+// data-asset-src so serializeVisualArea() (used whenever this view's
+// content is read back out, e.g. to save) can restore it — the saved file,
+// and therefore published output, must never contain a blob: URL, which is
+// only valid for this tab's lifetime.
+document.getElementById("visualArea").addEventListener("error", async (e) => {
+  const img = e.target;
+  if (!img || img.tagName !== "IMG") return;
+  const original = img.dataset.assetSrc || img.getAttribute("src");
+  if (!original || !original.startsWith("assets/")) return;
+  const assetsDir = await getAssetsDirHandle(false);
+  if (!assetsDir) return;
+  try {
+    const fileHandle = await assetsDir.getFileHandle(original.slice("assets/".length));
+    img.dataset.assetSrc = original;
+    img.src = URL.createObjectURL(await fileHandle.getFile());
+  } catch {
+    // File genuinely missing from assets/ — leave it broken.
+  }
+}, true);
+
+// Reverts any live-display blob: URLs back to their real "assets/x.jpg"
+// path before the content is read out of #visualArea — used any time that
+// content needs to leave this view (saving, switching to Code view, etc.).
+function serializeVisualArea() {
+  const clone = document.getElementById("visualArea").cloneNode(true);
+  clone.querySelectorAll("img[data-asset-src]").forEach((img) => {
+    img.setAttribute("src", img.dataset.assetSrc);
+    img.removeAttribute("data-asset-src");
+  });
+  return clone.innerHTML;
+}
+
 function syncFromActiveView() {
   if (!currentFileName) return;
   if (currentView === "visual") {
-    fileCache.set(currentFileName, document.getElementById("visualArea").innerHTML);
+    fileCache.set(currentFileName, serializeVisualArea());
   } else {
-    fileCache.set(currentFileName, document.getElementById("codeArea").value);
+    fileCache.set(currentFileName, cm.getValue());
   }
 }
 
@@ -231,23 +340,27 @@ function switchView(target) {
   currentView = target;
 
   const visualEl = document.getElementById("visualArea");
-  const codeEl = document.getElementById("codeArea");
+  const cmEl = cm.getWrapperElement();
   const richControls = document.getElementById("richControls");
 
   if (target === "visual") {
     visualEl.innerHTML = html;
     visualEl.classList.remove("hidden");
-    codeEl.classList.add("hidden");
+    cmEl.classList.add("hidden");
     richControls.style.visibility = "visible";
     document.getElementById("viewVisual").classList.add("active");
     document.getElementById("viewCode").classList.remove("active");
   } else {
-    codeEl.value = html;
-    codeEl.classList.remove("hidden");
+    cm.setValue(html);
+    cmEl.classList.remove("hidden");
     visualEl.classList.add("hidden");
     richControls.style.visibility = "hidden";
     document.getElementById("viewCode").classList.add("active");
     document.getElementById("viewVisual").classList.remove("active");
+    // CodeMirror measures layout lazily; it was hidden (display:none) until
+    // just now, so it needs a nudge to lay out correctly once visible.
+    cm.refresh();
+    cm.focus();
   }
   renderPreview();
 }
@@ -274,6 +387,45 @@ document.getElementById("richControls").addEventListener("click", (e) => {
 
 document.getElementById("visualArea").addEventListener("input", scheduleSave);
 
+// ---- Asset insertion (Image button + Assets dialog share this) ----
+// The rich-text toolbar above gets away with focus()-then-execCommand()
+// because the click-to-command gap is instant. Inserting from the Assets
+// dialog is not instant — showModal() makes the rest of the page inert and
+// moves focus into the dialog, so the Visual view's caret isn't reliably
+// where it was just by refocusing #visualArea afterward. Capturing the
+// Range up front and restoring it right before execCommand fixes that.
+// Code view doesn't need this: CodeMirror keeps its own selection model
+// independent of DOM focus.
+let savedVisualRange = null;
+
+function captureSelection() {
+  if (currentView !== "visual") return;
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount > 0) savedVisualRange = sel.getRangeAt(0);
+}
+
+function insertSnippet(snippet) {
+  if (currentView === "visual") {
+    const visualEl = document.getElementById("visualArea");
+    visualEl.focus();
+    const sel = window.getSelection();
+    // A saved range can go stale (nodes no longer in the document) if the
+    // user switched files/views between capturing it and inserting — e.g.
+    // openFile() replaces visualArea's whole innerHTML. Restoring it in
+    // that case would either no-op or throw, so just skip and let
+    // insertHTML fall back to wherever the browser places the caret.
+    if (savedVisualRange && savedVisualRange.startContainer.isConnected) {
+      sel.removeAllRanges();
+      sel.addRange(savedVisualRange);
+    }
+    document.execCommand("insertHTML", false, snippet);
+  } else {
+    cm.replaceSelection(snippet);
+    cm.focus();
+  }
+  scheduleSave();
+}
+
 function scheduleSave() {
   syncFromActiveView();
   renderPreview();
@@ -287,10 +439,250 @@ function highlightActiveFile(name) {
   });
 }
 
+// ---- Image button — fast path: pick, upload, insert, done ----
+document.getElementById("insertImageBtn").addEventListener("click", () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
+  captureSelection();
+  document.getElementById("imageFastPathInput").click();
+});
+
+document.getElementById("imageFastPathInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ""; // allow picking the same file again later
+  if (!file) return;
+  const assetsDir = await getAssetsDirHandle(true);
+  const writable = await (await assetsDir.getFileHandle(file.name, { create: true })).createWritable();
+  await writable.write(await file.arrayBuffer());
+  await writable.close();
+  insertSnippet(assetSnippet(file.name));
+  setStatus(`Uploaded and inserted ${file.name}.`);
+});
+
+// ---- Assets dialog — browse/upload/reuse everything in assets/ ----
+const assetsDialog = document.getElementById("assetsDialog");
+let assetObjectUrls = [];
+
+function revokeAssetObjectUrls() {
+  assetObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  assetObjectUrls = [];
+}
+
+async function renderAssetGrid() {
+  revokeAssetObjectUrls();
+  const grid = document.getElementById("assetGrid");
+  grid.innerHTML = "";
+
+  const assetsDir = await getAssetsDirHandle(false);
+  if (!assetsDir) {
+    grid.innerHTML = '<p class="hint">No assets uploaded yet.</p>';
+    return;
+  }
+
+  for await (const [name, handle] of assetsDir.entries()) {
+    if (handle.kind !== "file") continue;
+    const tile = document.createElement("div");
+    tile.className = "asset-tile";
+    tile.dataset.name = name;
+
+    if (isImageAsset(name)) {
+      const url = URL.createObjectURL(await handle.getFile());
+      assetObjectUrls.push(url);
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = name;
+      tile.appendChild(img);
+    } else {
+      const icon = document.createElement("div");
+      icon.className = "asset-file-icon";
+      icon.textContent = "📄";
+      tile.appendChild(icon);
+    }
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "asset-name";
+    nameEl.textContent = name;
+    tile.appendChild(nameEl);
+
+    grid.appendChild(tile);
+  }
+
+  if (!grid.children.length) {
+    grid.innerHTML = '<p class="hint">No assets uploaded yet.</p>';
+  }
+}
+
+document.getElementById("openAssetsBtn").addEventListener("click", async () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
+  captureSelection();
+  await renderAssetGrid();
+  assetsDialog.showModal();
+});
+
+document.getElementById("assetsDialogClose").addEventListener("click", () => assetsDialog.close());
+
+// Covers Close button, Escape, and backdrop dismissal uniformly, unlike
+// hanging cleanup off a single button's click handler.
+assetsDialog.addEventListener("close", revokeAssetObjectUrls);
+
+document.getElementById("assetGrid").addEventListener("click", (e) => {
+  const tile = e.target.closest(".asset-tile");
+  if (!tile) return;
+  // Close BEFORE inserting — showModal() makes the rest of the page inert
+  // while open, so #visualArea can't actually take focus (and execCommand
+  // then has nothing to insert into) until the dialog is gone.
+  assetsDialog.close();
+  insertSnippet(assetSnippet(tile.dataset.name));
+});
+
+document.getElementById("assetUploadInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const assetsDir = await getAssetsDirHandle(true);
+  const writable = await (await assetsDir.getFileHandle(file.name, { create: true })).createWritable();
+  await writable.write(await file.arrayBuffer());
+  await writable.close();
+  await renderAssetGrid();
+  setStatus(`Uploaded ${file.name}.`);
+});
+
+// ---- Image properties dialog — alt text + framework class presets ----
+// Mutates an existing <img> by direct element reference rather than
+// inserting new content at a caret, so (unlike insertSnippet) this never
+// needs captureSelection()/execCommand — inert (while the dialog is open)
+// doesn't block plain DOM property writes the way it blocks focus/Selection.
+const imagePropsDialog = document.getElementById("imagePropsDialog");
+let selectedImage = null;
+
+document.getElementById("visualArea").addEventListener("click", async (e) => {
+  if (currentView !== "visual") return; // belt-and-suspenders; a hidden
+  // contenteditable can't dispatch clicks to its descendants anyway.
+  const img = e.target.closest("img");
+  if (!img) return;
+  selectedImage = img;
+  await openImagePropsDialog();
+});
+
+function presetTokens(name) {
+  return name ? name.split(/\s+/).filter(Boolean) : [];
+}
+
+async function openImagePropsDialog() {
+  const config = await getSiteConfig();
+  const framework = config.cssFramework || "bootstrap5";
+  const presets = IMAGE_CLASS_PRESETS[framework] || null;
+
+  document.getElementById("imgAltInput").value = selectedImage.alt || "";
+  document.getElementById("imagePropsPresets").classList.toggle("hidden", !presets);
+
+  if (presets) {
+    const currentTokens = new Set(presetTokens(selectedImage.className));
+    document.querySelectorAll("#imagePropsPresets .preset-group").forEach((group) => {
+      const groupName = group.dataset.group;
+      const groupPresets = presets[groupName];
+      const buttons = group.querySelectorAll("button");
+      if (groupName === "style") {
+        // Independent checkboxes — each button active iff ALL of its
+        // tokens are present (a preset can be more than one class).
+        buttons.forEach((btn) => {
+          const tokens = presetTokens(groupPresets[btn.dataset.value]);
+          btn.classList.toggle("active", tokens.length > 0 && tokens.every((t) => currentTokens.has(t)));
+        });
+      } else {
+        // Radio-style — activate whichever non-"none" value fully matches,
+        // else fall back to "none".
+        let matched = "none";
+        for (const [value, classStr] of Object.entries(groupPresets)) {
+          if (value === "none") continue;
+          const tokens = presetTokens(classStr);
+          if (tokens.length && tokens.every((t) => currentTokens.has(t))) {
+            matched = value;
+            break;
+          }
+        }
+        buttons.forEach((btn) => btn.classList.toggle("active", btn.dataset.value === matched));
+      }
+    });
+  }
+
+  imagePropsDialog.showModal();
+}
+
+document.getElementById("imagePropsPresets").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-group]");
+  if (!btn) return;
+  const group = btn.closest(".preset-group");
+  if (btn.dataset.group === "style") {
+    btn.classList.toggle("active");
+  } else {
+    group.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+  }
+});
+
+document.getElementById("imagePropsCancel").addEventListener("click", () => imagePropsDialog.close());
+
+document.getElementById("imagePropsApply").addEventListener("click", async () => {
+  if (!selectedImage || !selectedImage.isConnected) {
+    imagePropsDialog.close();
+    return;
+  }
+  selectedImage.alt = document.getElementById("imgAltInput").value;
+
+  const config = await getSiteConfig();
+  const presets = IMAGE_CLASS_PRESETS[config.cssFramework || "bootstrap5"];
+  if (presets) {
+    // Recomputed from scratch, not incrementally added/removed per click —
+    // that's what lets shared tokens (e.g. Tailwind's "rounded" appearing
+    // in both the standalone toggle and the thumbnail bundle) resolve
+    // correctly regardless of click order, and what keeps unrelated
+    // hand-written classes (from Code view) untouched.
+    const knownTokens = new Set();
+    Object.values(presets).forEach((group) =>
+      Object.values(group).forEach((classStr) => presetTokens(classStr).forEach((t) => knownTokens.add(t)))
+    );
+    const currentTokens = new Set(presetTokens(selectedImage.className));
+    const customTokens = [...currentTokens].filter((t) => !knownTokens.has(t));
+
+    const selectedTokens = [];
+    document.querySelectorAll("#imagePropsPresets .preset-group").forEach((group) => {
+      const groupName = group.dataset.group;
+      const groupPresets = presets[groupName];
+      group.querySelectorAll("button.active").forEach((btn) => {
+        selectedTokens.push(...presetTokens(groupPresets[btn.dataset.value]));
+      });
+    });
+
+    const finalTokens = [...new Set([...customTokens, ...selectedTokens])];
+    if (finalTokens.length) {
+      selectedImage.className = finalTokens.join(" ");
+    } else {
+      selectedImage.removeAttribute("class");
+    }
+  }
+
+  scheduleSave();
+  imagePropsDialog.close();
+});
+
+// "close" (Cancel, Escape, or backdrop dismissal) always runs after Apply's
+// own close() call too, so this is the single place selectedImage is
+// cleared — Apply must read/mutate it before calling close(), not after.
+imagePropsDialog.addEventListener("close", () => {
+  selectedImage = null;
+});
+
 // Save on every keystroke (debounced) so the local file always matches
 // what's on screen — this is the "local drive as source of truth" model.
+// (codeArea's autosave hook lives on the `cm.on("change", ...)` listener
+// above, since CodeMirror owns that view now.)
 let saveTimer = null;
-document.getElementById("codeArea").addEventListener("input", scheduleSave);
 
 async function saveCurrentFile() {
   if (!currentFileHandle) return;
@@ -314,6 +706,43 @@ const FRAMEWORK_ASSETS = {
     '<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>',
   tailwind: '<script src="https://cdn.tailwindcss.com"></script>',
   none: "",
+};
+
+// The Live Preview pane renders via iframe.srcdoc, which inherits editor.html's
+// extension CSP (script-src 'self') — so the CDN <script> tags above get
+// silently blocked there (CSS <link> tags are unaffected, which is why the
+// preview still looked right but dropdowns etc. didn't respond to clicks).
+// Published output isn't an extension page, so it keeps using the CDN
+// directly via FRAMEWORK_ASSETS above; only the preview swaps in these
+// locally-vendored copies of the same scripts.
+const FRAMEWORK_ASSETS_PREVIEW = {
+  bootstrap5:
+    '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">\n' +
+    `<script src="${chrome.runtime.getURL("vendor/bootstrap/bootstrap.bundle.min.js")}"></script>`,
+  tailwind: `<script src="${chrome.runtime.getURL("vendor/tailwind/tailwind-cdn.js")}"></script>`,
+  none: "",
+};
+
+// Backs the Image Properties dialog's preset buttons. Each group's values
+// map to a class string that may be more than one token (Tailwind has no
+// single-class equivalent for Bootstrap's img-fluid/img-thumbnail) — the
+// dialog logic always treats a preset's value as a whitespace-split set of
+// tokens, never assumes exactly one class per preset. "none" intentionally
+// maps to "" so a radio-style group can include a "clear this group" option
+// without special-casing it separately from the other values.
+const IMAGE_CLASS_PRESETS = {
+  bootstrap5: {
+    width: { none: "", "25": "w-25", "50": "w-50", "75": "w-75", "100": "w-100" },
+    float: { none: "", left: "float-start", right: "float-end" },
+    margin: { none: "", small: "mx-1", large: "mx-2" },
+    style: { fluid: "img-fluid", thumbnail: "img-thumbnail", rounded: "rounded" },
+  },
+  tailwind: {
+    width: { none: "", "25": "w-1/4", "50": "w-1/2", "75": "w-3/4", "100": "w-full" },
+    float: { none: "", left: "float-left", right: "float-right" },
+    margin: { none: "", small: "mx-1", large: "mx-2" },
+    style: { fluid: "max-w-full h-auto", thumbnail: "border rounded p-1", rounded: "rounded" },
+  },
 };
 
 function renderNavBootstrap5(items) {
@@ -394,55 +823,351 @@ async function getActiveTemplateText() {
   return file.text();
 }
 
-async function composePage(rawContent, title) {
+// The preview iframe (sandbox="allow-scripts", no allow-top-navigation) can't
+// navigate itself to a new page — and even if it could, the composed HTML for
+// other project pages only exists in memory, not anywhere the iframe could
+// actually fetch it from. So in preview mode only, real link clicks are
+// intercepted client-side instead of letting Chrome show its "this page has
+// been blocked" interstitial. In-page "#" jumps (e.g. Bootstrap's dropdown
+// toggle, which already calls preventDefault() itself once its JS loads) are
+// left alone.
+// Extension pages get script-src 'self' with no 'unsafe-inline', so this has
+// to be a <script src> pointing at a real vendored file — an inline <script>
+// block here would get CSP-blocked the same way the CDN scripts were.
+const PREVIEW_LINK_GUARD_SCRIPT = `<script src="${chrome.runtime.getURL("preview-guard.js")}"></script>`;
+
+// Same underlying problem as PREVIEW_LINK_GUARD_SCRIPT's comment above:
+// <img src="assets/x.jpg"> is the correct, published-site-relative path, but
+// the preview iframe is its own chrome-extension:// document and can't
+// resolve it either — the real bytes only exist behind the File System
+// Access handle this (parent) page holds, which the iframe can't reach.
+//
+// blob: URLs (used for this same problem in the Visual editor, see the
+// #visualArea "error" listener above) do NOT work here: they're
+// origin-scoped, and the preview iframe is sandboxed with no
+// allow-same-origin, so it gets an opaque origin that can never match the
+// blob's owning origin no matter who created it — Chrome just shows a
+// broken image, with no console error to explain why. data: URLs aren't
+// origin-scoped at all, so they work inside the sandbox without having to
+// loosen it (adding allow-same-origin alongside allow-scripts is a known
+// anti-pattern — that combination lets sandboxed content escape the
+// sandbox entirely, which isn't worth it just for image display).
+// Published output (isPreview=false) never goes through this — it keeps
+// the clean relative path, which is what a real site needs.
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function rewriteAssetSrcsForPreview(html) {
+  const names = new Set();
+  html.replace(/src="assets\/([^"]+)"/g, (match, name) => {
+    names.add(name);
+    return match;
+  });
+  if (!names.size) return html;
+
+  const assetsDir = await getAssetsDirHandle(false);
+  if (!assetsDir) return html;
+
+  const urlByName = {};
+  for (const name of names) {
+    try {
+      const fileHandle = await assetsDir.getFileHandle(name);
+      urlByName[name] = await fileToDataUrl(await fileHandle.getFile());
+    } catch {
+      // File genuinely missing from assets/ — leave it broken in preview too.
+    }
+  }
+
+  return html.replace(/src="assets\/([^"]+)"/g, (match, name) =>
+    urlByName[name] ? `src="${urlByName[name]}"` : match
+  );
+}
+
+async function composePage(rawContent, title, isPreview = false) {
   const templateText = await getActiveTemplateText();
-  if (!templateText) return rawContent; // "raw HTML" mode, no wrapping
+  if (!templateText) {
+    // "raw HTML" mode, no wrapping
+    if (!isPreview) return rawContent;
+    return (await rewriteAssetSrcsForPreview(rawContent)) + PREVIEW_LINK_GUARD_SCRIPT;
+  }
 
   const [config, navData] = await Promise.all([getSiteConfig(), getNavData()]);
   const framework = config.cssFramework || "bootstrap5";
+  const assets = isPreview ? FRAMEWORK_ASSETS_PREVIEW : FRAMEWORK_ASSETS;
 
   let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
     renderMenu(navData.menus?.[menuName], framework)
   );
   out = out
-    .replace(/{{FRAMEWORK_ASSETS}}/g, FRAMEWORK_ASSETS[framework] || "")
+    .replace(/{{FRAMEWORK_ASSETS}}/g, assets[framework] || "")
     .replace(/{{CONTENT}}/g, rawContent)
     .replace(/{{TITLE}}/g, title ? `${title} | ${config.siteName || ""}` : config.siteName || "Untitled");
+  if (isPreview) {
+    out = await rewriteAssetSrcsForPreview(out);
+    out += PREVIEW_LINK_GUARD_SCRIPT;
+  }
   return out;
 }
 
 async function renderPreview() {
   const raw = fileCache.get(currentFileName) || "";
-  const composed = await composePage(raw, currentFileName);
+  const composed = await composePage(raw, currentFileName, true);
   document.getElementById("previewFrame").srcdoc = composed;
 }
 
-// ---- Menu editor dialog (raw JSON for now; tree UI planned for later) ----
+// ---- Menu editor dialog — drag-and-drop tree, backed by SortableJS ----
+// Menus are edited as a working copy (navWorkingData) that only gets
+// written to nav.json on Save. Each rendered <li> is tagged with a random
+// id mapping to the actual item object in itemsById, so label/href text
+// inputs mutate that object directly and structural changes (add, delete,
+// drag-reorder) just need to rebuild the *arrays* from current DOM order —
+// object identity (and therefore in-progress edits) is never lost.
 const navDialog = document.getElementById("navDialog");
+let navWorkingData = null;
+let currentMenuName = null;
+let itemsById = new Map();
+let navJsonMode = false;
+
 document.getElementById("editNav").addEventListener("click", async () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
   const navData = await getNavData();
-  document.getElementById("navEditor").value = JSON.stringify(navData, null, 2);
+  navWorkingData = JSON.parse(JSON.stringify(navData)); // deep copy — Cancel must not mutate the saved version
+  if (!navWorkingData.menus) navWorkingData.menus = {};
+  const names = Object.keys(navWorkingData.menus);
+  currentMenuName = names[0] || null;
+  navJsonMode = false;
+  setNavViewMode(false);
+  renderMenuTabs();
+  renderMenuTree(currentMenuName ? navWorkingData.menus[currentMenuName] : []);
   navDialog.showModal();
 });
 document.getElementById("navCancel").addEventListener("click", () => navDialog.close());
+
 document.getElementById("navSave").addEventListener("click", async () => {
-  let parsed;
-  try {
-    parsed = JSON.parse(document.getElementById("navEditor").value);
-  } catch (err) {
-    setStatus("Invalid JSON in menu editor: " + err.message);
-    return;
-  }
+  if (navJsonMode && !syncJsonIntoWorkingData()) return; // bad JSON — bail, message already shown
   const cfgDir = await getConfigDir(true);
-  await writeJSONFile(cfgDir, "nav.json", parsed);
+  await writeJSONFile(cfgDir, "nav.json", navWorkingData);
   navDialog.close();
   renderPreview();
   setStatus("Menus updated (.chromesite/nav.json).");
 });
 
+// ---- Menu tabs (header / footer / custom names) ----
+function renderMenuTabs() {
+  const tabsEl = document.getElementById("navMenuTabs");
+  tabsEl.innerHTML = "";
+  Object.keys(navWorkingData.menus).forEach((name) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "menu-tab" + (name === currentMenuName ? " active" : "");
+    btn.textContent = name;
+    btn.addEventListener("click", () => selectMenu(name));
+    tabsEl.appendChild(btn);
+  });
+}
+
+function selectMenu(name) {
+  currentMenuName = name;
+  renderMenuTabs();
+  renderMenuTree(navWorkingData.menus[name] || []);
+}
+
+document.getElementById("navAddMenu").addEventListener("click", () => {
+  const name = prompt("New menu name (e.g. sidebar):", "");
+  if (!name) return;
+  if (navWorkingData.menus[name]) {
+    setStatus(`A menu named "${name}" already exists.`);
+    return;
+  }
+  navWorkingData.menus[name] = [];
+  selectMenu(name);
+});
+
+document.getElementById("navDeleteMenu").addEventListener("click", () => {
+  if (!currentMenuName) return;
+  if (!confirm(`Delete the "${currentMenuName}" menu? This can't be undone until you Save.`)) return;
+  delete navWorkingData.menus[currentMenuName];
+  const remaining = Object.keys(navWorkingData.menus);
+  currentMenuName = remaining[0] || null;
+  renderMenuTabs();
+  renderMenuTree(currentMenuName ? navWorkingData.menus[currentMenuName] : []);
+});
+
+// ---- Tree rendering ----
+function renderMenuTree(items) {
+  itemsById.clear();
+  const root = document.getElementById("navTreeRoot");
+  root.innerHTML = "";
+  (items || []).forEach((item) => root.appendChild(renderNavItem(item, false)));
+  attachSortable(root, "nav-root");
+}
+
+function makeItemId() {
+  return "n" + Math.random().toString(36).slice(2, 10);
+}
+
+function renderNavItem(item, isChild) {
+  const id = makeItemId();
+  itemsById.set(id, item);
+
+  const li = document.createElement("li");
+  li.className = "nav-tree-item";
+  li.dataset.id = id;
+
+  const row = document.createElement("div");
+  row.className = "nav-item-row";
+  row.innerHTML =
+    '<span class="drag-handle" title="Drag to reorder">⠷</span>' +
+    '<input class="item-label" type="text" placeholder="Label" />' +
+    '<input class="item-href" type="text" placeholder="/path.html" />' +
+    (isChild ? "" : '<button type="button" class="nav-add-child" title="Add dropdown item">+ Child</button>') +
+    '<button type="button" class="nav-delete-item" title="Delete">✕</button>';
+
+  const labelInput = row.querySelector(".item-label");
+  const hrefInput = row.querySelector(".item-href");
+  labelInput.value = item.label || "";
+  hrefInput.value = item.href || "";
+  labelInput.addEventListener("input", (e) => { item.label = e.target.value; });
+  hrefInput.addEventListener("input", (e) => { item.href = e.target.value; });
+
+  row.querySelector(".nav-delete-item").addEventListener("click", () => {
+    li.remove();
+    itemsById.delete(id);
+    syncMenuFromDOM();
+  });
+
+  if (!isChild) {
+    row.querySelector(".nav-add-child").addEventListener("click", () => {
+      const childUl = ensureChildrenList(li);
+      const childItem = { label: "New item", href: "#" };
+      childUl.appendChild(renderNavItem(childItem, true));
+      syncMenuFromDOM();
+    });
+  }
+
+  li.appendChild(row);
+
+  if (!isChild && item.children && item.children.length) {
+    const childUl = document.createElement("ul");
+    childUl.className = "nav-children";
+    item.children.forEach((c) => childUl.appendChild(renderNavItem(c, true)));
+    li.appendChild(childUl);
+    attachSortable(childUl, "nav-children");
+  }
+
+  return li;
+}
+
+function ensureChildrenList(li) {
+  let ul = li.querySelector(":scope > ul.nav-children");
+  if (!ul) {
+    ul = document.createElement("ul");
+    ul.className = "nav-children";
+    li.appendChild(ul);
+    attachSortable(ul, "nav-children");
+  }
+  return ul;
+}
+
+// Root items only reorder among themselves; dropdown items can be dragged
+// between different parents' dropdowns but never promoted to root — that
+// would need a third nesting level the renderers (renderNavBootstrap5 etc.)
+// don't support.
+function attachSortable(listEl, group) {
+  new Sortable(listEl, {
+    group,
+    handle: ".drag-handle",
+    animation: 150,
+    ghostClass: "sortable-ghost",
+    onEnd: syncMenuFromDOM,
+  });
+}
+
+document.getElementById("navAddRootItem").addEventListener("click", () => {
+  if (!currentMenuName) {
+    setStatus("Add or select a menu first.");
+    return;
+  }
+  const root = document.getElementById("navTreeRoot");
+  root.appendChild(renderNavItem({ label: "New item", href: "#" }, false));
+  syncMenuFromDOM();
+});
+
+// Rebuilds navWorkingData.menus[currentMenuName] from the current DOM
+// order/nesting. Item objects themselves are reused via itemsById, so text
+// already typed into label/href inputs is preserved.
+function syncMenuFromDOM() {
+  if (!currentMenuName) return;
+  const root = document.getElementById("navTreeRoot");
+  navWorkingData.menus[currentMenuName] = Array.from(root.children).map(buildItemFromLi);
+}
+
+function buildItemFromLi(li) {
+  const item = itemsById.get(li.dataset.id);
+  const childUl = li.querySelector(":scope > ul.nav-children");
+  const children = childUl ? Array.from(childUl.children).map(buildItemFromLi) : [];
+  if (children.length) {
+    item.children = children;
+  } else {
+    delete item.children;
+  }
+  return item;
+}
+
+// ---- Tree / raw-JSON toggle — power-user escape hatch ----
+document.getElementById("navToggleJson").addEventListener("click", () => {
+  if (!navJsonMode) {
+    document.getElementById("navEditor").value = JSON.stringify(navWorkingData, null, 2);
+    setNavViewMode(true);
+  } else {
+    if (!syncJsonIntoWorkingData()) return;
+    const names = Object.keys(navWorkingData.menus);
+    currentMenuName = names.includes(currentMenuName) ? currentMenuName : names[0] || null;
+    renderMenuTabs();
+    renderMenuTree(currentMenuName ? navWorkingData.menus[currentMenuName] : []);
+    setNavViewMode(false);
+  }
+});
+
+function setNavViewMode(jsonMode) {
+  navJsonMode = jsonMode;
+  document.getElementById("navEditor").classList.toggle("hidden", !jsonMode);
+  document.getElementById("navTreeRoot").classList.toggle("hidden", jsonMode);
+  document.getElementById("navMenuTabs").classList.toggle("hidden", jsonMode);
+  document.getElementById("navAddMenu").classList.toggle("hidden", jsonMode);
+  document.getElementById("navDeleteMenu").classList.toggle("hidden", jsonMode);
+  document.getElementById("navAddRootItem").classList.toggle("hidden", jsonMode);
+  document.getElementById("navToggleJson").textContent = jsonMode ? "Back to Tree" : "Edit as JSON";
+}
+
+function syncJsonIntoWorkingData() {
+  try {
+    const parsed = JSON.parse(document.getElementById("navEditor").value);
+    if (!parsed || typeof parsed.menus !== "object") throw new Error('JSON must have a top-level "menus" object.');
+    navWorkingData = parsed;
+    return true;
+  } catch (err) {
+    setStatus("Invalid JSON in menu editor: " + err.message);
+    return false;
+  }
+}
+
 // ---- Site Settings dialog ----
 const siteSettingsDialog = document.getElementById("siteSettingsDialog");
 document.getElementById("siteSettingsBtn").addEventListener("click", async () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
   const config = await getSiteConfig();
   document.getElementById("cfgSiteName").value = config.siteName || "";
   document.getElementById("cfgDomain").value = config.domain || "";
@@ -537,9 +1262,25 @@ async function getComposedPages() {
   return pages;
 }
 
+// Raw bytes, not composed text — kept separate from getComposedPages()
+// since composePage()'s template/nav substitution is meaningless for
+// binary blobs. Returns {} if assets/ doesn't exist yet (the default state
+// of every project until the first upload).
+async function getProjectAssets() {
+  const assetsDir = await getAssetsDirHandle(false);
+  if (!assetsDir) return {};
+  const assets = {};
+  for await (const [name, handle] of assetsDir.entries()) {
+    if (handle.kind !== "file") continue;
+    assets[name] = await (await handle.getFile()).arrayBuffer();
+  }
+  return assets;
+}
+
 async function publishSite(account, project, token) {
   setStatus("Composing pages...");
   const pages = await getComposedPages();
+  const assets = await getProjectAssets();
 
   setStatus(`Uploading ${Object.keys(pages).length} file(s) to Cloudflare Pages...`);
 
@@ -551,6 +1292,16 @@ async function publishSite(account, project, token) {
     const blob = new Blob([content], { type: "text/html" });
     formData.append(name, blob, name);
     manifest[name] = { size: blob.size };
+  }
+  // Assets get their own loop (not folded into the one above) because they
+  // need a real MIME type from the extension, not the pages' hardcoded
+  // "text/html" — reusing that for an uploaded PNG would serve it with the
+  // wrong Content-Type and visibly break it once published.
+  for (const [name, arrayBuffer] of Object.entries(assets)) {
+    const path = "assets/" + name;
+    const blob = new Blob([arrayBuffer], { type: assetMimeType(name) });
+    formData.append(path, blob, path);
+    manifest[path] = { size: blob.size };
   }
   formData.append("manifest", JSON.stringify(manifest));
 
@@ -590,9 +1341,13 @@ document.getElementById("netlifyConfirm").addEventListener("click", async () => 
   await publishToNetlify(siteId, token);
 });
 
-async function sha1Hex(text) {
-  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf))
+// Accepts either a string (composed page text) or an ArrayBuffer (raw
+// asset bytes) — crypto.subtle.digest takes ArrayBuffer natively, so assets
+// don't need to be forced through TextEncoder at all.
+async function sha1Hex(data) {
+  const buf = typeof data === "string" ? new TextEncoder().encode(data) : data;
+  const digest = await crypto.subtle.digest("SHA-1", buf);
+  return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
@@ -600,12 +1355,16 @@ async function sha1Hex(text) {
 async function publishToNetlify(siteId, token) {
   setStatus("Composing pages...");
   const pages = await getComposedPages();
+  const assets = await getProjectAssets();
 
   setStatus("Hashing files...");
   const fileEntries = Object.entries(pages).map(([name, content]) => ({
     path: "/" + name,
     content,
   }));
+  for (const [name, arrayBuffer] of Object.entries(assets)) {
+    fileEntries.push({ path: "/assets/" + name, content: arrayBuffer });
+  }
   const digests = {};
   for (const f of fileEntries) digests[f.path] = await sha1Hex(f.content);
 
@@ -664,6 +1423,7 @@ document.getElementById("localBuildConfirm").addEventListener("click", async () 
 async function renderToLocalFolder() {
   setStatus("Composing pages...");
   const pages = await getComposedPages();
+  const assets = await getProjectAssets();
 
   setStatus("Writing dist/ folder...");
   const distDir = await dirHandle.getDirectoryHandle("dist", { create: true });
@@ -674,12 +1434,31 @@ async function renderToLocalFolder() {
     await writable.close();
   }
 
-  setStatus(`Rendered ${Object.keys(pages).length} file(s) to the dist/ folder — ready for SFTP upload.`);
+  if (Object.keys(assets).length) {
+    const distAssetsDir = await distDir.getDirectoryHandle("assets", { create: true });
+    for (const [name, arrayBuffer] of Object.entries(assets)) {
+      const handle = await distAssetsDir.getFileHandle(name, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(arrayBuffer);
+      await writable.close();
+    }
+  }
+
+  setStatus(`Rendered ${Object.keys(pages).length} page(s) and ${Object.keys(assets).length} asset(s) to the dist/ folder — ready for SFTP upload.`);
 }
 
 function setStatus(msg) {
   document.getElementById("statusBar").textContent = msg;
 }
+
+// Surfaces the PREVIEW_LINK_GUARD_SCRIPT's blocked-link notices in the
+// status bar, so clicking a nav link in the preview gives feedback instead
+// of just silently doing nothing.
+window.addEventListener("message", (e) => {
+  if (e.data && e.data.source === "chromesite-preview" && e.data.type === "blocked-link") {
+    setStatus(`Preview: links aren't navigable here (would have opened "${e.data.href}") — open that file directly to preview it.`);
+  }
+});
 
 // Kick things off
 tryRestoreFolder();

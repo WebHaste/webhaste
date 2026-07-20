@@ -14,6 +14,12 @@
   "background": {
     "service_worker": "background.js"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["vendor/bootstrap/*", "vendor/tailwind/*", "preview-guard.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "action": {
     "default_title": "Open ChromeSite",
     "default_icon": {

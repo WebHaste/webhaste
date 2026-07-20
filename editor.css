@@ -44,6 +44,7 @@ button.primary:hover { background: #1d4ed8; }
   padding: 8px;
   overflow-y: auto;
   font-size: 13px;
+  min-height: 0; /* same reasoning as .editor-pane/.preview-pane below */
 }
 .file-list .hint { color: #777; font-size: 12px; }
 .file-item {
@@ -57,6 +58,12 @@ button.primary:hover { background: #1d4ed8; }
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Without this, a flex/grid item's default min-height:auto means it grows
+     to fit tall content (e.g. an unscaled image) instead of letting its
+     overflow-y:auto child (.visual-area) contain it — which stretches body
+     past 100vh and makes the whole page scroll, dragging .status-bar out
+     of its pinned spot at the bottom of the viewport along with it. */
+  min-height: 0;
 }
 .editor-toolbar {
   display: flex;
@@ -72,19 +79,18 @@ button.primary:hover { background: #1d4ed8; }
 .toggle-btn.active { background: #2563eb; }
 .rich-controls { display: flex; gap: 4px; }
 .rich-controls button { padding: 4px 8px; font-size: 12px; }
-#codeArea.hidden, #visualArea.hidden { display: none; }
-#codeArea {
+.asset-controls { display: flex; gap: 4px; }
+.asset-controls button { padding: 4px 8px; font-size: 12px; }
+.CodeMirror.hidden, #visualArea.hidden { display: none; }
+.CodeMirror {
   flex: 1;
   width: 100%;
-  border: none;
-  resize: none;
-  background: #1e1e1e;
-  color: #d4d4d4;
+  height: auto;
   font-family: "SF Mono", Consolas, monospace;
   font-size: 13px;
-  padding: 12px;
-  outline: none;
 }
+.CodeMirror-gutters { border-right: 1px solid #3d3d3d; }
+.CodeMirror pre.CodeMirror-line, .CodeMirror pre.CodeMirror-line-like { padding: 0 12px; }
 .visual-area {
   flex: 1;
   width: 100%;
@@ -100,6 +106,35 @@ button.primary:hover { background: #1d4ed8; }
 .visual-area h1 { font-size: 1.8em; }
 .visual-area h2 { font-size: 1.4em; }
 .visual-area a { color: #2563eb; }
+
+/* Approximates the visual effect of the Image Properties dialog's preset
+   classes (see IMAGE_CLASS_PRESETS in editor.js — keep these two lists in
+   sync) so images aren't full native size while editing. #visualArea has
+   no access to the real Bootstrap/Tailwind stylesheet the way the Preview
+   iframe does, so this isn't pixel-identical to the published result —
+   just enough to avoid a full-resolution image forcing endless scrolling.
+   Tailwind's "/" in class names (e.g. w-1/4) must be escaped in a CSS
+   class selector as "\/". */
+.visual-area img.w-25, .visual-area img.w-1\/4 { width: 25%; }
+.visual-area img.w-50, .visual-area img.w-1\/2 { width: 50%; }
+.visual-area img.w-75, .visual-area img.w-3\/4 { width: 75%; }
+.visual-area img.w-100, .visual-area img.w-full { width: 100%; }
+.visual-area img.float-start, .visual-area img.float-left { float: left; }
+.visual-area img.float-end, .visual-area img.float-right { float: right; }
+.visual-area img.mx-1 { margin-left: .25rem; margin-right: .25rem; }
+.visual-area img.mx-2 { margin-left: .5rem; margin-right: .5rem; }
+.visual-area img.img-fluid, .visual-area img.max-w-full { max-width: 100%; }
+.visual-area img.img-fluid, .visual-area img.h-auto { height: auto; }
+.visual-area img.img-thumbnail {
+  padding: .25rem;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: .375rem;
+  max-width: 100%;
+}
+.visual-area img.border { border: 1px solid #d1d5db; }
+.visual-area img.p-1 { padding: .25rem; }
+.visual-area img.rounded { border-radius: .375rem; }
 .preview-pane { border-left: 1px solid #3d3d3d; }
 .preview-label {
   font-size: 11px;
@@ -138,3 +173,135 @@ dialog input, dialog textarea {
 }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .hint { color: #888; font-size: 12px; }
+.hidden { display: none; }
+
+/* ---- Nav tree editor (Edit Menus dialog) ---- */
+#navDialog { width: 620px; max-width: 90vw; }
+
+.nav-menu-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px; }
+.menu-tab {
+  background: #252525;
+  border: 1px solid #4a4a4a;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.menu-tab.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+.nav-tree-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.nav-tree-toolbar button { font-size: 12px; padding: 5px 9px; }
+.nav-tree-toolbar .spacer { flex: 1; }
+
+.nav-tree, .nav-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav-tree {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+  padding: 6px;
+  background: #1e1e1e;
+}
+.nav-tree-item { margin: 3px 0; }
+.nav-children {
+  margin: 4px 0 4px 26px;
+  padding-left: 10px;
+  border-left: 2px solid #3d3d3d;
+  min-height: 6px;
+}
+.nav-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #292929;
+  border: 1px solid #3d3d3d;
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+.drag-handle {
+  cursor: grab;
+  color: #777;
+  padding: 0 2px;
+  user-select: none;
+}
+.nav-tree-item.sortable-ghost { opacity: 0.35; }
+.nav-item-row input {
+  background: #1e1e1e;
+  color: #eee;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.nav-item-row .item-label { flex: 1; min-width: 0; }
+.nav-item-row .item-href { flex: 2; min-width: 0; }
+.nav-item-row button {
+  padding: 3px 7px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.nav-item-row .nav-delete-item { color: #f87171; }
+
+/* ---- Assets dialog (image/file uploads) ---- */
+#assetsDialog { width: 480px; max-width: 90vw; }
+
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 6px;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+  background: #1e1e1e;
+}
+.asset-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: #292929;
+  border: 1px solid #3d3d3d;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+}
+.asset-tile:hover { border-color: #2563eb; }
+.asset-tile img {
+  width: 100%;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+.asset-tile .asset-file-icon {
+  width: 100%;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  background: #1e1e1e;
+  border-radius: 3px;
+}
+.asset-tile .asset-name {
+  font-size: 11px;
+  color: #ccc;
+  word-break: break-all;
+  line-height: 1.2;
+}
+
+/* ---- Image properties dialog ---- */
+#imagePropsDialog { width: 420px; max-width: 90vw; }
+.preset-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.preset-group-label { font-size: 11px; color: #888; width: 64px; flex-shrink: 0; }

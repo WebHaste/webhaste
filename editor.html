@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <title>ChromeSite</title>
+<link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css" />
+<link rel="stylesheet" href="vendor/codemirror/theme/dracula.css" />
 <link rel="stylesheet" href="editor.css" />
 </head>
 <body>
@@ -40,6 +42,11 @@
           <button data-cmd="insertUnorderedList">• List</button>
           <button data-cmd="createLink">🔗 Link</button>
         </div>
+        <div class="asset-controls" id="assetControls">
+          <button id="insertImageBtn">🖼️ Image</button>
+          <button id="openAssetsBtn">📎 Assets</button>
+        </div>
+        <input type="file" id="imageFastPathInput" accept="image/*" class="hidden" />
       </div>
       <div id="visualArea" contenteditable="true" class="visual-area"></div>
       <textarea id="codeArea" spellcheck="false" class="code-area hidden" placeholder="Select or create a file to start editing..."></textarea>
@@ -53,8 +60,17 @@
 
   <dialog id="navDialog">
     <h3>Menus — .chromesite/nav.json</h3>
-    <p class="hint">Edit the raw JSON directly for now. Supports multiple named menus (header, footer, sidebar, ...) with nested "children" for dropdowns. A drag-and-drop tree editor is planned for later.</p>
-    <textarea id="navEditor" rows="14" style="font-family: monospace; font-size: 12px;"></textarea>
+    <div class="nav-menu-tabs" id="navMenuTabs"></div>
+    <div class="nav-tree-toolbar">
+      <button id="navAddMenu" type="button">+ New Menu</button>
+      <button id="navDeleteMenu" type="button">Delete Menu</button>
+      <div class="spacer"></div>
+      <button id="navAddRootItem" type="button">+ Add Item</button>
+      <button id="navToggleJson" type="button" class="toggle-btn">Edit as JSON</button>
+    </div>
+    <ul id="navTreeRoot" class="nav-tree"></ul>
+    <textarea id="navEditor" rows="14" class="hidden" style="font-family: monospace; font-size: 12px;"></textarea>
+    <p class="hint">Drag ⠿ to reorder. Only top-level items can hold a dropdown ("+ Child").</p>
     <div class="dialog-actions">
       <button id="navCancel">Cancel</button>
       <button id="navSave" class="primary">Save</button>
@@ -124,8 +140,63 @@
     </div>
   </dialog>
 
+  <dialog id="assetsDialog">
+    <h3>Project Assets — assets/</h3>
+    <label>Upload New <input type="file" id="assetUploadInput" /></label>
+    <div id="assetGrid" class="asset-grid"></div>
+    <div class="dialog-actions">
+      <button id="assetsDialogClose">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="imagePropsDialog">
+    <h3>Image Properties</h3>
+    <label>Alt Text <input type="text" id="imgAltInput" /></label>
+    <div id="imagePropsPresets">
+      <div class="preset-group" data-group="width">
+        <span class="preset-group-label">Width</span>
+        <button type="button" class="menu-tab" data-group="width" data-value="none">None</button>
+        <button type="button" class="menu-tab" data-group="width" data-value="25">25%</button>
+        <button type="button" class="menu-tab" data-group="width" data-value="50">50%</button>
+        <button type="button" class="menu-tab" data-group="width" data-value="75">75%</button>
+        <button type="button" class="menu-tab" data-group="width" data-value="100">100%</button>
+      </div>
+      <div class="preset-group" data-group="float">
+        <span class="preset-group-label">Float</span>
+        <button type="button" class="menu-tab" data-group="float" data-value="none">None</button>
+        <button type="button" class="menu-tab" data-group="float" data-value="left">Left</button>
+        <button type="button" class="menu-tab" data-group="float" data-value="right">Right</button>
+      </div>
+      <div class="preset-group" data-group="margin">
+        <span class="preset-group-label">Margin</span>
+        <button type="button" class="menu-tab" data-group="margin" data-value="none">None</button>
+        <button type="button" class="menu-tab" data-group="margin" data-value="small">Small</button>
+        <button type="button" class="menu-tab" data-group="margin" data-value="large">Large</button>
+      </div>
+      <div class="preset-group" data-group="style">
+        <span class="preset-group-label">Style</span>
+        <button type="button" class="menu-tab" data-group="style" data-value="fluid">Responsive</button>
+        <button type="button" class="menu-tab" data-group="style" data-value="thumbnail">Thumbnail</button>
+        <button type="button" class="menu-tab" data-group="style" data-value="rounded">Rounded</button>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button id="imagePropsCancel">Cancel</button>
+      <button id="imagePropsApply" class="primary">Apply</button>
+    </div>
+  </dialog>
+
   <div id="statusBar" class="status-bar"></div>
 
+  <script src="vendor/codemirror/lib/codemirror.js"></script>
+  <script src="vendor/codemirror/mode/xml/xml.js"></script>
+  <script src="vendor/codemirror/mode/javascript/javascript.js"></script>
+  <script src="vendor/codemirror/mode/css/css.js"></script>
+  <script src="vendor/codemirror/mode/htmlmixed/htmlmixed.js"></script>
+  <script src="vendor/codemirror/addon/edit/matchbrackets.js"></script>
+  <script src="vendor/codemirror/addon/edit/closetag.js"></script>
+  <script src="vendor/codemirror/addon/selection/active-line.js"></script>
+  <script src="vendor/sortablejs/Sortable.min.js"></script>
   <script src="editor.js"></script>
 </body>
 </html>
