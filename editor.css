@@ -1,0 +1,140 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+  color: #ddd;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #3d3d3d;
+}
+.spacer { flex: 1; }
+.folder-name { color: #888; font-size: 13px; }
+.brand-icon { width: 22px; height: 22px; border-radius: 5px; }
+button {
+  background: #3a3a3a;
+  color: #eee;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover { background: #454545; }
+button.primary { background: #2563eb; border-color: #2563eb; }
+button.primary:hover { background: #1d4ed8; }
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 200px 1fr 1fr;
+  min-height: 0;
+}
+.file-list {
+  background: #252525;
+  border-right: 1px solid #3d3d3d;
+  padding: 8px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.file-list .hint { color: #777; font-size: 12px; }
+.file-item {
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.file-item:hover, .file-item.active { background: #3a3a3a; }
+
+.editor-pane, .preview-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  background: #252525;
+  border-bottom: 1px solid #3d3d3d;
+  flex-wrap: wrap;
+}
+.view-toggle { display: flex; border: 1px solid #4a4a4a; border-radius: 4px; overflow: hidden; }
+.toggle-btn { border: none; border-radius: 0; background: #2d2d2d; }
+.toggle-btn.active { background: #2563eb; }
+.rich-controls { display: flex; gap: 4px; }
+.rich-controls button { padding: 4px 8px; font-size: 12px; }
+#codeArea.hidden, #visualArea.hidden { display: none; }
+#codeArea {
+  flex: 1;
+  width: 100%;
+  border: none;
+  resize: none;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: "SF Mono", Consolas, monospace;
+  font-size: 13px;
+  padding: 12px;
+  outline: none;
+}
+.visual-area {
+  flex: 1;
+  width: 100%;
+  background: #fff;
+  color: #1a1a1a;
+  padding: 20px 24px;
+  overflow-y: auto;
+  font-family: system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  outline: none;
+}
+.visual-area h1 { font-size: 1.8em; }
+.visual-area h2 { font-size: 1.4em; }
+.visual-area a { color: #2563eb; }
+.preview-pane { border-left: 1px solid #3d3d3d; }
+.preview-label {
+  font-size: 11px;
+  color: #888;
+  padding: 6px 10px;
+  border-bottom: 1px solid #3d3d3d;
+}
+#previewFrame { flex: 1; border: none; background: #fff; }
+
+.status-bar {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #999;
+  background: #252525;
+  border-top: 1px solid #3d3d3d;
+  min-height: 20px;
+}
+
+dialog {
+  background: #2d2d2d;
+  color: #ddd;
+  border: 1px solid #4a4a4a;
+  border-radius: 8px;
+  padding: 16px;
+  width: 360px;
+}
+dialog label { display: block; margin: 8px 0 4px; font-size: 13px; }
+dialog input, dialog textarea {
+  width: 100%;
+  background: #1e1e1e;
+  color: #eee;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 6px;
+  font-family: inherit;
+}
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.hint { color: #888; font-size: 12px; }

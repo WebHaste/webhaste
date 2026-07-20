@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{TITLE}}</title>
+  {{FRAMEWORK_ASSETS}}
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; }
+    .site-footer { text-align: center; padding: 20px; color: #888; font-size: 13px; }
+    main { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    {{NAV:header}}
+  </header>
+  <main>
+    {{CONTENT}}
+  </main>
+  <footer class="site-footer">
+    {{NAV:footer}}
+    <p>&copy; 2026 Site — built locally, published globally.</p>
+  </footer>
+</body>
+</html>

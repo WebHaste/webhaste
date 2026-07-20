@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ChromeSite</title>
+<link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+  <header class="topbar">
+    <img src="icons/icon48.png" alt="ChromeSite" class="brand-icon" />
+    <button id="pickFolder">📁 Open Project Folder</button>
+    <button id="newFile">＋ New File</button>
+    <span id="folderName" class="folder-name">No folder selected</span>
+    <div class="spacer"></div>
+    <select id="templateSelect">
+      <option value="">No layout (raw HTML)</option>
+    </select>
+    <button id="siteSettingsBtn">⚙️ Site Settings</button>
+    <button id="editNav">Edit Menus (nav.json)</button>
+    <button id="publishBtn" class="primary">🚀 Publish</button>
+  </header>
+
+  <main class="workspace">
+    <nav class="file-list" id="fileList">
+      <p class="hint">Files in your project folder will show up here.</p>
+    </nav>
+
+    <section class="editor-pane">
+      <div class="editor-toolbar">
+        <div class="view-toggle">
+          <button id="viewVisual" class="toggle-btn active">Visual</button>
+          <button id="viewCode" class="toggle-btn">Code</button>
+        </div>
+        <div class="rich-controls" id="richControls">
+          <button data-cmd="bold"><b>B</b></button>
+          <button data-cmd="italic"><i>I</i></button>
+          <button data-cmd="formatBlock" data-value="H1">H1</button>
+          <button data-cmd="formatBlock" data-value="H2">H2</button>
+          <button data-cmd="formatBlock" data-value="P">¶</button>
+          <button data-cmd="insertUnorderedList">• List</button>
+          <button data-cmd="createLink">🔗 Link</button>
+        </div>
+      </div>
+      <div id="visualArea" contenteditable="true" class="visual-area"></div>
+      <textarea id="codeArea" spellcheck="false" class="code-area hidden" placeholder="Select or create a file to start editing..."></textarea>
+    </section>
+
+    <section class="preview-pane">
+      <div class="preview-label">Live Preview (with layout + menu applied)</div>
+      <iframe id="previewFrame" sandbox="allow-scripts"></iframe>
+    </section>
+  </main>
+
+  <dialog id="navDialog">
+    <h3>Menus — .chromesite/nav.json</h3>
+    <p class="hint">Edit the raw JSON directly for now. Supports multiple named menus (header, footer, sidebar, ...) with nested "children" for dropdowns. A drag-and-drop tree editor is planned for later.</p>
+    <textarea id="navEditor" rows="14" style="font-family: monospace; font-size: 12px;"></textarea>
+    <div class="dialog-actions">
+      <button id="navCancel">Cancel</button>
+      <button id="navSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="siteSettingsDialog">
+    <h3>Site Settings — .chromesite/site.config.json</h3>
+    <label>Site Name <input id="cfgSiteName" type="text" /></label>
+    <label>Domain <input id="cfgDomain" type="text" placeholder="example.com" /></label>
+    <label>New line creates
+      <select id="cfgParagraphMode">
+        <option value="p">&lt;p&gt; paragraphs</option>
+        <option value="div">&lt;div&gt; blocks</option>
+      </select>
+    </label>
+    <label>CSS Framework
+      <select id="cfgCssFramework">
+        <option value="bootstrap5">Bootstrap 5</option>
+        <option value="tailwind">Tailwind</option>
+        <option value="none">None (plain HTML)</option>
+      </select>
+    </label>
+    <label>Deployment Target
+      <select id="cfgDeploymentTarget">
+        <option value="cloudflare">Cloudflare Pages</option>
+        <option value="netlify">Netlify</option>
+        <option value="local">Render to local folder (for SFTP, etc.)</option>
+      </select>
+    </label>
+    <p class="hint">Stored in .chromesite/, travels with the git repo, not published.</p>
+    <div class="dialog-actions">
+      <button id="siteSettingsCancel">Cancel</button>
+      <button id="siteSettingsSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="publishDialog">
+    <h3>Publish to Cloudflare Pages</h3>
+    <label>Account ID <input id="cfAccount" type="text" /></label>
+    <label>Project Name <input id="cfProject" type="text" /></label>
+    <label>API Token <input id="cfToken" type="password" /></label>
+    <p class="hint">Stored locally in this browser only. Never sent anywhere but Cloudflare's API.</p>
+    <div class="dialog-actions">
+      <button id="publishCancel">Cancel</button>
+      <button id="publishConfirm" class="primary">Publish Now</button>
+    </div>
+  </dialog>
+
+  <dialog id="netlifyDialog">
+    <h3>Publish to Netlify</h3>
+    <label>Site ID <input id="ntlSiteId" type="text" placeholder="e.g. 8f2c1a90-..." /></label>
+    <label>Personal Access Token <input id="ntlToken" type="password" /></label>
+    <p class="hint">Find the Site ID under Site settings → General → Site details. Create a token under User settings → Applications → Personal access tokens.</p>
+    <div class="dialog-actions">
+      <button id="netlifyCancel">Cancel</button>
+      <button id="netlifyConfirm" class="primary">Publish Now</button>
+    </div>
+  </dialog>
+
+  <dialog id="localBuildDialog">
+    <h3>Render to Local Folder</h3>
+    <p class="hint">Composes every page (template + nav applied) into a <code>dist/</code> folder inside your project directory — nothing gets uploaded. Point your SFTP client at that folder afterward.</p>
+    <div class="dialog-actions">
+      <button id="localBuildCancel">Cancel</button>
+      <button id="localBuildConfirm" class="primary">Render Now</button>
+    </div>
+  </dialog>
+
+  <div id="statusBar" class="status-bar"></div>
+
+  <script src="editor.js"></script>
+</body>
+</html>
