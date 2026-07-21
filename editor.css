@@ -33,6 +33,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 button:disabled:hover { background: #3a3a3a; }
 button.primary { background: #2563eb; border-color: #2563eb; }
 button.primary:hover { background: #1d4ed8; }
+.topbar a {
+  background: #3a3a3a;
+  color: #eee;
+  border: 1px solid #CCCCCC;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: none;
+  display: inline-block;
+}
+.topbar a:hover { background: #454545; }
 
 .workspace {
   flex: 1;
@@ -64,6 +76,7 @@ button.primary:hover { background: #1d4ed8; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.file-item-home { font-size: 12px; }
 .file-item-actions {
   display: none;
   flex-shrink: 0;

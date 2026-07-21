@@ -38,6 +38,10 @@ created automatically the first time you open a folder:
 my-site/
   index.html              ← published
   about.html               ← published
+  CLAUDE.md                ← agent-facing guide to this site's conventions —
+                              fragment pages, template placeholders, nav/
+                              pages.json wiring, block format. Scaffolded once;
+                              never overwritten if it already exists.
   assets/                   ← published; images/PDFs inserted into page content
     photo.jpg                 via the Assets dialog (Insert Image)
   scripts/                  ← published; template-level styles.css/main.js —
@@ -47,9 +51,19 @@ my-site/
   .chromesite/              ← committed to git, never published
     site.config.json         ← siteName, domain, paragraphMode, cssFramework, activeTemplate
     nav.json                 ← named menus, supports nested "children" for dropdowns
+    compose.js                ← headless Node CLI, self-contained — regenerated
+    compose-core.js             every open, see "Headless rendering" below
+    block-library.md          ← every block available in the Blocks dialog,
+                                 regenerated every open, see "Content blocks" below
     templates/
       simple-layout.html      ← the wrapper template(s)
 ```
+
+`CLAUDE.md` is scaffolded at the project **root**, not inside `.chromesite/`,
+so agent tooling that auto-discovers a root-level `CLAUDE.md`/`AGENTS.md`
+picks it up without being told where to look. Its content is copied in from
+this repo's own `templates/CLAUDE.md` — same mechanism as the starter
+`simple-layout.html`, see `ensureScaffold()` in `editor.js`.
 
 Both `assets/` and `scripts/` are lazy — created on first use, not scaffolded
 up front like `.chromesite/`. A template references its own scripts directly
@@ -114,6 +128,15 @@ a small move-up/move-down/delete toolbar; iframe-based blocks (the two embed
 types) can't have their `src` retargeted from Visual view like text can —
 that's a Code view edit.
 
+`writeBlockLibraryDoc()` in `ensureScaffold()` regenerates
+`.chromesite/block-library.md` on every folder open: every `BLOCK_LIBRARY`
+entry's markup for the site's active `cssFramework`, plus a list of its
+custom blocks. It exists specifically so an agent working in a site's own
+repo (which has no visibility into this extension's source) can still see
+and use the built-in blocks by name, not just write custom ones from
+scratch. Pure generated output — never hand-edited, so it's safe to
+regenerate unconditionally instead of copy-once like `CLAUDE.md`.
+
 ### 5. Images & code view
 
 Images go in through the Assets dialog (uploads into `assets/`) and get
@@ -160,6 +183,29 @@ The API token is entered once via a dialog and stored in
 (Cloudflare Pages edit permission only) rather than a full account token,
 since extension storage isn't as hardened as an OS keychain.
 
+### 7. Headless rendering — `compose-core.js` + `cli/compose.js`
+
+Composition (template/nav/framework-asset substitution) was factored out of
+`editor.js` into `compose-core.js` — a dependency-free, UMD-style module
+loaded two ways: as a plain `<script>` tag in `editor.html` (browser), and
+via `require()` in Node. `composePage()` in `editor.js` delegates its
+non-preview path (Publish, Render to Local Folder) to it directly, so a
+headless render can never drift from what the extension actually ships.
+Preview stays separate — it needs CSP-safe vendored CDN copies and
+srcdoc-iframe-specific asset rewriting that a real render doesn't.
+
+`cli/compose.js` is the Node-side consumer: point it at any project folder
+and it composes every page + copies `assets/`/`scripts/` into a `dist/`-like
+output, matching `renderToLocalFolder()`. The same file is also what
+`ensureScaffold()` copies into every project as `.chromesite/compose.js`
+(alongside a sibling `.chromesite/compose-core.js`) — it self-detects which
+context it's running in (`require("./compose-core.js")` succeeds when
+scaffolded next to a sibling copy, falls back to `require("../compose-core.js")`
+for the repo's own `cli/` copy) and defaults its target folder accordingly.
+The point: a site is composable with just Node, with no dependency on this
+extension's source repo being checked out anywhere — see `CLAUDE.md`'s
+"Testing your changes" section, which is what actually points agents at it.
+
 ## Known limitations in this skeleton (intentional, for a v0)
 
 - Only `.html` files are listed/edited in the main file list — `assets/` and
@@ -175,7 +221,7 @@ since extension storage isn't as hardened as an OS keychain.
 - No conflict handling if the same folder is open in two tabs.
 - `BLOCK_LIBRARY` only has `bootstrap5` markup today — Tailwind/plain
   variants aren't filled in, so those blocks show disabled under other
-  frameworks.
+  frameworks (and missing entirely from `block-library.md` for those sites).
 - No popout/detached preview persistence — the popout preview window
   (see `editor.js`) re-renders from the same in-memory composition each
   time rather than being a fully independent view.
