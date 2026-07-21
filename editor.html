@@ -18,7 +18,7 @@
       <option value="">No layout (raw HTML)</option>
     </select>
     <button id="siteSettingsBtn">⚙️ Site Settings</button>
-    <button id="editNav">Edit Menus (nav.json)</button>
+    <button id="editNav">🔗 Edit Menus</button>
     <button id="publishBtn" class="primary">🚀 Publish</button>
   </header>
 
@@ -28,6 +28,7 @@
     </nav>
 
     <section class="editor-pane">
+      <div class="preview-label">✒️ Page Editor</div>
       <div class="editor-toolbar">
         <div class="view-toggle">
           <button id="viewVisual" class="toggle-btn active">Visual</button>
@@ -53,7 +54,7 @@
     </section>
 
     <section class="preview-pane">
-      <div class="preview-label">Live Preview (with layout + menu applied)</div>
+      <div class="preview-label">📷 Live Preview</div>
       <iframe id="previewFrame" sandbox="allow-scripts"></iframe>
     </section>
   </main>
@@ -149,6 +150,17 @@
     </div>
   </dialog>
 
+  <dialog id="pagePropertiesDialog">
+    <h3>Page Properties</h3>
+    <p class="hint" id="pagePropsFileName"></p>
+    <label>Title <input type="text" id="pagePropsTitle" placeholder="Leave blank to use the default title" /></label>
+    <label>Meta Description <textarea id="pagePropsDescription" rows="3"></textarea></label>
+    <div class="dialog-actions">
+      <button id="pagePropsCancel">Cancel</button>
+      <button id="pagePropsSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
   <dialog id="imagePropsDialog">
     <h3>Image Properties</h3>
     <label>Alt Text <input type="text" id="imgAltInput" /></label>
@@ -186,7 +198,7 @@
     </div>
   </dialog>
 
-  <div id="statusBar" class="status-bar"></div>
+  <div id="statusBar" class="status-bar">✅ Ready...</div>
 
   <script src="vendor/codemirror/lib/codemirror.js"></script>
   <script src="vendor/codemirror/mode/xml/xml.js"></script>

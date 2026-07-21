@@ -36,6 +36,34 @@ cm.on("change", (instance, changeObj) => {
   scheduleSave();
 });
 
+// ---- Editor enabled/disabled state ----
+// No file is open until the user opens or creates one; until then the
+// visual/code panes must not look interactable, since saveCurrentFile()
+// (further down) is a silent no-op without a currentFileHandle to write to
+// — typing there gives the impression content is being saved when it isn't.
+function setEditorEnabled(enabled) {
+  document.querySelector(".editor-pane").classList.toggle("editor-disabled", !enabled);
+  document.getElementById("visualArea").contentEditable = enabled ? "true" : "false";
+  cm.setOption("readOnly", enabled ? false : "nocursor");
+  document.querySelectorAll("#richControls button, #assetControls button, #viewVisual, #viewCode").forEach((btn) => {
+    btn.disabled = !enabled;
+  });
+}
+setEditorEnabled(false);
+
+// Drops whatever file is currently open and re-disables the editor — used
+// both when the open file is deleted out from under it, and when switching
+// project folders (a file handle from the old folder has no business still
+// being live in the editor once a different folder's file list is showing).
+function clearEditorState() {
+  currentFileHandle = null;
+  currentFileName = null;
+  cm.setValue("");
+  document.getElementById("visualArea").innerHTML = "";
+  document.getElementById("previewFrame").srcdoc = "";
+  setEditorEnabled(false);
+}
+
 const DB_NAME = "site-builder";
 const STORE = "handles";
 
@@ -67,6 +95,7 @@ document.getElementById("pickFolder").addEventListener("click", async () => {
     dirHandle = await window.showDirectoryPicker();
     await saveHandle("projectDir", dirHandle);
     document.getElementById("folderName").textContent = dirHandle.name;
+    clearEditorState();
     await ensureScaffold();
     await refreshFileList();
   } catch (err) {
@@ -144,6 +173,18 @@ function assetSnippet(name) {
   return isImageAsset(name)
     ? `<img src="assets/${name}" alt="${name}">`
     : `<a href="assets/${name}">${name}</a>`;
+}
+
+// Lowercases and strips spaces/reserved URL characters from a page filename
+// so what's typed in the "New File" prompt is always a safe, predictable
+// path segment (e.g. "My Cool Page #1" -> "my-cool-page-1.html").
+function slugifyFileName(input) {
+  let base = input.trim().replace(/\.html?$/i, "");
+  base = base
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (base || "untitled") + ".html";
 }
 
 async function ensureScaffold() {
@@ -236,7 +277,7 @@ document.getElementById("newFile").addEventListener("click", async () => {
   }
   let name = prompt("New file name (e.g. about.html):", "untitled.html");
   if (!name) return;
-  if (!name.endsWith(".html")) name += ".html";
+  name = slugifyFileName(name);
 
   // { create: true } makes getFileHandle create the file if it doesn't exist.
   const handle = await dirHandle.getFileHandle(name, { create: true });
@@ -259,10 +300,105 @@ async function refreshFileList() {
     if (!name.endsWith(".html")) continue; // scope v0.1 to HTML pages
     const item = document.createElement("div");
     item.className = "file-item";
-    item.textContent = name;
+    item.dataset.name = name;
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "file-item-name";
+    nameEl.textContent = name;
+    item.appendChild(nameEl);
+
+    const actions = document.createElement("span");
+    actions.className = "file-item-actions";
+    const propsBtn = document.createElement("button");
+    propsBtn.type = "button";
+    propsBtn.className = "file-item-action";
+    propsBtn.dataset.action = "props";
+    propsBtn.title = "Page properties (title, meta description)";
+    propsBtn.textContent = "⚙";
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "file-item-action file-item-delete";
+    deleteBtn.dataset.action = "delete";
+    deleteBtn.title = "Delete page";
+    deleteBtn.textContent = "🗑";
+    actions.append(propsBtn, deleteBtn);
+    item.appendChild(actions);
+
     item.addEventListener("click", () => openFile(name, handle));
     listEl.appendChild(item);
   }
+}
+
+// Delegated so the ⚙/🗑 buttons work no matter how #fileList gets
+// re-rendered, and so their clicks can be stopped before they bubble up to
+// the row's own "open this file" listener above.
+document.getElementById("fileList").addEventListener("click", async (e) => {
+  const actionBtn = e.target.closest(".file-item-action");
+  if (!actionBtn) return;
+  e.stopPropagation();
+  const name = actionBtn.closest(".file-item").dataset.name;
+
+  if (actionBtn.dataset.action === "props") {
+    await openPagePropertiesDialog(name);
+  } else if (actionBtn.dataset.action === "delete") {
+    await deletePage(name);
+  }
+});
+
+// ---- Page Properties dialog — per-page <title>/meta description override ----
+const pagePropertiesDialog = document.getElementById("pagePropertiesDialog");
+let pagePropsFileName = null;
+
+async function openPagePropertiesDialog(name) {
+  pagePropsFileName = name;
+  const pagesData = await getPagesData();
+  const meta = pagesData[name] || {};
+  document.getElementById("pagePropsFileName").textContent = name;
+  document.getElementById("pagePropsTitle").value = meta.title || "";
+  document.getElementById("pagePropsDescription").value = meta.description || "";
+  pagePropertiesDialog.showModal();
+}
+
+document.getElementById("pagePropsCancel").addEventListener("click", () => pagePropertiesDialog.close());
+
+document.getElementById("pagePropsSave").addEventListener("click", async () => {
+  const title = document.getElementById("pagePropsTitle").value.trim();
+  const description = document.getElementById("pagePropsDescription").value.trim();
+  const pagesData = await getPagesData();
+
+  if (!title && !description) {
+    delete pagesData[pagePropsFileName];
+  } else {
+    pagesData[pagePropsFileName] = { title, description };
+  }
+
+  const cfgDir = await getConfigDir(true);
+  await writeJSONFile(cfgDir, "pages.json", pagesData);
+  pagePropertiesDialog.close();
+  renderPreview();
+  setStatus(`Saved properties for ${pagePropsFileName}.`);
+});
+
+// ---- Delete page ----
+async function deletePage(name) {
+  if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+
+  await dirHandle.removeEntry(name);
+  fileCache.delete(name);
+
+  const pagesData = await getPagesData();
+  if (pagesData[name]) {
+    delete pagesData[name];
+    const cfgDir = await getConfigDir(true);
+    await writeJSONFile(cfgDir, "pages.json", pagesData);
+  }
+
+  if (currentFileName === name) {
+    clearEditorState();
+  }
+
+  await refreshFileList();
+  setStatus(`Deleted ${name}.`);
 }
 
 async function openFile(name, handle) {
@@ -275,6 +411,7 @@ async function openFile(name, handle) {
   document.getElementById("visualArea").innerHTML = text;
   renderPreview();
   highlightActiveFile(name);
+  setEditorEnabled(true);
 }
 
 // ---- Visual / Code view toggle ----
@@ -435,7 +572,7 @@ function scheduleSave() {
 
 function highlightActiveFile(name) {
   document.querySelectorAll(".file-item").forEach((el) => {
-    el.classList.toggle("active", el.textContent === name);
+    el.classList.toggle("active", el.dataset.name === name);
   });
 }
 
@@ -506,6 +643,13 @@ async function renderAssetGrid() {
     nameEl.textContent = name;
     tile.appendChild(nameEl);
 
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "asset-delete-btn";
+    deleteBtn.title = `Delete ${name}`;
+    deleteBtn.textContent = "✕";
+    tile.appendChild(deleteBtn);
+
     grid.appendChild(tile);
   }
 
@@ -530,7 +674,19 @@ document.getElementById("assetsDialogClose").addEventListener("click", () => ass
 // hanging cleanup off a single button's click handler.
 assetsDialog.addEventListener("close", revokeAssetObjectUrls);
 
-document.getElementById("assetGrid").addEventListener("click", (e) => {
+document.getElementById("assetGrid").addEventListener("click", async (e) => {
+  const deleteBtn = e.target.closest(".asset-delete-btn");
+  if (deleteBtn) {
+    const tile = deleteBtn.closest(".asset-tile");
+    const name = tile.dataset.name;
+    if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+    const assetsDir = await getAssetsDirHandle(false);
+    if (assetsDir) await assetsDir.removeEntry(name);
+    await renderAssetGrid();
+    setStatus(`Deleted ${name}.`);
+    return;
+  }
+
   const tile = e.target.closest(".asset-tile");
   if (!tile) return;
   // Close BEFORE inserting — showModal() makes the rest of the page inert
@@ -813,6 +969,13 @@ async function getNavData() {
   return readJSONFile(cfgDir, "nav.json", DEFAULT_NAV);
 }
 
+// Per-page <title>/meta-description overrides, keyed by filename. Pages with
+// no entry fall back to the default "filename | Site Name" title.
+async function getPagesData() {
+  const cfgDir = await getConfigDir(true);
+  return readJSONFile(cfgDir, "pages.json", {});
+}
+
 async function getActiveTemplateText() {
   const templateName = document.getElementById("templateSelect").value;
   if (!templateName) return null;
@@ -897,9 +1060,13 @@ async function composePage(rawContent, title, isPreview = false) {
     return (await rewriteAssetSrcsForPreview(rawContent)) + PREVIEW_LINK_GUARD_SCRIPT;
   }
 
-  const [config, navData] = await Promise.all([getSiteConfig(), getNavData()]);
+  const [config, navData, pagesData] = await Promise.all([getSiteConfig(), getNavData(), getPagesData()]);
   const framework = config.cssFramework || "bootstrap5";
   const assets = isPreview ? FRAMEWORK_ASSETS_PREVIEW : FRAMEWORK_ASSETS;
+  // `title` is the page's filename (see call sites) — use it to look up any
+  // per-page title/description override the user set via Page Properties.
+  const pageMeta = pagesData[title] || {};
+  const pageTitle = pageMeta.title || title;
 
   let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
     renderMenu(navData.menus?.[menuName], framework)
@@ -907,7 +1074,10 @@ async function composePage(rawContent, title, isPreview = false) {
   out = out
     .replace(/{{FRAMEWORK_ASSETS}}/g, assets[framework] || "")
     .replace(/{{CONTENT}}/g, rawContent)
-    .replace(/{{TITLE}}/g, title ? `${title} | ${config.siteName || ""}` : config.siteName || "Untitled");
+    .replace(/{{TITLE}}/g, pageTitle ? `${pageTitle} | ${config.siteName || ""}` : config.siteName || "Untitled")
+    .replace(/{{META_DESCRIPTION}}/g, pageMeta.description || "")
+    .replace(/{{SITE_NAME}}/g, config.siteName || "")
+    .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
   if (isPreview) {
     out = await rewriteAssetSrcsForPreview(out);
     out += PREVIEW_LINK_GUARD_SCRIPT;
@@ -1613,7 +1783,7 @@ async function renderToLocalFolder() {
 }
 
 function setStatus(msg) {
-  document.getElementById("statusBar").textContent = msg;
+  document.getElementById("statusBar").textContent = '🔔 ' + msg;
 }
 
 // Surfaces the PREVIEW_LINK_GUARD_SCRIPT's blocked-link notices in the
