@@ -179,7 +179,8 @@ const DEFAULT_CONFIG = {
   paragraphMode: "p",
   activeTemplate: "simple-layout.html",
   cssFramework: "bootstrap5",
-  deploymentTarget: "cloudflare"
+  deploymentTarget: "cloudflare",
+  deployDirectory: "dist"
 };
 const DEFAULT_NAV = {
   menus: {
@@ -283,6 +284,16 @@ function slugifyFileName(input) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return (base || "untitled") + ".html";
+}
+
+// Unlike slugifyFileName(), this deliberately preserves case (deploy-folder
+// conventions like "docs" or "gh-pages" are case-sensitive and shouldn't be
+// mangled) — it only strips characters that would break
+// dirHandle.getDirectoryHandle(), which treats the whole string as a single
+// path segment, not a nested path.
+function sanitizeDeployDirectory(input) {
+  const cleaned = (input || "").trim().replace(/[\\/:*?"<>|]+/g, "");
+  return cleaned || "dist";
 }
 
 async function ensureScaffold() {
@@ -1451,11 +1462,40 @@ async function composePage(rawContent, title, isPreview = false) {
   return out;
 }
 
+// The popped-out preview window (see openPreviewWindowBtn below) — kept as
+// a plain reference rather than something reopened per-edit, so the user
+// can park it on a second monitor and just keep resizing/refreshing the one
+// window while they work in the main one.
+let previewWindow = null;
+
 async function renderPreview() {
   const raw = fileCache.get(currentFileName) || "";
   const composed = await composePage(raw, currentFileName, true);
   document.getElementById("previewFrame").srcdoc = composed;
+
+  // Every edit/save/settings-change already funnels through this one
+  // function to refresh the iframe, so piggybacking here is what keeps the
+  // popped-out window "live" without needing to hook it in at every call
+  // site separately.
+  if (previewWindow && !previewWindow.closed) {
+    previewWindow.document.open();
+    previewWindow.document.write(composed);
+    previewWindow.document.close();
+  }
 }
+
+document.getElementById("openPreviewWindowBtn").addEventListener("click", () => {
+  // A fixed window name means clicking this again reuses/focuses the same
+  // OS window rather than spawning duplicates, even if our `previewWindow`
+  // reference above is stale (e.g. the user closed it without us noticing).
+  previewWindow = window.open("", "chromesite-preview-window", "width=1280,height=900");
+  if (!previewWindow) {
+    setStatus("Preview window was blocked — allow pop-ups for this extension to use it.");
+    return;
+  }
+  previewWindow.focus();
+  renderPreview();
+});
 
 // ---- Menu editor dialog — drag-and-drop tree, backed by SortableJS ----
 // Menus are edited as a working copy (navWorkingData) that only gets
@@ -1711,6 +1751,7 @@ document.getElementById("siteSettingsBtn").addEventListener("click", async () =>
   document.getElementById("cfgParagraphMode").value = config.paragraphMode || "p";
   document.getElementById("cfgCssFramework").value = config.cssFramework || "bootstrap5";
   document.getElementById("cfgDeploymentTarget").value = config.deploymentTarget || "cloudflare";
+  document.getElementById("cfgDeployDirectory").value = config.deployDirectory || "dist";
   siteSettingsDialog.showModal();
 });
 document.getElementById("siteSettingsCancel").addEventListener("click", () => siteSettingsDialog.close());
@@ -1722,6 +1763,7 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
     activeTemplate: document.getElementById("templateSelect").value,
     cssFramework: document.getElementById("cfgCssFramework").value,
     deploymentTarget: document.getElementById("cfgDeploymentTarget").value,
+    deployDirectory: sanitizeDeployDirectory(document.getElementById("cfgDeployDirectory").value),
   };
   const cfgDir = await getConfigDir(true);
   await writeJSONFile(cfgDir, "site.config.json", config);
@@ -1754,6 +1796,9 @@ document.getElementById("publishBtn").addEventListener("click", async () => {
   }
 
   if (target === "local") {
+    const folderName = sanitizeDeployDirectory(config.deployDirectory);
+    document.getElementById("localBuildHint").innerHTML =
+      `Composes every page (template + nav applied) into a <code>${folderName}/</code> folder inside your project directory — nothing gets uploaded. Point your SFTP client (or git repo) at that folder afterward. Change the folder name under Site Settings → Local Render Folder.`;
     document.getElementById("localBuildDialog").showModal();
     return;
   }
@@ -2101,10 +2146,11 @@ async function publishToNetlify(siteId, token) {
   }
 }
 
-// ---- Local folder render (for manual SFTP or any other host) ----
-// Writes every composed page into a dist/ folder inside the project
-// directory. Nothing is uploaded — the user points their own SFTP client
-// (or any other deploy method) at that folder afterward.
+// ---- Local folder render (for manual SFTP, GitHub Pages, or any other host) ----
+// Writes every composed page into the configured deployDirectory folder
+// (site.config.json, "dist" by default) inside the project directory.
+// Nothing is uploaded — the user points their own SFTP client, git repo, or
+// any other deploy method at that folder afterward.
 document.getElementById("localBuildCancel").addEventListener("click", () =>
   document.getElementById("localBuildDialog").close()
 );
@@ -2114,12 +2160,15 @@ document.getElementById("localBuildConfirm").addEventListener("click", async () 
 });
 
 async function renderToLocalFolder() {
+  const config = await getSiteConfig();
+  const folderName = sanitizeDeployDirectory(config.deployDirectory);
+
   setStatus("Composing pages...");
   const pages = await getComposedPages();
   const assets = await getProjectAssets();
 
-  setStatus("Writing dist/ folder...");
-  const distDir = await dirHandle.getDirectoryHandle("dist", { create: true });
+  setStatus(`Writing ${folderName}/ folder...`);
+  const distDir = await dirHandle.getDirectoryHandle(folderName, { create: true });
   for (const [name, content] of Object.entries(pages)) {
     const handle = await distDir.getFileHandle(name, { create: true });
     const writable = await handle.createWritable();
@@ -2137,7 +2186,7 @@ async function renderToLocalFolder() {
     }
   }
 
-  setStatus(`Rendered ${Object.keys(pages).length} page(s) and ${Object.keys(assets).length} asset(s) to the dist/ folder — ready for SFTP upload.`);
+  setStatus(`Rendered ${Object.keys(pages).length} page(s) and ${Object.keys(assets).length} asset(s) to the ${folderName}/ folder.`);
 }
 
 function setStatus(msg) {

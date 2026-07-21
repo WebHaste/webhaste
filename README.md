@@ -85,9 +85,14 @@ Set under Site Settings → Deployment Target (`site.config.json` →
   Needs a Site ID (Site settings → General) and a Personal Access Token
   (User settings → Applications).
 - **Render to local folder** — doesn't upload anywhere. Composes every
-  page and writes it into a `dist/` folder inside the project directory,
-  for handing off to any SFTP client or other deploy method you already
-  use. Good fit if the hosting isn't Cloudflare or Netlify at all.
+  page and writes it into a folder inside the project directory (Site
+  Settings → Local Render Folder, `site.config.json` → `deployDirectory`;
+  defaults to `dist`), for handing off to any SFTP client, git repo, or
+  other deploy method you already use. Good fit if the hosting isn't
+  Cloudflare or Netlify at all — e.g. set it to `docs` for GitHub Pages'
+  "serve from /docs" option. Note this only writes the folder; it doesn't
+  run git itself (no git integration exists in the extension), so pushing
+  is still on you.
 
 `publishSite()` reads every `.html` file, runs it through the same
 composition step used for preview (so what you see really is what ships),

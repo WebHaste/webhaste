@@ -53,7 +53,10 @@
     </section>
 
     <section class="preview-pane">
-      <div class="preview-label">📷 Live Preview</div>
+      <div class="preview-label">
+        <span>📷 Live Preview</span>
+        <button type="button" id="openPreviewWindowBtn" title="Open a live, resizable preview window — handy on a second monitor for checking responsive widths">↗ Open in Window</button>
+      </div>
       <iframe id="previewFrame" sandbox="allow-scripts"></iframe>
     </section>
   </main>
@@ -106,6 +109,8 @@
         <option value="local">Render to local folder (for SFTP, etc.)</option>
       </select>
     </label>
+    <label>Local Render Folder <input id="cfgDeployDirectory" type="text" placeholder="dist" /></label>
+    <p class="hint">Used by "Render to local folder". Defaults to "dist" for SFTP/manual deploys — use "docs" for GitHub Pages' /docs convention, or whatever your host's publish directory expects.</p>
     <p class="hint">Stored in .chromesite/, travels with the git repo, not published.</p>
     <div class="dialog-actions">
       <button id="siteSettingsCancel">Cancel</button>
@@ -138,7 +143,7 @@
 
   <dialog id="localBuildDialog">
     <h3>Render to Local Folder</h3>
-    <p class="hint">Composes every page (template + nav applied) into a <code>dist/</code> folder inside your project directory — nothing gets uploaded. Point your SFTP client at that folder afterward.</p>
+    <p class="hint" id="localBuildHint">Composes every page (template + nav applied) into a <code>dist/</code> folder inside your project directory — nothing gets uploaded. Point your SFTP client at that folder afterward.</p>
     <div class="dialog-actions">
       <button id="localBuildCancel">Cancel</button>
       <button id="localBuildConfirm" class="primary">Render Now</button>
