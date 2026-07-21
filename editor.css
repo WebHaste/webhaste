@@ -141,6 +141,36 @@ button.primary:hover { background: #1d4ed8; }
   line-height: 1.5;
   outline: none;
 }
+.visual-area .cs-block {
+  position: relative;
+  outline: 1px dashed rgba(140, 140, 140, 0.6);
+  outline-offset: 2px;
+}
+.visual-area .cs-block:hover { outline-color: #2563eb; }
+.cs-block-toolbar {
+  display: none;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  gap: 2px;
+  background: #1e1e1e;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 2px;
+  z-index: 5;
+}
+.visual-area .cs-block:hover .cs-block-toolbar { display: flex; }
+.cs-block-toolbar button {
+  background: transparent;
+  border: none;
+  color: #eee;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 2px 5px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.cs-block-toolbar button:hover { background: #3a3a3a; }
 .visual-area h1 { font-size: 1.8em; }
 .visual-area h2 { font-size: 1.4em; }
 .visual-area a { color: #2563eb; }
@@ -358,6 +388,42 @@ dialog input, dialog textarea {
   word-break: break-all;
   line-height: 1.2;
 }
+
+/* ---- Blocks dialog ---- */
+#blocksDialog { width: 480px; max-width: 90vw; }
+
+.block-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 6px;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+  background: #1e1e1e;
+}
+.block-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  background: #292929;
+  border: 1px solid #3d3d3d;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+}
+.block-tile:hover { border-color: #2563eb; }
+.block-tile-icon { font-size: 26px; }
+.block-tile-label { font-size: 11px; color: #ccc; line-height: 1.2; }
+.block-tile-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.block-tile-disabled:hover { border-color: #3d3d3d; }
 
 /* ---- Image properties dialog ---- */
 #imagePropsDialog { width: 420px; max-width: 90vw; }

@@ -14,6 +14,70 @@ let currentFileHandle = null;  // handle for whatever file is open in the editor
 let currentFileName = null;
 const fileCache = new Map();   // name -> text content, kept in sync with disk
 
+const HTML_VOID_ELEMENTS = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input",
+  "link", "meta", "param", "source", "track", "wbr",
+]);
+// Matches an opening or closing tag while respecting quoted attribute
+// values, so a stray "<" or ">" inside e.g. title="a > b" doesn't throw off
+// tag matching.
+const HTML_TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^'">])*?)(\/?)>/g;
+
+// Flags unclosed/mismatched HTML tags in Code view via CodeMirror's lint
+// addon. CodeMirror ships no HTML linter of its own (only JS/CSS ones that
+// need external JSHint/CSSLint), and without this a deleted or mismatched
+// closing tag gave zero feedback until the Visual view (or a block's
+// move/delete toolbar) broke in some confusing way. This is tag-name
+// balance tracking, not a full HTML5 parser — good enough for what
+// actually goes wrong (a missing/extra closing tag), not a validator for
+// every HTML edge case.
+function htmlTagLint(text, options, cm) {
+  const annotations = [];
+  const stack = [];
+  HTML_TAG_RE.lastIndex = 0;
+  let match;
+  while ((match = HTML_TAG_RE.exec(text))) {
+    const [full, closingSlash, rawName, , selfClosingSlash] = match;
+    const name = rawName.toLowerCase();
+    const start = match.index;
+    const end = start + full.length;
+
+    if (closingSlash) {
+      let i = stack.length - 1;
+      while (i >= 0 && stack[i].name !== name) i--;
+      if (i === -1) {
+        annotations.push({
+          from: cm.posFromIndex(start),
+          to: cm.posFromIndex(end),
+          message: `Unexpected closing tag </${name}> — no matching opening tag.`,
+          severity: "error",
+        });
+      } else {
+        for (let j = stack.length - 1; j > i; j--) {
+          annotations.push({
+            from: stack[j].from,
+            to: stack[j].to,
+            message: `Unclosed <${stack[j].name}> tag.`,
+            severity: "error",
+          });
+        }
+        stack.length = i;
+      }
+    } else if (!selfClosingSlash && !HTML_VOID_ELEMENTS.has(name)) {
+      stack.push({ name, from: cm.posFromIndex(start), to: cm.posFromIndex(end) });
+    }
+  }
+  for (const open of stack) {
+    annotations.push({
+      from: open.from,
+      to: open.to,
+      message: `Unclosed <${open.name}> tag.`,
+      severity: "error",
+    });
+  }
+  return annotations;
+}
+
 // CodeMirror replaces the plain #codeArea textarea for the "Code" view.
 // fromTextArea() hides the original textarea and inserts its own wrapper
 // element right after it, so all reads/writes go through the `cm` API
@@ -27,6 +91,8 @@ const cm = CodeMirror.fromTextArea(document.getElementById("codeArea"), {
   styleActiveLine: true,
   tabSize: 2,
   indentUnit: 2,
+  gutters: ["CodeMirror-linenumbers", "CodeMirror-lint-markers"],
+  lint: { getAnnotations: htmlTagLint, delay: 400 },
 });
 cm.getWrapperElement().classList.add("hidden");
 // setValue() (used when loading a file or switching views) fires "change"
@@ -142,6 +208,38 @@ async function getAssetsDirHandle(create = false) {
     if (err.name === "NotFoundError") return null;
     throw err;
   }
+}
+
+// ---- .chromesite/blocks/ — the site-specific extension point for
+// BLOCK_LIBRARY (see below). Not auto-scaffolded like templates/, since
+// it's opt-in: it doesn't exist until a site owner adds a block file by
+// hand, same as assets/.
+async function getBlocksDirHandle(create = false) {
+  try {
+    return await (await getConfigDir(true)).getDirectoryHandle("blocks", { create });
+  } catch (err) {
+    if (err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
+// One block per .html file in .chromesite/blocks/. Content is used as-is
+// for any CSS framework, since it's markup the site author already wrote
+// for their own site — no editor changes needed to add one, just the file.
+async function getCustomBlocks() {
+  const dir = await getBlocksDirHandle(false);
+  if (!dir) return [];
+  const blocks = [];
+  for await (const [name, handle] of dir.entries()) {
+    if (handle.kind !== "file" || !name.endsWith(".html")) continue;
+    const html = await (await handle.getFile()).text();
+    blocks.push({ id: `custom:${name}`, label: labelFromBlockFilename(name), icon: "🧩", html });
+  }
+  return blocks;
+}
+
+function labelFromBlockFilename(name) {
+  return name.replace(/\.html?$/i, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 const ASSET_MIME_TYPES = {
@@ -409,6 +507,7 @@ async function openFile(name, handle) {
   fileCache.set(name, text);
   cm.setValue(text);
   document.getElementById("visualArea").innerHTML = text;
+  decorateBlocks();
   renderPreview();
   highlightActiveFile(name);
   setEditorEnabled(true);
@@ -450,6 +549,43 @@ document.getElementById("visualArea").addEventListener("error", async (e) => {
   }
 }, true);
 
+// Appends a move-up/move-down/delete toolbar to every block wrapper that
+// doesn't already have one — idempotent, so it's safe to call after any
+// wholesale replacement of #visualArea's content (loading a file, switching
+// back from Code view, inserting a new block). contenteditable="false" on
+// the toolbar keeps it from being treated as editable text by the
+// surrounding contenteditable region; serializeVisualArea() strips it back
+// out before anything gets saved or published.
+function decorateBlocks() {
+  document.querySelectorAll("#visualArea .cs-block").forEach((block) => {
+    if (block.querySelector(":scope > .cs-block-toolbar")) return;
+    const toolbar = document.createElement("div");
+    toolbar.className = "cs-block-toolbar";
+    toolbar.contentEditable = "false";
+    toolbar.innerHTML =
+      '<button type="button" data-action="move-up" title="Move block up">↑</button>' +
+      '<button type="button" data-action="move-down" title="Move block down">↓</button>' +
+      '<button type="button" data-action="delete" title="Delete block">🗑</button>';
+    block.appendChild(toolbar);
+  });
+}
+
+document.getElementById("visualArea").addEventListener("click", (e) => {
+  const btn = e.target.closest(".cs-block-toolbar button");
+  if (!btn) return;
+  e.preventDefault();
+  const block = btn.closest(".cs-block");
+  if (btn.dataset.action === "delete") {
+    if (!confirm("Delete this block? This can't be undone.")) return;
+    block.remove();
+  } else if (btn.dataset.action === "move-up" && block.previousElementSibling) {
+    block.parentNode.insertBefore(block, block.previousElementSibling);
+  } else if (btn.dataset.action === "move-down" && block.nextElementSibling) {
+    block.parentNode.insertBefore(block.nextElementSibling, block);
+  }
+  scheduleSave();
+});
+
 // Reverts any live-display blob: URLs back to their real "assets/x.jpg"
 // path before the content is read out of #visualArea — used any time that
 // content needs to leave this view (saving, switching to Code view, etc.).
@@ -459,6 +595,7 @@ function serializeVisualArea() {
     img.setAttribute("src", img.dataset.assetSrc);
     img.removeAttribute("data-asset-src");
   });
+  clone.querySelectorAll(".cs-block-toolbar").forEach((el) => el.remove());
   return clone.innerHTML;
 }
 
@@ -482,6 +619,7 @@ function switchView(target) {
 
   if (target === "visual") {
     visualEl.innerHTML = html;
+    decorateBlocks();
     visualEl.classList.remove("hidden");
     cmEl.classList.add("hidden");
     richControls.style.visibility = "visible";
@@ -558,6 +696,68 @@ function insertSnippet(snippet) {
     document.execCommand("insertHTML", false, snippet);
   } else {
     cm.replaceSelection(snippet);
+    cm.focus();
+  }
+  scheduleSave();
+}
+
+function blockWrapperAttrs(blockTypeId) {
+  return {
+    id: `cs-block-${crypto.randomUUID().slice(0, 8)}`,
+    className: `cs-block cs-block--${slugifyBlockType(blockTypeId)}`,
+  };
+}
+
+// Inserts a block. Visual view builds a real DOM node and inserts it via
+// Range.insertNode() rather than routing through insertSnippet()'s
+// execCommand("insertHTML", ...) — Blink's insertHTML command re-parses and
+// "cleans up" the HTML string during insertion, and for a wrapper <div>
+// whose only content is several structurally similar block siblings (e.g.
+// the 3-column features block: three .col-md-4 divs), that cleanup can
+// split/duplicate the wrapper across each child instead of keeping one
+// wrapper around the whole block. Building the node ourselves and
+// inserting it directly sidesteps that reconciliation entirely. Code view
+// has no such quirk — it's plain text, not contenteditable — so it keeps
+// using a wrapped string via CodeMirror's own replaceSelection.
+function insertBlock(blockTypeId, html) {
+  const { id, className } = blockWrapperAttrs(blockTypeId);
+
+  if (currentView === "visual") {
+    const wrapper = document.createElement("div");
+    wrapper.id = id;
+    wrapper.className = className;
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    wrapper.appendChild(template.content);
+
+    const visualEl = document.getElementById("visualArea");
+    visualEl.focus();
+    const sel = window.getSelection();
+    if (savedVisualRange && savedVisualRange.startContainer.isConnected) {
+      sel.removeAllRanges();
+      sel.addRange(savedVisualRange);
+    }
+
+    let range;
+    if (sel && sel.rangeCount > 0 && visualEl.contains(sel.getRangeAt(0).startContainer)) {
+      range = sel.getRangeAt(0);
+      range.deleteContents();
+    } else {
+      // No usable caret (e.g. a stale/cleared selection) — insert at the
+      // end, same fallback spirit as the comment in insertSnippet() above.
+      range = document.createRange();
+      range.selectNodeContents(visualEl);
+      range.collapse(false);
+    }
+    range.insertNode(wrapper);
+    range.setStartAfter(wrapper);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    decorateBlocks();
+  } else {
+    cm.replaceSelection(`<div id="${id}" class="${className}">\n${html}\n</div>`);
     cm.focus();
   }
   scheduleSave();
@@ -706,6 +906,70 @@ document.getElementById("assetUploadInput").addEventListener("change", async (e)
   await writable.close();
   await renderAssetGrid();
   setStatus(`Uploaded ${file.name}.`);
+});
+
+// ---- Blocks dialog — built-in BLOCK_LIBRARY + site-specific .chromesite/blocks/ ----
+const blocksDialog = document.getElementById("blocksDialog");
+let blockHtmlById = new Map();
+
+function makeBlockTile(id, icon, label, html) {
+  const tile = document.createElement("div");
+  tile.className = "block-tile";
+  tile.dataset.id = id;
+  if (html) {
+    blockHtmlById.set(id, html);
+  } else {
+    tile.classList.add("block-tile-disabled");
+    tile.title = "Not available for the site's current CSS framework.";
+  }
+  const iconEl = document.createElement("div");
+  iconEl.className = "block-tile-icon";
+  iconEl.textContent = icon;
+  const labelEl = document.createElement("div");
+  labelEl.className = "block-tile-label";
+  labelEl.textContent = label;
+  tile.append(iconEl, labelEl);
+  return tile;
+}
+
+async function renderBlockGrid() {
+  blockHtmlById = new Map();
+  const grid = document.getElementById("blockGrid");
+  grid.innerHTML = "";
+
+  const config = await getSiteConfig();
+  const framework = config.cssFramework || "bootstrap5";
+
+  BLOCK_LIBRARY.forEach((block) => {
+    grid.appendChild(makeBlockTile(block.id, block.icon, block.label, block.frameworks[framework]));
+  });
+  (await getCustomBlocks()).forEach((block) => {
+    grid.appendChild(makeBlockTile(block.id, block.icon, block.label, block.html));
+  });
+}
+
+document.getElementById("openBlocksBtn").addEventListener("click", async () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
+  captureSelection();
+  await renderBlockGrid();
+  blocksDialog.showModal();
+});
+
+document.getElementById("blocksDialogClose").addEventListener("click", () => blocksDialog.close());
+
+document.getElementById("blockGrid").addEventListener("click", (e) => {
+  const tile = e.target.closest(".block-tile");
+  if (!tile || tile.classList.contains("block-tile-disabled")) return;
+  const html = blockHtmlById.get(tile.dataset.id);
+  if (!html) return;
+  // Close BEFORE inserting — see the identical comment on the assets grid
+  // click handler above for why.
+  blocksDialog.close();
+  insertBlock(tile.dataset.id, html);
+  setStatus("Inserted block.");
 });
 
 // ---- Image properties dialog — alt text + framework class presets ----
@@ -863,6 +1127,108 @@ const FRAMEWORK_ASSETS = {
   tailwind: '<script src="https://cdn.tailwindcss.com"></script>',
   none: "",
 };
+
+// Used by blockWrapperAttrs() (see insertBlock()) to build each block's
+// type-scoped class, e.g. "hero" -> cs-block--hero.
+function slugifyBlockType(id) {
+  return id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// Pre-baked, framework-styled HTML blocks — inserted via insertBlock(),
+// then hand-edited in place (headline/copy/images), Elementor-style. Only
+// bootstrap5 markup exists today; a block with no entry for the site's
+// active framework is shown disabled in the grid rather than hidden, so
+// it's discoverable once that variant gets added. Site-specific custom
+// blocks don't belong here — see getCustomBlocks() / .chromesite/blocks/.
+const BLOCK_LIBRARY = [
+  {
+    id: "hero",
+    label: "Hero",
+    icon: "🖼️",
+    frameworks: {
+      bootstrap5: `<div class="px-4 py-5 my-5 text-center">
+  <h1 class="display-5 fw-bold">Your Headline Here</h1>
+  <div class="col-lg-6 mx-auto">
+    <p class="lead mb-4">A short, compelling line about what you offer and why it matters.</p>
+    <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+      <button type="button" class="btn btn-primary btn-lg px-4 gap-3">Get Started</button>
+      <button type="button" class="btn btn-outline-secondary btn-lg px-4">Learn More</button>
+    </div>
+  </div>
+</div>`,
+    },
+  },
+  {
+    id: "cta",
+    label: "Call to Action",
+    icon: "📣",
+    frameworks: {
+      bootstrap5: `<div class="p-5 mb-4 bg-light rounded-3 text-center">
+  <h2 class="fw-bold">Ready to get started?</h2>
+  <p class="fs-5 mb-4">Join hundreds of happy customers today.</p>
+  <button type="button" class="btn btn-primary btn-lg">Sign Up Now</button>
+</div>`,
+    },
+  },
+  {
+    id: "testimonial",
+    label: "Testimonial",
+    icon: "💬",
+    frameworks: {
+      bootstrap5: `<div class="text-center p-4">
+  <blockquote class="blockquote">
+    <p>&ldquo;This product completely changed the way we work. Couldn't imagine going back.&rdquo;</p>
+  </blockquote>
+  <figcaption class="blockquote-footer mt-2">
+    Jane Doe, <cite title="Company">Acme Co.</cite>
+  </figcaption>
+</div>`,
+    },
+  },
+  {
+    id: "contact",
+    label: "Contact",
+    icon: "✉️",
+    frameworks: {
+      bootstrap5: `<div class="row g-4 p-4">
+  <div class="col-md-6">
+    <h2>Get in Touch</h2>
+    <p>We'd love to hear from you. Reach out any time.</p>
+    <p>📍 123 Main St, Anytown USA<br>📞 (555) 123-4567<br>✉️ hello@example.com</p>
+  </div>
+  <div class="col-md-6">
+    <form>
+      <div class="mb-3"><input type="text" class="form-control" placeholder="Your Name"></div>
+      <div class="mb-3"><input type="email" class="form-control" placeholder="Your Email"></div>
+      <div class="mb-3"><textarea class="form-control" rows="4" placeholder="Message"></textarea></div>
+      <button type="button" class="btn btn-primary">Send Message</button>
+    </form>
+  </div>
+</div>`,
+    },
+  },
+  {
+    id: "feature-columns",
+    label: "3-Column Features",
+    icon: "▦",
+    frameworks: {
+      bootstrap5: `<div class="row g-4 p-4 text-center">
+  <div class="col-md-4">
+    <h3>Feature One</h3>
+    <p>A short description of this feature and the value it provides.</p>
+  </div>
+  <div class="col-md-4">
+    <h3>Feature Two</h3>
+    <p>A short description of this feature and the value it provides.</p>
+  </div>
+  <div class="col-md-4">
+    <h3>Feature Three</h3>
+    <p>A short description of this feature and the value it provides.</p>
+  </div>
+</div>`,
+    },
+  },
+];
 
 // The Live Preview pane renders via iframe.srcdoc, which inherits editor.html's
 // extension CSP (script-src 'self') — so the CDN <script> tags above get
@@ -1341,6 +1707,7 @@ document.getElementById("siteSettingsBtn").addEventListener("click", async () =>
   const config = await getSiteConfig();
   document.getElementById("cfgSiteName").value = config.siteName || "";
   document.getElementById("cfgDomain").value = config.domain || "";
+  document.getElementById("templateSelect").value = config.activeTemplate || "";
   document.getElementById("cfgParagraphMode").value = config.paragraphMode || "p";
   document.getElementById("cfgCssFramework").value = config.cssFramework || "bootstrap5";
   document.getElementById("cfgDeploymentTarget").value = config.deploymentTarget || "cloudflare";
@@ -1372,15 +1739,6 @@ function applyParagraphMode(mode) {
   }
 }
 
-document.getElementById("templateSelect").addEventListener("change", async () => {
-  // Persist the choice into site.config.json so it travels with the repo,
-  // not just the current browser session.
-  const config = await getSiteConfig();
-  config.activeTemplate = document.getElementById("templateSelect").value;
-  const cfgDir = await getConfigDir(true);
-  await writeJSONFile(cfgDir, "site.config.json", config);
-  renderPreview();
-});
 
 // ---- Publish flow — routes to the configured deployment target ----
 document.getElementById("publishBtn").addEventListener("click", async () => {

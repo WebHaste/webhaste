@@ -5,6 +5,7 @@
 <title>ChromeSite</title>
 <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css" />
 <link rel="stylesheet" href="vendor/codemirror/theme/dracula.css" />
+<link rel="stylesheet" href="vendor/codemirror/addon/lint/lint.css" />
 <link rel="stylesheet" href="editor.css" />
 </head>
 <body>
@@ -14,9 +15,6 @@
     <button id="newFile">＋ New File</button>
     <span id="folderName" class="folder-name">No folder selected</span>
     <div class="spacer"></div>
-    <select id="templateSelect">
-      <option value="">No layout (raw HTML)</option>
-    </select>
     <button id="siteSettingsBtn">⚙️ Site Settings</button>
     <button id="editNav">🔗 Edit Menus</button>
     <button id="publishBtn" class="primary">🚀 Publish</button>
@@ -46,6 +44,7 @@
         <div class="asset-controls" id="assetControls">
           <button id="insertImageBtn">🖼️ Image</button>
           <button id="openAssetsBtn">📎 Assets</button>
+          <button id="openBlocksBtn">🧩 Blocks</button>
         </div>
         <input type="file" id="imageFastPathInput" accept="image/*" class="hidden" />
       </div>
@@ -82,6 +81,11 @@
     <h3>Site Settings — .chromesite/site.config.json</h3>
     <label>Site Name <input id="cfgSiteName" type="text" /></label>
     <label>Domain <input id="cfgDomain" type="text" placeholder="example.com" /></label>
+    <label>Layout Template
+      <select id="templateSelect">
+        <option value="">No layout (raw HTML)</option>
+      </select>
+    </label>
     <label>New line creates
       <select id="cfgParagraphMode">
         <option value="p">&lt;p&gt; paragraphs</option>
@@ -161,6 +165,15 @@
     </div>
   </dialog>
 
+  <dialog id="blocksDialog">
+    <h3>Insert Block</h3>
+    <p class="hint">Click a block to insert it, then edit its text/images in place. Add your own by dropping .html files into .chromesite/blocks/.</p>
+    <div id="blockGrid" class="block-grid"></div>
+    <div class="dialog-actions">
+      <button id="blocksDialogClose">Close</button>
+    </div>
+  </dialog>
+
   <dialog id="imagePropsDialog">
     <h3>Image Properties</h3>
     <label>Alt Text <input type="text" id="imgAltInput" /></label>
@@ -208,6 +221,7 @@
   <script src="vendor/codemirror/addon/edit/matchbrackets.js"></script>
   <script src="vendor/codemirror/addon/edit/closetag.js"></script>
   <script src="vendor/codemirror/addon/selection/active-line.js"></script>
+  <script src="vendor/codemirror/addon/lint/lint.js"></script>
   <script src="vendor/sortablejs/Sortable.min.js"></script>
   <script src="vendor/hash-wasm/blake3.umd.min.js"></script>
   <script src="editor.js"></script>
