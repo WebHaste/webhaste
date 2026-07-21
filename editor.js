@@ -211,6 +211,19 @@ async function getAssetsDirHandle(create = false) {
   }
 }
 
+// ---- scripts/ — a published (not dot-prefixed) folder for template-level
+// styles.css/main.js, kept separate from assets/ so the assets dialog (an
+// "insert into page content" picker) never has to filter them out — it
+// simply never reads this folder. Same lazy-create behavior as assets/.
+async function getScriptsDirHandle(create = false) {
+  try {
+    return await dirHandle.getDirectoryHandle("scripts", { create });
+  } catch (err) {
+    if (err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
 // ---- .chromesite/blocks/ — the site-specific extension point for
 // BLOCK_LIBRARY (see below). Not auto-scaffolded like templates/, since
 // it's opt-in: it doesn't exist until a site owner adds a block file by
@@ -251,6 +264,8 @@ const ASSET_MIME_TYPES = {
   svg: "image/svg+xml",
   webp: "image/webp",
   pdf: "application/pdf",
+  css: "text/css",
+  js: "text/javascript",
 };
 const ASSET_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp"]);
 
@@ -267,11 +282,15 @@ function isImageAsset(name) {
   return ASSET_IMAGE_EXTENSIONS.has(assetExtension(name));
 }
 
-// Snippet inserted into page content for a given uploaded asset.
+// Snippet inserted into page content for a given uploaded asset. Root-
+// relative (leading /) so it resolves correctly regardless of how deep the
+// page it's inserted into ends up living (e.g. /shows/baldknobbers.html) —
+// a page-relative "assets/x.png" only survives on top-level pages, since
+// browsers resolve it against the URL's own directory, not the site root.
 function assetSnippet(name) {
   return isImageAsset(name)
-    ? `<img src="assets/${name}" alt="${name}">`
-    : `<a href="assets/${name}">${name}</a>`;
+    ? `<img src="/assets/${name}" alt="${name}">`
+    : `<a href="/assets/${name}">${name}</a>`;
 }
 
 // Lowercases and strips spaces/reserved URL characters from a page filename
@@ -548,11 +567,15 @@ document.getElementById("visualArea").addEventListener("error", async (e) => {
   const img = e.target;
   if (!img || img.tagName !== "IMG") return;
   const original = img.dataset.assetSrc || img.getAttribute("src");
-  if (!original || !original.startsWith("assets/")) return;
+  // Accepts both "assets/x.jpg" (page-relative) and "/assets/x.jpg" (root-
+  // relative) — the latter is what assetSnippet() now emits by default, but
+  // hand-authored templates/content may use either form.
+  const unrooted = original?.replace(/^\//, "");
+  if (!unrooted || !unrooted.startsWith("assets/")) return;
   const assetsDir = await getAssetsDirHandle(false);
   if (!assetsDir) return;
   try {
-    const fileHandle = await assetsDir.getFileHandle(original.slice("assets/".length));
+    const fileHandle = await assetsDir.getFileHandle(unrooted.slice("assets/".length));
     img.dataset.assetSrc = original;
     img.src = URL.createObjectURL(await fileHandle.getFile());
   } catch {
@@ -1239,6 +1262,34 @@ const BLOCK_LIBRARY = [
 </div>`,
     },
   },
+  {
+    id: "video-embed",
+    label: "Video Embed",
+    icon: "📺",
+    frameworks: {
+      // Fixed 16:9 ratio wrapper — right for video (YouTube, Vimeo, etc.),
+      // wrong for anything whose content height isn't a fixed proportion of
+      // its width. See "form-embed" below for that case. There's no
+      // editable-in-place way to retarget an iframe's src from Visual view
+      // (unlike text content), so the placeholder URL is meant to be swapped
+      // out via Code view for the real embed URL.
+      bootstrap5: `<div class="ratio ratio-16x9 my-4">
+  <iframe src="https://example.com/replace-with-your-embed-url" title="Video embed" allowfullscreen></iframe>
+</div>`,
+    },
+  },
+  {
+    id: "form-embed",
+    label: "Form Embed",
+    icon: "📋",
+    frameworks: {
+      // No aspect-ratio wrapper — forms (Zoho Forms, etc.) vary in height by
+      // content, not by width, so a ratio div would either clip them or leave
+      // dead space. min-height is just a reasonable starting point; the site
+      // author adjusts it in Code view to match their actual form's height.
+      bootstrap5: `<iframe src="https://example.com/replace-with-your-embed-url" title="Form embed" class="w-100 border-0 my-4" style="min-height: 600px;"></iframe>`,
+    },
+  },
 ];
 
 // The Live Preview pane renders via iframe.srcdoc, which inherits editor.html's
@@ -1403,9 +1454,16 @@ function fileToDataUrl(file) {
   });
 }
 
+// Matches both "assets/x.jpg" (page-relative) and "/assets/x.jpg" (root-
+// relative) — templates need the root-relative form to resolve correctly on
+// nested pages once published (see rewriteScriptsForPreview's comment
+// below for the same issue on the CSS side), but the preview iframe has no
+// real root to resolve either form against, so both need rewriting here.
+const ASSET_SRC_RE = /src="\/?assets\/([^"]+)"/g;
+
 async function rewriteAssetSrcsForPreview(html) {
   const names = new Set();
-  html.replace(/src="assets\/([^"]+)"/g, (match, name) => {
+  html.replace(ASSET_SRC_RE, (match, name) => {
     names.add(name);
     return match;
   });
@@ -1424,8 +1482,54 @@ async function rewriteAssetSrcsForPreview(html) {
     }
   }
 
-  return html.replace(/src="assets\/([^"]+)"/g, (match, name) =>
+  return html.replace(ASSET_SRC_RE, (match, name) =>
     urlByName[name] ? `src="${urlByName[name]}"` : match
+  );
+}
+
+// scripts/*.css hits the same broken-relative-path problem as assets/*.jpg
+// above, but the fix differs: a <link href="scripts/x.css"> can't be
+// swapped for a data: URL and left as a <link> the way images can, because
+// that's still a resource *load*, and while style-src isn't restricted by
+// editor.html's CSP (see FRAMEWORK_ASSETS_PREVIEW's comment above), there's
+// no reason to route through a URL at all when the actual CSS text is sitting
+// right there on disk — so the whole <link> tag is replaced with an inline
+// <style> block containing the file's real contents instead.
+// scripts/*.js is NOT handled here: executing it would require a <script>
+// that's either inline or src="data:"/"blob:", and script-src 'self' (a
+// Manifest V3 platform restriction, see FRAMEWORK_ASSETS_PREVIEW's comment)
+// blocks all three for anything not shipped inside the extension package
+// itself — which arbitrary per-site scripts/main.js never is. There's no
+// preview-side workaround; test JS via "Render to local folder" and opening
+// the output directly in a normal browser tab (no extension CSP there), or
+// via the published site.
+// Same page-relative vs. root-relative duality as ASSET_SRC_RE above.
+const SCRIPTS_CSS_HREF_RE = /href="\/?scripts\/([^"]+\.css)"/g;
+const SCRIPTS_CSS_LINK_RE = /<link[^>]*href="\/?scripts\/([^"]+\.css)"[^>]*>/g;
+
+async function rewriteScriptsForPreview(html) {
+  const names = new Set();
+  html.replace(SCRIPTS_CSS_HREF_RE, (match, name) => {
+    names.add(name);
+    return match;
+  });
+  if (!names.size) return html;
+
+  const scriptsDir = await getScriptsDirHandle(false);
+  if (!scriptsDir) return html;
+
+  const cssByName = {};
+  for (const name of names) {
+    try {
+      const fileHandle = await scriptsDir.getFileHandle(name);
+      cssByName[name] = await (await fileHandle.getFile()).text();
+    } catch {
+      // File genuinely missing from scripts/ — leave the link broken in preview too.
+    }
+  }
+
+  return html.replace(SCRIPTS_CSS_LINK_RE, (match, name) =>
+    cssByName[name] !== undefined ? `<style>\n${cssByName[name]}\n</style>` : match
   );
 }
 
@@ -1434,7 +1538,9 @@ async function composePage(rawContent, title, isPreview = false) {
   if (!templateText) {
     // "raw HTML" mode, no wrapping
     if (!isPreview) return rawContent;
-    return (await rewriteAssetSrcsForPreview(rawContent)) + PREVIEW_LINK_GUARD_SCRIPT;
+    let out = await rewriteAssetSrcsForPreview(rawContent);
+    out = await rewriteScriptsForPreview(out);
+    return out + PREVIEW_LINK_GUARD_SCRIPT;
   }
 
   const [config, navData, pagesData] = await Promise.all([getSiteConfig(), getNavData(), getPagesData()]);
@@ -1457,6 +1563,7 @@ async function composePage(rawContent, title, isPreview = false) {
     .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
   if (isPreview) {
     out = await rewriteAssetSrcsForPreview(out);
+    out = await rewriteScriptsForPreview(out);
     out += PREVIEW_LINK_GUARD_SCRIPT;
   }
   return out;
@@ -1850,6 +1957,20 @@ async function getProjectAssets() {
   return assets;
 }
 
+// Same shape as getProjectAssets(), for scripts/ instead — kept as a
+// separate function (rather than a shared helper with a folder-name arg)
+// since the two are read by different call sites for different reasons.
+async function getProjectScripts() {
+  const scriptsDir = await getScriptsDirHandle(false);
+  if (!scriptsDir) return {};
+  const scripts = {};
+  for await (const [name, handle] of scriptsDir.entries()) {
+    if (handle.kind !== "file") continue;
+    scripts[name] = await (await handle.getFile()).arrayBuffer();
+  }
+  return scripts;
+}
+
 // ---- Cloudflare Pages Direct Upload — a content-hash-addressed protocol ----
 // This is NOT a single multipart POST of raw files + a size manifest (an
 // earlier version of this function assumed that, and produced deployments
@@ -1889,9 +2010,9 @@ function withCharset(mimeType) {
   return mimeType.startsWith("text/") ? `${mimeType}; charset=utf-8` : mimeType;
 }
 
-// Normalizes composed pages (strings) and raw assets (ArrayBuffers) into
-// one list, with the leading-slash paths Cloudflare's manifest requires.
-function buildPagesFileList(pages, assets) {
+// Normalizes composed pages (strings) and raw assets/scripts (ArrayBuffers)
+// into one list, with the leading-slash paths Cloudflare's manifest requires.
+function buildPagesFileList(pages, assets, scripts = {}) {
   const files = [];
   for (const [name, html] of Object.entries(pages)) {
     files.push({
@@ -1903,6 +2024,13 @@ function buildPagesFileList(pages, assets) {
   for (const [name, arrayBuffer] of Object.entries(assets)) {
     files.push({
       path: "/assets/" + name,
+      arrayBuffer,
+      contentType: withCharset(assetMimeType(name)),
+    });
+  }
+  for (const [name, arrayBuffer] of Object.entries(scripts)) {
+    files.push({
+      path: "/scripts/" + name,
       arrayBuffer,
       contentType: withCharset(assetMimeType(name)),
     });
@@ -2025,7 +2153,8 @@ async function publishSite(account, project, token) {
     setStatus("Composing pages...");
     const pages = await getComposedPages();
     const assets = await getProjectAssets();
-    const files = buildPagesFileList(pages, assets);
+    const scripts = await getProjectScripts();
+    const files = buildPagesFileList(pages, assets, scripts);
 
     setStatus(`Hashing ${files.length} file(s)...`);
     await hashFileList(files);
@@ -2094,6 +2223,7 @@ async function publishToNetlify(siteId, token) {
   setStatus("Composing pages...");
   const pages = await getComposedPages();
   const assets = await getProjectAssets();
+  const scripts = await getProjectScripts();
 
   setStatus("Hashing files...");
   const fileEntries = Object.entries(pages).map(([name, content]) => ({
@@ -2102,6 +2232,9 @@ async function publishToNetlify(siteId, token) {
   }));
   for (const [name, arrayBuffer] of Object.entries(assets)) {
     fileEntries.push({ path: "/assets/" + name, content: arrayBuffer });
+  }
+  for (const [name, arrayBuffer] of Object.entries(scripts)) {
+    fileEntries.push({ path: "/scripts/" + name, content: arrayBuffer });
   }
   const digests = {};
   for (const f of fileEntries) digests[f.path] = await sha1Hex(f.content);
@@ -2166,6 +2299,7 @@ async function renderToLocalFolder() {
   setStatus("Composing pages...");
   const pages = await getComposedPages();
   const assets = await getProjectAssets();
+  const scripts = await getProjectScripts();
 
   setStatus(`Writing ${folderName}/ folder...`);
   const distDir = await dirHandle.getDirectoryHandle(folderName, { create: true });
@@ -2186,7 +2320,17 @@ async function renderToLocalFolder() {
     }
   }
 
-  setStatus(`Rendered ${Object.keys(pages).length} page(s) and ${Object.keys(assets).length} asset(s) to the ${folderName}/ folder.`);
+  if (Object.keys(scripts).length) {
+    const distScriptsDir = await distDir.getDirectoryHandle("scripts", { create: true });
+    for (const [name, arrayBuffer] of Object.entries(scripts)) {
+      const handle = await distScriptsDir.getFileHandle(name, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(arrayBuffer);
+      await writable.close();
+    }
+  }
+
+  setStatus(`Rendered ${Object.keys(pages).length} page(s), ${Object.keys(assets).length} asset(s), and ${Object.keys(scripts).length} script(s) to the ${folderName}/ folder.`);
 }
 
 function setStatus(msg) {

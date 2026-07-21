@@ -5,8 +5,14 @@ ChromeSite CMS Extension for Chrome
 *"Money, it's a gas" — but Cloudflare Pages' free tier means this particular idea won't cost you any.*
 
 This is a working skeleton, not a finished product. It proves out the three
-hard parts and leaves the "make it a real editor" work (syntax highlighting,
-multi-file types, drag-and-drop image handling, etc.) for later.
+hard parts — local-first storage, config-as-files, and one-click publish —
+and has since grown a real editing surface on top: CodeMirror-based syntax
+highlighting, image upload/editing, and a block-insertion system. See "Known
+limitations" below for what's still stubbed out.
+
+User-facing help docs and developer docs live at **chromecms.com** (built,
+naturally, using this extension), not in this README. Keep this file scoped
+to "how the pieces fit together for someone hacking on the extension itself."
 
 ## How the pieces fit
 
@@ -32,6 +38,12 @@ created automatically the first time you open a folder:
 my-site/
   index.html              ← published
   about.html               ← published
+  assets/                   ← published; images/PDFs inserted into page content
+    photo.jpg                 via the Assets dialog (Insert Image)
+  scripts/                  ← published; template-level styles.css/main.js —
+    styles.css                 not shown in the Assets dialog, since these
+    main.js                    aren't content, they're referenced by the
+                                template itself (e.g. <link href="scripts/styles.css">)
   .chromesite/              ← committed to git, never published
     site.config.json         ← siteName, domain, paragraphMode, cssFramework, activeTemplate
     nav.json                 ← named menus, supports nested "children" for dropdowns
@@ -39,10 +51,17 @@ my-site/
       simple-layout.html      ← the wrapper template(s)
 ```
 
+Both `assets/` and `scripts/` are lazy — created on first use, not scaffolded
+up front like `.chromesite/`. A template references its own scripts directly
+(`<link rel="stylesheet" href="scripts/styles.css">`, `<script src="scripts/main.js">`)
+since there's no placeholder/auto-injection for them, unlike `{{FRAMEWORK_ASSETS}}`.
+
 Because these are real files (not `chrome.storage.local`), the whole
 project — content, template, menus, and settings — travels with the repo
 when cloned to another machine. `chrome.storage.local` now only remembers
 which folder you last had open; it holds no project data.
+
+### 3. Navigation — `nav.json`
 
 **`nav.json` supports multiple named menus with nesting**, e.g.:
 ```json
@@ -73,7 +92,43 @@ dialog — a drag-and-drop nested tree editor (SortableJS-based) is planned
 for later, but hand-editing in VS Code works fine in the meantime since
 it's a real file.
 
-### 4. Publishing — three deployment targets
+### 4. Content blocks — `BLOCK_LIBRARY` + `.chromesite/blocks/`
+
+Pre-baked HTML snippets inserted via the Blocks dialog, then hand-edited in
+place (headline/copy/images) — Elementor-style, not a live component system.
+Two sources feed the same grid:
+
+- **Built-in (`BLOCK_LIBRARY` in `editor.js`)** — Hero, CTA, Testimonial,
+  Contact, 3-Column Features, Video Embed (16:9 ratio wrapper), Form Embed
+  (no ratio constraint, since form height varies). Each entry keys its markup
+  by `cssFramework` (`bootstrap5` only today); a block with no entry for the
+  site's active framework shows disabled rather than hidden, so it's still
+  discoverable once that variant gets added.
+- **Site-specific (`.chromesite/blocks/*.html`)** — one block per HTML file,
+  used as-is regardless of framework since it's markup the site author
+  already wrote. Opt-in and not scaffolded — the `blocks/` directory doesn't
+  exist until someone adds a file to it, same as `assets/`.
+
+Every inserted block gets a `cs-block` wrapper (`cs-block--<type>` class) and
+a small move-up/move-down/delete toolbar; iframe-based blocks (the two embed
+types) can't have their `src` retargeted from Visual view like text can —
+that's a Code view edit.
+
+### 5. Images & code view
+
+Images go in through the Assets dialog (uploads into `assets/`) and get
+edited in place via an Image Properties dialog — alt text plus
+framework-aware presets (width/float/margin/style; Bootstrap and Tailwind
+each map presets to their own utility classes). The preview iframe can't
+reach the real file bytes behind the File System Access handle, so preview
+rewrites `<img>` srcs to `data:` URLs on the fly; published output keeps the
+real `assets/`-relative path.
+
+The code view now runs on the vendored CodeMirror build (`vendor/codemirror/`)
+for syntax highlighting and lint — the plain-`<textarea>` version mentioned
+in earlier drafts of this README has been replaced.
+
+### 6. Publishing — three deployment targets
 
 Set under Site Settings → Deployment Target (`site.config.json` →
 `deploymentTarget`). The Publish button routes to whichever is active:
@@ -107,17 +162,23 @@ since extension storage isn't as hardened as an OS keychain.
 
 ## Known limitations in this skeleton (intentional, for a v0)
 
-- Only `.html` files are listed/edited — no CSS/JS/image file support yet,
-  though the File System Access calls extend to any file type trivially.
-- The Cloudflare publish step only ships `.html` files — no images or
-  standalone CSS/JS assets yet, even though the framework CDN tags
-  (Bootstrap/Tailwind) are wired in automatically via `{{FRAMEWORK_ASSETS}}`.
+- Only `.html` files are listed/edited in the main file list — `assets/` and
+  `scripts/` are managed through their own upload flows (Assets dialog;
+  hand-editing in VS Code for `scripts/`) rather than the editor's tab list.
+- All three publish paths (Cloudflare, Netlify, local render) now ship
+  `assets/` and `scripts/` alongside the composed `.html` pages, in addition
+  to the framework CDN tags (Bootstrap/Tailwind) wired in automatically via
+  `{{FRAMEWORK_ASSETS}}`.
 - Menu editing is a raw JSON textarea (`.chromesite/nav.json`) — nested
   dropdowns work, but there's no drag-and-drop tree UI yet. Hand-editing in
   VS Code works fine as a stopgap since it's a real file in the repo.
 - No conflict handling if the same folder is open in two tabs.
-- The code view is a plain textarea, not a real code editor. Swapping in
-  CodeMirror or Monaco is a drop-in replacement for `#codeArea`.
+- `BLOCK_LIBRARY` only has `bootstrap5` markup today — Tailwind/plain
+  variants aren't filled in, so those blocks show disabled under other
+  frameworks.
+- No popout/detached preview persistence — the popout preview window
+  (see `editor.js`) re-renders from the same in-memory composition each
+  time rather than being a fully independent view.
 
 ## Try it locally
 
@@ -135,6 +196,6 @@ since extension storage isn't as hardened as an OS keychain.
    to test a real deploy (needs a Pages project already created in the
    Cloudflare dashboard).
 
-*"Breathe, breathe in the air"* — and maybe grab a coffee before wiring up
-the CodeMirror swap, since that's the part that'll actually make this
-pleasant to use day-to-day.
+*"Breathe, breathe in the air"* — the editing surface (CodeMirror, image
+handling, blocks) is in place now; what's left is mostly the items under
+"Known limitations" above, plus building out chromecms.com itself.
