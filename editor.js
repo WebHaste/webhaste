@@ -744,6 +744,23 @@ document.getElementById("formatBlockSelect").addEventListener("change", (e) => {
   scheduleSave();
 });
 
+// Align/List dropdowns group several one-shot actions under a single
+// control (like formatBlockSelect above), but unlike paragraph style,
+// "current alignment" and "current list type" aren't tracked, so leaving
+// the picked option displayed would misrepresent the doc as soon as the
+// user clicks elsewhere. Snapping back to the placeholder after firing
+// keeps these read as action menus, not state indicators.
+document.querySelectorAll("select.action-select").forEach((select) => {
+  select.addEventListener("change", (e) => {
+    const cmd = e.target.value;
+    if (!cmd) return;
+    document.getElementById("visualArea").focus();
+    document.execCommand(cmd, false, undefined);
+    e.target.selectedIndex = 0;
+    scheduleSave();
+  });
+});
+
 document.getElementById("visualArea").addEventListener("input", scheduleSave);
 
 // ---- Asset insertion (Image button + Assets dialog share this) ----
@@ -1693,6 +1710,75 @@ async function composePage(rawContent, title, isPreview = false) {
 // window while they work in the main one.
 let previewWindow = null;
 
+// Chrome around the composed page in the popped-out window: a ribbon
+// showing live viewport dimensions (like DevTools' device toolbar) plus
+// device-size presets, above a sandboxed iframe holding the actual preview.
+// This has to be its own document.write'n shell rather than writing
+// `composed` straight into the popup (the pre-ribbon approach) — a plain
+// top-level document has nowhere to anchor a ribbon that survives
+// renderPreview() re-rendering the page underneath it. The iframe here uses
+// the same sandbox="allow-scripts" (no allow-same-origin) as #previewFrame
+// in the main window, since `composed` is already built for that exact
+// constraint (data: URLs for assets, not blob: — see fileToDataUrl above).
+//
+// resizeTo() sets the *outer* window size, but the device presets need to
+// land on an exact *viewport* width/height (the iframe's content box), so
+// each preset click measures the current chrome/ribbon overhead
+// (outerWidth - innerWidth, outerHeight - innerHeight - ribbon height) and
+// adds it back before calling resizeTo — otherwise the OS title bar and
+// this ribbon would eat into the requested device size instead of the
+// iframe getting exactly e.g. 375x667.
+const PREVIEW_WINDOW_SHELL = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Preview</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; flex-direction: column; }
+  #cs-preview-ribbon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    box-sizing: border-box;
+    padding: 0 10px;
+    background: #252525;
+    border-bottom: 1px solid #3d3d3d;
+    font: 12px/1 -apple-system, "Segoe UI", sans-serif;
+  }
+  #cs-preview-ribbon button {
+    background: #2d2d2d;
+    color: #e0e0e0;
+    border: 1px solid #4a4a4a;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #cs-preview-ribbon button:hover { background: #3a3a3a; }
+  #cs-preview-size {
+    margin-left: auto;
+    color: #999;
+    font-variant-numeric: tabular-nums;
+  }
+  #cs-preview-frame { flex: 1; width: 100%; border: 0; }
+</style>
+</head>
+<body>
+  <div id="cs-preview-ribbon">
+    <button type="button" data-w="375" data-h="667">Phone</button>
+    <button type="button" data-w="800" data-h="1024">Tablet</button>
+    <button type="button" data-w="1100" data-h="800">Laptop</button>
+    <button type="button" data-w="1400" data-h="900">Desktop</button>
+    <span id="cs-preview-size"></span>
+  </div>
+  <iframe id="cs-preview-frame" sandbox="allow-scripts"></iframe>
+  <script src="${chrome.runtime.getURL("preview-window.js")}"></script>
+</body>
+</html>`;
+
 async function renderPreview() {
   const raw = fileCache.get(currentFileName) || "";
   const composed = await composePage(raw, currentFileName, true);
@@ -1701,11 +1787,12 @@ async function renderPreview() {
   // Every edit/save/settings-change already funnels through this one
   // function to refresh the iframe, so piggybacking here is what keeps the
   // popped-out window "live" without needing to hook it in at every call
-  // site separately.
+  // site separately. Only the inner iframe's srcdoc is touched — the ribbon
+  // shell itself is written once, in openPreviewWindowBtn below, and must
+  // survive every re-render.
   if (previewWindow && !previewWindow.closed) {
-    previewWindow.document.open();
-    previewWindow.document.write(composed);
-    previewWindow.document.close();
+    const frame = previewWindow.document.getElementById("cs-preview-frame");
+    if (frame) frame.srcdoc = composed;
   }
 }
 
@@ -1713,12 +1800,22 @@ document.getElementById("openPreviewWindowBtn").addEventListener("click", () => 
   // A fixed window name means clicking this again reuses/focuses the same
   // OS window rather than spawning duplicates, even if our `previewWindow`
   // reference above is stale (e.g. the user closed it without us noticing).
+  const isNewWindow = !previewWindow || previewWindow.closed;
   previewWindow = window.open("", "chromesite-preview-window", "width=1280,height=900");
   if (!previewWindow) {
     setStatus("Preview window was blocked — allow pop-ups for this extension to use it.");
     return;
   }
   previewWindow.focus();
+  // Only (re)write the ribbon shell for a window that doesn't have it yet —
+  // doing this unconditionally on every click would wipe out whatever
+  // device size the user had already resized to, just to refocus a window
+  // that's already open and live.
+  if (isNewWindow || !previewWindow.document.getElementById("cs-preview-frame")) {
+    previewWindow.document.open();
+    previewWindow.document.write(PREVIEW_WINDOW_SHELL);
+    previewWindow.document.close();
+  }
   renderPreview();
 });
 
