@@ -738,6 +738,12 @@ document.getElementById("richControls").addEventListener("click", (e) => {
   scheduleSave();
 });
 
+document.getElementById("formatBlockSelect").addEventListener("change", (e) => {
+  document.getElementById("visualArea").focus();
+  document.execCommand("formatBlock", false, e.target.value);
+  scheduleSave();
+});
+
 document.getElementById("visualArea").addEventListener("input", scheduleSave);
 
 // ---- Asset insertion (Image button + Assets dialog share this) ----
@@ -1296,6 +1302,71 @@ const BLOCK_LIBRARY = [
     <p>A short description of this feature and the value it provides.</p>
   </div>
 </div>`,
+    },
+  },
+  {
+    id: "table",
+    label: "Table",
+    icon: "📊",
+    frameworks: {
+      // "table table-auto" doubles up on purpose: "table" is Bootstrap's
+      // table styling class, "table-auto" is Tailwind's table-layout
+      // utility. Neither framework recognizes the other's class, so the
+      // pair is harmless dead weight under the framework that didn't ask
+      // for it — letting one snippet serve both instead of forking per
+      // framework like the other blocks do.
+      bootstrap5: `<table class="table table-auto">
+  <thead>
+    <tr>
+      <th>Song</th>
+      <th>Artist</th>
+      <th>Year</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>The Sliding Mr. Bones (Next Stop, Pottersville)</td>
+      <td>Malcolm Lockyer</td>
+      <td>1961</td>
+    </tr>
+    <tr>
+      <td>Witchy Woman</td>
+      <td>The Eagles</td>
+      <td>1972</td>
+    </tr>
+    <tr>
+      <td>Shining Star</td>
+      <td>Earth, Wind, and Fire</td>
+      <td>1975</td>
+    </tr>
+  </tbody>
+</table>`,
+      tailwind: `<table class="table table-auto">
+  <thead>
+    <tr>
+      <th>Song</th>
+      <th>Artist</th>
+      <th>Year</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>The Sliding Mr. Bones (Next Stop, Pottersville)</td>
+      <td>Malcolm Lockyer</td>
+      <td>1961</td>
+    </tr>
+    <tr>
+      <td>Witchy Woman</td>
+      <td>The Eagles</td>
+      <td>1972</td>
+    </tr>
+    <tr>
+      <td>Shining Star</td>
+      <td>Earth, Wind, and Fire</td>
+      <td>1975</td>
+    </tr>
+  </tbody>
+</table>`,
     },
   },
   {

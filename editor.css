@@ -118,8 +118,16 @@ button.primary:hover { background: #1d4ed8; }
 .view-toggle { display: flex; border: 1px solid #4a4a4a; border-radius: 4px; overflow: hidden; }
 .toggle-btn { border: none; border-radius: 0; background: #2d2d2d; }
 .toggle-btn.active { background: #2563eb; }
-.rich-controls { display: flex; gap: 4px; }
+.rich-controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .rich-controls button { padding: 4px 8px; font-size: 12px; }
+.rich-controls select {
+  padding: 4px 6px;
+  font-size: 12px;
+  background: #2d2d2d;
+  color: #e0e0e0;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+}
 .asset-controls { display: flex; gap: 4px; }
 .asset-controls button { padding: 4px 8px; font-size: 12px; }
 .CodeMirror.hidden, #visualArea.hidden { display: none; }

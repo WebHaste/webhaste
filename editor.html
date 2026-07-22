@@ -34,13 +34,27 @@
           <button id="viewCode" class="toggle-btn">Code</button>
         </div>
         <div class="rich-controls" id="richControls">
-          <button data-cmd="bold"><b>B</b></button>
-          <button data-cmd="italic"><i>I</i></button>
-          <button data-cmd="formatBlock" data-value="H1">H1</button>
-          <button data-cmd="formatBlock" data-value="H2">H2</button>
-          <button data-cmd="formatBlock" data-value="P">¶</button>
-          <button data-cmd="insertUnorderedList">• List</button>
-          <button data-cmd="createLink">🔗 Link</button>
+          <select id="formatBlockSelect" title="Paragraph style">
+            <option value="P">Paragraph</option>
+            <option value="H1">Heading 1</option>
+            <option value="H2">Heading 2</option>
+            <option value="H3">Heading 3</option>
+            <option value="H4">Heading 4</option>
+            <option value="H5">Heading 5</option>
+            <option value="H6">Heading 6</option>
+            <option value="PRE">Preformatted</option>
+          </select>
+          <button data-cmd="bold" title="Bold"><b>B</b></button>
+          <button data-cmd="italic" title="Italic"><i>I</i></button>
+          <button data-cmd="justifyLeft" title="Align left">Left</button>
+          <button data-cmd="justifyCenter" title="Align center">Center</button>
+          <button data-cmd="justifyRight" title="Align right">Right</button>
+          <button data-cmd="outdent" title="Decrease indent">Outdent</button>
+          <button data-cmd="indent" title="Increase indent">Indent</button>
+          <button data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
+          <button data-cmd="insertOrderedList" title="Numbered list">1. List</button>
+          <button data-cmd="insertHorizontalRule" title="Horizontal rule">― HR</button>
+          <button data-cmd="createLink" title="Insert link">🔗 Link</button>
         </div>
         <div class="asset-controls" id="assetControls">
           <button id="insertImageBtn">🖼️ Image</button>
