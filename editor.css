@@ -125,7 +125,7 @@ button.primary:hover { background: #1d4ed8; }
   font-size: 12px;
   background: #2d2d2d;
   color: #e0e0e0;
-  border: 1px solid #4a4a4a;
+  border: 1px solid #CCCCCC;
   border-radius: 4px;
 }
 .asset-controls { display: flex; gap: 4px; }
@@ -166,8 +166,15 @@ button.primary:hover { background: #1d4ed8; }
   position: relative;
   outline: 1px dashed rgba(140, 140, 140, 0.6);
   outline-offset: 2px;
+  padding: 12px 2px 2px 2px;
+  margin: 10px auto;
 }
-.visual-area .cs-block:hover { outline-color: #2563eb; }
+/* .cs-hovered is applied by JS (see setHoveredBox() in editor.js) to
+   exactly one box at a time — whichever .cs-block/div is nearest the
+   pointer — instead of plain CSS :hover, which bubbles to every ancestor
+   at once and left it unclear which nested div's controls you were
+   looking at. Only one outline/toolbar highlights at a time now. */
+.visual-area .cs-block.cs-hovered { outline-color: #2563eb; }
 .cs-block-toolbar {
   display: none;
   position: absolute;
@@ -180,7 +187,7 @@ button.primary:hover { background: #1d4ed8; }
   padding: 2px;
   z-index: 5;
 }
-.visual-area .cs-block:hover .cs-block-toolbar { display: flex; }
+.visual-area .cs-block.cs-hovered > .cs-block-toolbar { display: flex; }
 .cs-block-toolbar button {
   background: transparent;
   border: none;
@@ -192,6 +199,42 @@ button.primary:hover { background: #1d4ed8; }
   border-radius: 3px;
 }
 .cs-block-toolbar button:hover { background: #3a3a3a; }
+
+/* Plain content <div>s (not .cs-block wrappers, which already have the
+   toolbar above). outline-offset is negative and paired with 1px of
+   padding so a nested div's outline sits visibly inside its parent's
+   instead of the two lines coinciding exactly — that gap also gives the
+   parent div its own hoverable sliver, separate from its child's box (see
+   setHoveredBox() in editor.js). */
+.visual-area div:not(.cs-block):not(.cs-block-toolbar):not(.cs-div-toolbar) {
+  position: relative;
+  outline: 1px dashed rgba(37, 99, 235, 0.25);
+  outline-offset: -1px;
+  padding: 12px 2px 0 2px;
+  margin: 10px auto;
+}
+.visual-area div:not(.cs-block):not(.cs-block-toolbar):not(.cs-div-toolbar).cs-hovered {
+  outline-color: rgba(37, 99, 235, 0.8);
+}
+.cs-div-toolbar {
+  display: none;
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  z-index: 4;
+}
+.visual-area div.cs-hovered > .cs-div-toolbar { display: block; }
+.cs-div-toolbar button {
+  background: #1e1e1e;
+  color: #eee;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+.cs-div-toolbar button:hover { background: #3a3a3a; }
 .visual-area h1 { font-size: 1.8em; }
 .visual-area h2 { font-size: 1.4em; }
 .visual-area a { color: #2563eb; }

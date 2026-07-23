@@ -581,7 +581,7 @@ async function openFile(name, handle) {
   fileCache.set(name, text);
   cm.setValue(text);
   document.getElementById("visualArea").innerHTML = text;
-  decorateBlocks();
+  decorateVisualArea();
   renderPreview();
   highlightActiveFile(name);
   setEditorEnabled(true);
@@ -641,6 +641,7 @@ function decorateBlocks() {
     toolbar.className = "cs-block-toolbar";
     toolbar.contentEditable = "false";
     toolbar.innerHTML =
+      '<button type="button" data-action="edit-attrs" title="Edit ID / classes">⚙</button>' +
       '<button type="button" data-action="move-up" title="Move block up">↑</button>' +
       '<button type="button" data-action="move-down" title="Move block down">↓</button>' +
       '<button type="button" data-action="delete" title="Delete block">🗑</button>';
@@ -648,12 +649,83 @@ function decorateBlocks() {
   });
 }
 
+// Same idea as decorateBlocks() above, but for every plain <div> in the
+// content — not just .cs-block wrappers — so nested layout divs (a
+// 3-column block's individual columns, a hand-authored wrapper, etc.) are
+// visible and gain a small cog for editing id/class without dropping into
+// Code view. .cs-block itself is skipped: it already has the move/delete
+// toolbar in the same top-right corner, and a second one would overlap it.
+function decorateDivs() {
+  document.querySelectorAll("#visualArea div").forEach((div) => {
+    if (div.classList.contains("cs-block")) return;
+    if (div.classList.contains("cs-block-toolbar") || div.classList.contains("cs-div-toolbar")) return;
+    if (div.querySelector(":scope > .cs-div-toolbar")) return;
+    const toolbar = document.createElement("div");
+    toolbar.className = "cs-div-toolbar";
+    toolbar.contentEditable = "false";
+    toolbar.innerHTML = '<button type="button" title="Edit ID / classes">⚙</button>';
+    div.appendChild(toolbar);
+  });
+}
+
+// Nested divs used to all highlight (and all show their toolbar) at once
+// on hover, because CSS :hover bubbles to every ancestor — hovering three
+// levels deep lit up three outlines and stacked three toolbars, with no
+// way to tell which one belonged to which box. This tracks the single
+// nearest .cs-block/div under the pointer (e.target is always the
+// innermost element hit-tested, so .closest() from there naturally finds
+// the most specific decorated box, not the outermost one) and toggles
+// .cs-hovered on just that one box, so exactly one outline/toolbar is
+// active at a time. The 1px padding on plain divs (see editor.css) matters
+// here too: it leaves a thin sliver of a parent div that isn't covered by
+// any child's box, so hovering that sliver targets the parent specifically.
+let hoveredBox = null;
+function setHoveredBox(box) {
+  if (box === hoveredBox) return;
+  if (hoveredBox) hoveredBox.classList.remove("cs-hovered");
+  hoveredBox = box;
+  if (hoveredBox) hoveredBox.classList.add("cs-hovered");
+}
+document.getElementById("visualArea").addEventListener("mouseover", (e) => {
+  setHoveredBox(e.target.closest("#visualArea .cs-block, #visualArea div:not(.cs-block-toolbar):not(.cs-div-toolbar)"));
+});
+document.getElementById("visualArea").addEventListener("mouseleave", () => setHoveredBox(null));
+
+function decorateVisualArea() {
+  decorateBlocks();
+  decorateDivs();
+}
+
+// Shared by both toolbars' "edit id/class" cog — the block toolbar's ⚙
+// opens it on the .cs-block wrapper itself, the div toolbar's ⚙ opens it
+// on that plain div. Editable here same as any div; nothing stops the user
+// from clearing "cs-block" off a block's own class field, which would just
+// make it a plain div on the next decoration pass (loses its move/delete
+// toolbar, gains a cog like any other div) — no different in kind from the
+// risk of hand-editing structure in Code view.
+let editingDivEl = null;
+const divAttrsDialog = document.getElementById("divAttrsDialog");
+
+function openDivAttrsDialog(el) {
+  editingDivEl = el;
+  document.getElementById("divAttrsId").value = el.id || "";
+  // el may be the currently cs-hovered box (that's why its cog is visible
+  // to click) — strip that editor-only class back out so it doesn't show up
+  // as one of "its" classes in the field, or get saved as a real class if
+  // the user hits Save without touching this field.
+  document.getElementById("divAttrsClass").value = el.className.replace(/\bcs-hovered\b/g, "").replace(/\s+/g, " ").trim();
+  divAttrsDialog.showModal();
+}
+
 document.getElementById("visualArea").addEventListener("click", (e) => {
   const btn = e.target.closest(".cs-block-toolbar button");
   if (!btn) return;
   e.preventDefault();
   const block = btn.closest(".cs-block");
-  if (btn.dataset.action === "delete") {
+  if (btn.dataset.action === "edit-attrs") {
+    openDivAttrsDialog(block);
+    return;
+  } else if (btn.dataset.action === "delete") {
     if (!confirm("Delete this block? This can't be undone.")) return;
     block.remove();
   } else if (btn.dataset.action === "move-up" && block.previousElementSibling) {
@@ -662,6 +734,36 @@ document.getElementById("visualArea").addEventListener("click", (e) => {
     block.parentNode.insertBefore(block.nextElementSibling, block);
   }
   scheduleSave();
+});
+
+document.getElementById("visualArea").addEventListener("click", (e) => {
+  const btn = e.target.closest(".cs-div-toolbar button");
+  if (!btn) return;
+  e.preventDefault();
+  openDivAttrsDialog(btn.closest(".cs-div-toolbar").parentElement);
+});
+
+document.getElementById("divAttrsCancel").addEventListener("click", () => divAttrsDialog.close());
+
+divAttrsDialog.addEventListener("close", () => {
+  editingDivEl = null;
+});
+
+document.getElementById("divAttrsSave").addEventListener("click", () => {
+  if (editingDivEl) {
+    const id = document.getElementById("divAttrsId").value.trim();
+    const className = document.getElementById("divAttrsClass").value.trim();
+    if (id) editingDivEl.id = id;
+    else editingDivEl.removeAttribute("id");
+    if (className) editingDivEl.className = className;
+    else editingDivEl.removeAttribute("class");
+    // Overwriting className above just wiped cs-hovered along with it (this
+    // div's own cog is only clickable while it's the hovered box) — restore
+    // it so the outline doesn't look "un-hovered" until the mouse re-enters.
+    if (editingDivEl === hoveredBox) editingDivEl.classList.add("cs-hovered");
+    scheduleSave();
+  }
+  divAttrsDialog.close();
 });
 
 // Reverts any live-display blob: URLs back to their real "assets/x.jpg"
@@ -673,7 +775,11 @@ function serializeVisualArea() {
     img.setAttribute("src", img.dataset.assetSrc);
     img.removeAttribute("data-asset-src");
   });
-  clone.querySelectorAll(".cs-block-toolbar").forEach((el) => el.remove());
+  clone.querySelectorAll(".cs-block-toolbar, .cs-div-toolbar").forEach((el) => el.remove());
+  clone.querySelectorAll(".cs-hovered").forEach((el) => {
+    el.classList.remove("cs-hovered");
+    if (!el.className) el.removeAttribute("class");
+  });
   return clone.innerHTML;
 }
 
@@ -697,7 +803,7 @@ function switchView(target) {
 
   if (target === "visual") {
     visualEl.innerHTML = html;
-    decorateBlocks();
+    decorateVisualArea();
     visualEl.classList.remove("hidden");
     cmEl.classList.add("hidden");
     richControls.style.visibility = "visible";
@@ -856,7 +962,7 @@ function insertBlock(blockTypeId, html) {
     sel.removeAllRanges();
     sel.addRange(range);
 
-    decorateBlocks();
+    decorateVisualArea();
   } else {
     cm.replaceSelection(`<div id="${id}" class="${className}">\n${html}\n</div>`);
     cm.focus();
@@ -1235,11 +1341,31 @@ function slugifyBlockType(id) {
 // blocks don't belong here — see getCustomBlocks() / .chromesite/blocks/.
 const BLOCK_LIBRARY = [
   {
+    id: "container",
+    label: "Container",
+    icon: "📝",
+    frameworks: {
+      bootstrap5: `
+      <div class="container mx-auto my-3">
+  <h1>Your Headline Here</h1>
+  <p>Text Content Here</p>
+</div>
+`,
+tailwind: `
+<div class="container mx-auto my-3">
+  <h1>Your Headline Here</h1>
+  <p>Text Content Here</p>
+</div>
+`,
+    },
+  },
+  {
     id: "hero",
     label: "Hero",
     icon: "🖼️",
     frameworks: {
-      bootstrap5: `<div class="px-4 py-5 my-5 text-center">
+      bootstrap5: `
+      <div class="hero-content d-flex flex-column justify-content-center align-items-center px-4 py-5 my-5 text-center">
   <h1 class="display-5 fw-bold">Your Headline Here</h1>
   <div class="col-lg-6 mx-auto">
     <p class="lead mb-4">A short, compelling line about what you offer and why it matters.</p>
@@ -1248,7 +1374,8 @@ const BLOCK_LIBRARY = [
       <button type="button" class="btn btn-outline-secondary btn-lg px-4">Learn More</button>
     </div>
   </div>
-</div>`,
+</div>
+`,
     },
   },
   {
@@ -1256,11 +1383,13 @@ const BLOCK_LIBRARY = [
     label: "Call to Action",
     icon: "📣",
     frameworks: {
-      bootstrap5: `<div class="p-5 mb-4 bg-light rounded-3 text-center">
+      bootstrap5: `
+      <div class="cta-content d-flex flex-column justify-content-center align-items-center p-5 mb-4 bg-light rounded-3">
   <h2 class="fw-bold">Ready to get started?</h2>
   <p class="fs-5 mb-4">Join hundreds of happy customers today.</p>
   <button type="button" class="btn btn-primary btn-lg">Sign Up Now</button>
-</div>`,
+</div>
+`,
     },
   },
   {
@@ -1268,14 +1397,16 @@ const BLOCK_LIBRARY = [
     label: "Testimonial",
     icon: "💬",
     frameworks: {
-      bootstrap5: `<div class="text-center p-4">
+      bootstrap5: `
+      <div class="testimonial-content text-center p-4">
   <blockquote class="blockquote">
     <p>&ldquo;This product completely changed the way we work. Couldn't imagine going back.&rdquo;</p>
   </blockquote>
   <figcaption class="blockquote-footer mt-2">
     Jane Doe, <cite title="Company">Acme Co.</cite>
   </figcaption>
-</div>`,
+</div>
+`,
     },
   },
   {
@@ -1283,7 +1414,8 @@ const BLOCK_LIBRARY = [
     label: "Contact",
     icon: "✉️",
     frameworks: {
-      bootstrap5: `<div class="row g-4 p-4">
+      bootstrap5: `
+      <div class="contact-content row g-4 p-4">
   <div class="col-md-6">
     <h2>Get in Touch</h2>
     <p>We'd love to hear from you. Reach out any time.</p>
@@ -1297,7 +1429,8 @@ const BLOCK_LIBRARY = [
       <button type="button" class="btn btn-primary">Send Message</button>
     </form>
   </div>
-</div>`,
+</div>
+`,
     },
   },
   {
@@ -1305,7 +1438,8 @@ const BLOCK_LIBRARY = [
     label: "3-Column Features",
     icon: "▦",
     frameworks: {
-      bootstrap5: `<div class="row g-4 p-4 text-center">
+      bootstrap5: `
+      <div class="feature-column-content row g-4 p-4 text-center">
   <div class="col-md-4">
     <h3>Feature One</h3>
     <p>A short description of this feature and the value it provides.</p>
@@ -1318,7 +1452,8 @@ const BLOCK_LIBRARY = [
     <h3>Feature Three</h3>
     <p>A short description of this feature and the value it provides.</p>
   </div>
-</div>`,
+</div>
+`,
     },
   },
   {
@@ -1326,13 +1461,8 @@ const BLOCK_LIBRARY = [
     label: "Table",
     icon: "📊",
     frameworks: {
-      // "table table-auto" doubles up on purpose: "table" is Bootstrap's
-      // table styling class, "table-auto" is Tailwind's table-layout
-      // utility. Neither framework recognizes the other's class, so the
-      // pair is harmless dead weight under the framework that didn't ask
-      // for it — letting one snippet serve both instead of forking per
-      // framework like the other blocks do.
-      bootstrap5: `<table class="table table-auto">
+      bootstrap5: `
+      <table class="table table-striped">
   <thead>
     <tr>
       <th>Song</th>
@@ -1342,7 +1472,7 @@ const BLOCK_LIBRARY = [
   </thead>
   <tbody>
     <tr>
-      <td>The Sliding Mr. Bones (Next Stop, Pottersville)</td>
+      <td>The Sliding Mr. Bones</td>
       <td>Malcolm Lockyer</td>
       <td>1961</td>
     </tr>
@@ -1357,8 +1487,10 @@ const BLOCK_LIBRARY = [
       <td>1975</td>
     </tr>
   </tbody>
-</table>`,
-      tailwind: `<table class="table table-auto">
+</table>
+`,
+      tailwind: `
+      <table class="table-auto">
   <thead>
     <tr>
       <th>Song</th>
@@ -1368,7 +1500,7 @@ const BLOCK_LIBRARY = [
   </thead>
   <tbody>
     <tr>
-      <td>The Sliding Mr. Bones (Next Stop, Pottersville)</td>
+      <td>The Sliding Mr. Bones</td>
       <td>Malcolm Lockyer</td>
       <td>1961</td>
     </tr>
@@ -1383,7 +1515,8 @@ const BLOCK_LIBRARY = [
       <td>1975</td>
     </tr>
   </tbody>
-</table>`,
+</table>
+`,
     },
   },
   {
@@ -1397,21 +1530,27 @@ const BLOCK_LIBRARY = [
       // editable-in-place way to retarget an iframe's src from Visual view
       // (unlike text content), so the placeholder URL is meant to be swapped
       // out via Code view for the real embed URL.
-      bootstrap5: `<div class="ratio ratio-16x9 my-4">
+      bootstrap5: `
+      <div class="video-content ratio ratio-16x9 my-4">
   <iframe src="https://example.com/replace-with-your-embed-url" title="Video embed" allowfullscreen></iframe>
-</div>`,
+</div>
+`,
     },
   },
   {
-    id: "form-embed",
-    label: "Form Embed",
+    id: "misc-embed",
+    label: "Misc Embed",
     icon: "📋",
     frameworks: {
       // No aspect-ratio wrapper — forms (Zoho Forms, etc.) vary in height by
       // content, not by width, so a ratio div would either clip them or leave
       // dead space. min-height is just a reasonable starting point; the site
       // author adjusts it in Code view to match their actual form's height.
-      bootstrap5: `<iframe src="https://example.com/replace-with-your-embed-url" title="Form embed" class="w-100 border-0 my-4" style="min-height: 600px;"></iframe>`,
+      bootstrap5: `
+      <div class="embed-content my-4">
+      <iframe src="https://example.com/replace-with-your-embed-url" title="Misc embed" class="w-100 border-0 my-4" style="min-height: 600px;"></iframe>
+      </div>
+      `,
     },
   },
 ];
