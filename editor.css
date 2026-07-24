@@ -315,6 +315,7 @@ dialog input, dialog textarea {
 }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .hint { color: #888; font-size: 12px; }
+.hint.warning { color: #e0a030; }
 .hidden { display: none; }
 
 /* ---- Nav tree editor (Edit Menus dialog) ---- */

@@ -191,6 +191,32 @@
     </div>
   </dialog>
 
+  <dialog id="newFileDialog">
+    <h3>New Page</h3>
+    <label>Folder <input type="text" id="newFileFolder" placeholder="e.g. about (leave blank for site root)" /></label>
+    <label>File name <input type="text" id="newFileName" placeholder="e.g. team.html" value="untitled.html" /></label>
+    <p class="hint" id="newFilePreview"></p>
+    <div class="dialog-actions">
+      <button id="newFileCancel">Cancel</button>
+      <button id="newFileSave" class="primary">Create</button>
+    </div>
+  </dialog>
+
+  <dialog id="linkDialog">
+    <h3>Insert Link</h3>
+    <label>URL <input type="text" id="linkUrlInput" placeholder="https://" /></label>
+    <label>Opens in
+      <select id="linkTargetSelect">
+        <option value="_self">Same Window</option>
+        <option value="_blank">New Window</option>
+      </select>
+    </label>
+    <div class="dialog-actions">
+      <button id="linkCancel">Cancel</button>
+      <button id="linkSave" class="primary">Insert</button>
+    </div>
+  </dialog>
+
   <dialog id="divAttrsDialog">
     <h3>Edit Div Attributes</h3>
     <label>ID <input type="text" id="divAttrsId" placeholder="(none)" /></label>

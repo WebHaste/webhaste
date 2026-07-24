@@ -25,8 +25,8 @@
   // iframe, which has no equivalent when rendering outside the extension.
   const FRAMEWORK_ASSETS = {
     bootstrap5:
-      '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">\n' +
-      '<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>',
+      '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">\n' +
+      '<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>',
     tailwind: '<script src="https://cdn.tailwindcss.com"></script>',
     none: "",
   };
@@ -87,10 +87,21 @@
     return renderNavPlain(items);
   }
 
+  // True for a page whose raw content is already a complete HTML document
+  // (starts with a doctype or an <html> tag) rather than a body fragment —
+  // e.g. the scaffolded 404.html, which ships as a fully standalone page on
+  // purpose (its own <head>/styles, no site nav/header/footer) since
+  // Cloudflare Pages/Netlify serve it directly for unmatched paths.
+  // Wrapping that in the site template would nest a second <html> document
+  // inside the first, so it's passed through untouched instead.
+  function isFullDocument(rawContent) {
+    return /^\s*(<!DOCTYPE\s+html|<html[\s>])/i.test(rawContent);
+  }
+
   // templateText === null/"" means "No layout (raw HTML)" — rawContent
   // ships as-is, same as composePage()'s isPreview=false, no-template branch.
   function composePage({ templateText, rawContent, title, config, navData, pagesData }) {
-    if (!templateText) return rawContent;
+    if (!templateText || isFullDocument(rawContent)) return rawContent;
 
     const framework = config.cssFramework || "bootstrap5";
     const pageMeta = (pagesData && pagesData[title]) || {};
@@ -109,5 +120,5 @@
     return out;
   }
 
-  return { FRAMEWORK_ASSETS, renderMenu, composePage };
+  return { FRAMEWORK_ASSETS, renderMenu, composePage, isFullDocument };
 });

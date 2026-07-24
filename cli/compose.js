@@ -133,6 +133,28 @@ function copyDirRecursive(src, dest) {
   return count;
 }
 
+// Recursively finds every .html page under dir, returning "/"-joined
+// relative paths (e.g. "about/team.html") — always "/", never path.join,
+// so the ids match the browser side's convention and pagesData[relPath]
+// lookups work identically on Windows and POSIX. `exclude` is a set of
+// top-level folder names (assets/scripts/.chromesite/the dist dir) that
+// must be skipped so re-running compose doesn't rediscover its own prior
+// output as new source pages.
+function collectHtmlFiles(dir, exclude, prefix = "") {
+  let results = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (prefix === "" && exclude.has(entry.name)) continue;
+      results = results.concat(
+        collectHtmlFiles(path.join(dir, entry.name), exclude, prefix ? `${prefix}/${entry.name}` : entry.name)
+      );
+    } else if (entry.isFile() && entry.name.endsWith(".html")) {
+      results.push(prefix ? `${prefix}/${entry.name}` : entry.name);
+    }
+  }
+  return results;
+}
+
 function parseArgs(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(
@@ -180,31 +202,34 @@ function main() {
     templateText = fs.readFileSync(templatePath, "utf8");
   }
 
-  const distDir = path.join(root, sanitizeDeployDirectory(outDir || config.deployDirectory));
+  const distName = sanitizeDeployDirectory(outDir || config.deployDirectory);
+  const distDir = path.join(root, distName);
   fs.mkdirSync(distDir, { recursive: true });
 
-  const pageFiles = fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith(".html"));
+  const exclude = new Set(["assets", "scripts", "elements", ".chromesite", distName]);
+  const pageFiles = collectHtmlFiles(root, exclude);
 
-  for (const entry of pageFiles) {
-    const rawContent = fs.readFileSync(path.join(root, entry.name), "utf8");
+  for (const relPath of pageFiles) {
+    const rawContent = fs.readFileSync(path.join(root, relPath), "utf8");
     const composed = ChromesiteCompose.composePage({
       templateText,
       rawContent,
-      title: entry.name,
+      title: relPath,
       config,
       navData,
       pagesData,
     });
-    fs.writeFileSync(path.join(distDir, entry.name), composed);
+    const dest = path.join(distDir, relPath);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, composed);
   }
 
   const assetCount = copyDirRecursive(path.join(root, "assets"), path.join(distDir, "assets"));
   const scriptCount = copyDirRecursive(path.join(root, "scripts"), path.join(distDir, "scripts"));
+  const elementCount = copyDirRecursive(path.join(root, "elements"), path.join(distDir, "elements"));
 
   console.log(
-    `Rendered ${pageFiles.length} page(s), ${assetCount} asset(s), and ${scriptCount} script(s) to ${path.join(path.relative(root, distDir) || ".", "/")}`
+    `Rendered ${pageFiles.length} page(s), ${assetCount} asset(s), ${scriptCount} script(s), and ${elementCount} element(s) to ${path.join(path.relative(root, distDir) || ".", "/")}`
   );
 }
 

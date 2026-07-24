@@ -224,6 +224,23 @@ async function getScriptsDirHandle(create = false) {
   }
 }
 
+// ---- elements/ — a published (not dot-prefixed) folder for template-only
+// resources (background images, favicons, etc.) that a template's <head>/
+// CSS references directly (e.g. link href="/elements/favicon.ico"), as
+// opposed to assets/, which is for things inserted into page content
+// through the editor's Assets picker. No editor UI manages this folder —
+// it's meant to be hand-populated on disk — so, like assets/ and scripts/,
+// it doesn't exist until the site owner creates it themselves; callers pass
+// create=false and handle a null return.
+async function getElementsDirHandle(create = false) {
+  try {
+    return await dirHandle.getDirectoryHandle("elements", { create });
+  } catch (err) {
+    if (err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
 // ---- .chromesite/blocks/ — the site-specific extension point for
 // BLOCK_LIBRARY (see below). Not auto-scaffolded like templates/, since
 // it's opt-in: it doesn't exist until a site owner adds a block file by
@@ -263,6 +280,7 @@ const ASSET_MIME_TYPES = {
   gif: "image/gif",
   svg: "image/svg+xml",
   webp: "image/webp",
+  ico: "image/x-icon",
   pdf: "application/pdf",
   css: "text/css",
   js: "text/javascript",
@@ -315,6 +333,79 @@ function sanitizeDeployDirectory(input) {
   return cleaned || "dist";
 }
 
+// Same char-class rule as slugifyFileName(), but for a single folder
+// segment (no ".html" stripping). Notably, since this strips every
+// non-alphanumeric character, a ".." segment always collapses to "" and
+// gets dropped by buildPagePath() below — that's what keeps folder input
+// safe from path traversal without a separate ".." check.
+function slugifyPathSegment(input) {
+  return (input || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Combines the New File dialog's Folder + File name fields into one
+// relative path. Splits on "/" first so a stray slash typed into either
+// field (or pasted across both) normalizes the same way either field would
+// alone, then slugifies every folder segment and slugifyFileName()'s the
+// last one.
+function buildPagePath(folderInput, nameInput) {
+  const raw = `${folderInput || ""}/${nameInput || ""}`;
+  const parts = raw.split("/").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return slugifyFileName("");
+  const fileName = slugifyFileName(parts.pop());
+  const folders = parts.map(slugifyPathSegment).filter(Boolean);
+  return [...folders, fileName].join("/");
+}
+
+// getFileHandle()/getDirectoryHandle() only accept a single path segment —
+// a "/" in the name throws a TypeError — so a relative path like
+// "about/team.html" has to be resolved one directory segment at a time.
+async function getNestedFileHandle(rootDir, relativePath, opts) {
+  const parts = relativePath.split("/").filter(Boolean);
+  let dir = rootDir;
+  for (let i = 0; i < parts.length - 1; i++) {
+    dir = await dir.getDirectoryHandle(parts[i], { create: !!(opts && opts.create) });
+  }
+  return dir.getFileHandle(parts[parts.length - 1], opts);
+}
+
+// Same walk as getNestedFileHandle(), but stops one level short — for
+// callers (like removeEntry()) that need the parent directory handle plus
+// the leaf name rather than a file handle.
+async function getNestedParentDirHandle(rootDir, relativePath, opts) {
+  const parts = relativePath.split("/").filter(Boolean);
+  let dir = rootDir;
+  for (let i = 0; i < parts.length - 1; i++) {
+    dir = await dir.getDirectoryHandle(parts[i], { create: !!(opts && opts.create) });
+  }
+  return { dir, name: parts[parts.length - 1] };
+}
+
+// Recursively walks a project folder yielding every page (.html file), at
+// any depth, as { path, handle } — path is the full "/"-joined relative
+// path (e.g. "about/team.html"). `exclude` is a set of top-level folder
+// names (.chromesite, assets, scripts, the deploy dir) that aren't pages
+// and must never be treated as one, so re-rendering doesn't rediscover a
+// prior dist/ output as new source pages.
+async function* walkPages(dir, exclude, prefix = "") {
+  for await (const [name, handle] of dir.entries()) {
+    if (handle.kind === "directory") {
+      if (prefix === "" && exclude.has(name)) continue;
+      yield* walkPages(handle, exclude, prefix ? `${prefix}/${name}` : name);
+    } else if (name.endsWith(".html")) {
+      yield { path: prefix ? `${prefix}/${name}` : name, handle };
+    }
+  }
+}
+
+async function getPageExcludeSet() {
+  const config = await getSiteConfig();
+  return new Set([".chromesite", "assets", "scripts", "elements", sanitizeDeployDirectory(config.deployDirectory)]);
+}
+
 async function ensureScaffold() {
   const cfgDir = await getConfigDir(true);
 
@@ -330,6 +421,33 @@ async function ensureScaffold() {
     await cfgDir.getFileHandle("nav.json");
   } catch {
     await writeJSONFile(cfgDir, "nav.json", DEFAULT_NAV);
+  }
+
+  // assets/, scripts/, elements/ — published (not dot-prefixed) folders
+  // copied wholesale at publish/render time (see getProjectAssets() et al.).
+  // Created upfront so they're visible on disk from the start rather than
+  // only lazily appearing on first upload; { create: true } is already a
+  // no-op if the folder exists, so this never disturbs existing content.
+  for (const name of ["assets", "scripts", "elements"]) {
+    await dirHandle.getDirectoryHandle(name, { create: true });
+  }
+
+  // 404.html — Cloudflare Pages and Netlify both auto-serve a root-level
+  // 404.html for any unmatched path (otherwise they fall back to serving
+  // the homepage, which is confusing). Copied in once from the extension's
+  // own bundled copy, same never-overwritten pattern as CLAUDE.md below.
+  // It's a complete standalone document on purpose (not a template
+  // fragment) — see composePage()'s own-full-document check, which passes
+  // it through unwrapped regardless of the site's activeTemplate.
+  try {
+    await dirHandle.getFileHandle("404.html");
+  } catch {
+    const res = await fetch(chrome.runtime.getURL("templates/404.html"));
+    const text = await res.text();
+    const handle = await dirHandle.getFileHandle("404.html", { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
   }
 
   // templates/ + a starter layout, copied in from the extension's own bundled copy
@@ -435,24 +553,81 @@ async function tryRestoreFolder() {
   }
 }
 
-document.getElementById("newFile").addEventListener("click", async () => {
+document.getElementById("newFile").addEventListener("click", () => {
   if (!dirHandle) {
     setStatus("Open a project folder first.");
     return;
   }
-  let name = prompt("New file name (e.g. about.html):", "untitled.html");
-  if (!name) return;
-  name = slugifyFileName(name);
+  openNewFileDialog();
+});
 
-  // { create: true } makes getFileHandle create the file if it doesn't exist.
-  const handle = await dirHandle.getFileHandle(name, { create: true });
-  const writable = await handle.createWritable();
-  await writable.write("<h1>New page</h1>\n<p>Start writing here.</p>");
-  await writable.close();
+// ---- New File dialog — separate Folder + File name fields so users don't
+// have to type a correct nested path (e.g. "about/team.html") by hand ----
+const newFileDialog = document.getElementById("newFileDialog");
+const newFileFolderInput = document.getElementById("newFileFolder");
+const newFileNameInput = document.getElementById("newFileName");
+const newFilePreview = document.getElementById("newFilePreview");
+const newFileSaveBtn = document.getElementById("newFileSave");
 
+function openNewFileDialog() {
+  newFileFolderInput.value = "";
+  newFileNameInput.value = "untitled.html";
+  updateNewFilePreview();
+  newFileDialog.showModal();
+}
+
+document.getElementById("newFileCancel").addEventListener("click", () => newFileDialog.close());
+newFileFolderInput.addEventListener("input", updateNewFilePreview);
+newFileNameInput.addEventListener("input", updateNewFilePreview);
+
+// Live preview of the resolved path, and the slot for the reserved-name /
+// already-exists warnings — resolved fresh on every keystroke since it's
+// cheap and gives immediate feedback instead of failing on Create.
+async function updateNewFilePreview() {
+  const path = buildPagePath(newFileFolderInput.value, newFileNameInput.value);
+  const exclude = await getPageExcludeSet();
+  const firstSegment = path.split("/")[0].toLowerCase();
+
+  if ([...exclude].some((e) => e.toLowerCase() === firstSegment)) {
+    newFilePreview.textContent = `"${path.split("/")[0]}/" is reserved for site elements and can't contain pages.`;
+    newFilePreview.classList.add("warning");
+    newFileSaveBtn.disabled = true;
+    return;
+  }
+
+  let exists = false;
+  try {
+    await getNestedFileHandle(dirHandle, path, { create: false });
+    exists = true;
+  } catch {
+    exists = false;
+  }
+
+  newFileSaveBtn.disabled = false;
+  newFilePreview.classList.toggle("warning", exists);
+  newFilePreview.textContent = exists
+    ? `A page already exists at "${path}" — Create will open it as-is.`
+    : `Will create: ${path}`;
+}
+
+newFileSaveBtn.addEventListener("click", async () => {
+  const path = buildPagePath(newFileFolderInput.value, newFileNameInput.value);
+  const handle = await getNestedFileHandle(dirHandle, path, { create: true });
+
+  // Only seed starter content for a genuinely new (empty) file — an
+  // already-existing page (the "warn, don't silently clobber" case) keeps
+  // whatever it already has.
+  const file = await handle.getFile();
+  if (file.size === 0) {
+    const writable = await handle.createWritable();
+    await writable.write("<h1>New page</h1>\n<p>Start writing here.</p>");
+    await writable.close();
+  }
+
+  newFileDialog.close();
   await refreshFileList();
-  await openFile(name, handle);
-  setStatus(`Created ${name}`);
+  await openFile(path, handle);
+  setStatus(`Created ${path}`);
 });
 
 async function refreshFileList() {
@@ -460,9 +635,12 @@ async function refreshFileList() {
   listEl.innerHTML = "";
   fileCache.clear();
 
-  for await (const [name, handle] of dirHandle.entries()) {
-    if (handle.kind !== "file") continue;
-    if (!name.endsWith(".html")) continue; // scope v0.1 to HTML pages
+  const exclude = await getPageExcludeSet();
+  const entries = [];
+  for await (const entry of walkPages(dirHandle, exclude)) entries.push(entry);
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+
+  for (const { path: name, handle } of entries) {
     const item = document.createElement("div");
     item.className = "file-item";
     item.dataset.name = name;
@@ -555,7 +733,8 @@ document.getElementById("pagePropsSave").addEventListener("click", async () => {
 async function deletePage(name) {
   if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
 
-  await dirHandle.removeEntry(name);
+  const { dir, name: leaf } = await getNestedParentDirHandle(dirHandle, name);
+  await dir.removeEntry(leaf);
   fileCache.delete(name);
 
   const pagesData = await getPagesData();
@@ -766,9 +945,82 @@ document.getElementById("divAttrsSave").addEventListener("click", () => {
   divAttrsDialog.close();
 });
 
+// Tags that always get their own line when serializing out of the visual
+// editor — everything else (a, b, span, strong, img, etc.) is treated as
+// inline and left running within its block parent's line, so prose isn't
+// broken mid-sentence.
+const HTML_BLOCK_ELEMENTS = new Set([
+  "address", "article", "aside", "blockquote", "details", "dialog",
+  "dd", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer",
+  "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li",
+  "main", "nav", "ol", "p", "pre", "section", "table", "thead", "tbody",
+  "tfoot", "tr", "td", "th", "ul", "video", "audio", "iframe", "canvas",
+  "summary", "picture", "script", "style", "noscript",
+]);
+
+function hasBlockDescendant(el) {
+  return Array.from(el.querySelectorAll("*")).some((child) =>
+    HTML_BLOCK_ELEMENTS.has(child.tagName.toLowerCase())
+  );
+}
+
+// Recursively lays out a container's children one block-level element per
+// line, indented 2 spaces per nesting level. A block element whose subtree
+// contains no further block elements (e.g. "<li>asdf</li>", "<p>Some
+// <b>bold</b> text</p>") is kept on a single line rather than split further
+// — only actual nesting (a <ul> full of <li>s, a <div> full of <p>s) gets
+// expanded, which is the crammed-together case this exists to fix.
+function formatVisualChildren(parent, depth, lines) {
+  const indent = "  ".repeat(depth);
+  let buffer = "";
+
+  const flush = () => {
+    if (buffer.trim()) lines.push(indent + buffer.trim());
+    buffer = "";
+  };
+
+  for (const node of Array.from(parent.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      buffer += node.textContent;
+      continue;
+    }
+    if (node.nodeType === Node.COMMENT_NODE) {
+      buffer += `<!--${node.textContent}-->`;
+      continue;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+    const tag = node.tagName.toLowerCase();
+    if (!HTML_BLOCK_ELEMENTS.has(tag)) {
+      buffer += node.outerHTML;
+      continue;
+    }
+
+    flush();
+    // A shallow clone's outerHTML gives just "<tag attrs></tag>" (or
+    // "<tag attrs>" for a void element) with none of the real children —
+    // stripping the trailing close tag, if any, isolates the opening tag
+    // with its attributes correctly escaped by the browser's own serializer.
+    const openTag = node.cloneNode(false).outerHTML.replace(/<\/[a-zA-Z0-9-]+>$/, "");
+    if (HTML_VOID_ELEMENTS.has(tag)) {
+      lines.push(indent + openTag);
+    } else if (!hasBlockDescendant(node)) {
+      lines.push(`${indent}${openTag}${node.innerHTML}</${tag}>`);
+    } else {
+      lines.push(indent + openTag);
+      formatVisualChildren(node, depth + 1, lines);
+      lines.push(`${indent}</${tag}>`);
+    }
+  }
+  flush();
+}
+
 // Reverts any live-display blob: URLs back to their real "assets/x.jpg"
 // path before the content is read out of #visualArea — used any time that
 // content needs to leave this view (saving, switching to Code view, etc.).
+// Also pretty-prints the result: contenteditable naturally produces one
+// long crammed line (e.g. "<ul><li>a</li><li>b</li></ul>"), which is what
+// ends up in Code view and in the saved file if left as-is.
 function serializeVisualArea() {
   const clone = document.getElementById("visualArea").cloneNode(true);
   clone.querySelectorAll("img[data-asset-src]").forEach((img) => {
@@ -780,7 +1032,9 @@ function serializeVisualArea() {
     el.classList.remove("cs-hovered");
     if (!el.className) el.removeAttribute("class");
   });
-  return clone.innerHTML;
+  const lines = [];
+  formatVisualChildren(clone, 0, lines);
+  return lines.join("\n");
 }
 
 function syncFromActiveView() {
@@ -836,10 +1090,59 @@ document.getElementById("richControls").addEventListener("click", (e) => {
   document.getElementById("visualArea").focus();
   const cmd = btn.dataset.cmd;
   if (cmd === "createLink") {
-    const url = prompt("Link URL:", "https://");
-    if (url) document.execCommand(cmd, false, url);
+    openLinkDialog();
   } else {
     document.execCommand(cmd, false, btn.dataset.value || undefined);
+  }
+  scheduleSave();
+});
+
+// ---- Link dialog — URL + Same Window/New Window, replacing a plain
+// prompt() since execCommand("createLink") only ever takes a URL, not a
+// target attribute ----
+const linkDialog = document.getElementById("linkDialog");
+const LINK_MARKER_HREF = "chromesite:new-link";
+let savedLinkRange = null;
+
+function openLinkDialog() {
+  const selection = document.getSelection();
+  if (!selection.rangeCount) return; // nothing selected/focused in the editor to link
+  savedLinkRange = selection.getRangeAt(0).cloneRange();
+  document.getElementById("linkUrlInput").value = "https://";
+  document.getElementById("linkTargetSelect").value = "_self";
+  linkDialog.showModal();
+}
+
+document.getElementById("linkCancel").addEventListener("click", () => linkDialog.close());
+
+document.getElementById("linkSave").addEventListener("click", () => {
+  const url = document.getElementById("linkUrlInput").value.trim();
+  const target = document.getElementById("linkTargetSelect").value;
+  const range = savedLinkRange;
+  linkDialog.close();
+  if (!url || !range) return;
+
+  const visualArea = document.getElementById("visualArea");
+  visualArea.focus();
+  const selection = document.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+
+  // createLink with a unique marker href first, then swap it for the real
+  // URL on the resulting <a> — lets the just-created link be found
+  // unambiguously afterward even if the real URL already appears elsewhere
+  // on the page.
+  document.execCommand("createLink", false, LINK_MARKER_HREF);
+  const link = visualArea.querySelector(`a[href="${LINK_MARKER_HREF}"]`);
+  if (link) {
+    link.setAttribute("href", url);
+    if (target === "_blank") {
+      link.setAttribute("target", "_blank");
+      link.setAttribute("rel", "noopener noreferrer");
+    } else {
+      link.removeAttribute("target");
+      link.removeAttribute("rel");
+    }
   }
   scheduleSave();
 });
@@ -1802,8 +2105,10 @@ async function rewriteScriptsForPreview(html) {
 
 async function composePage(rawContent, title, isPreview = false) {
   const templateText = await getActiveTemplateText();
-  if (!templateText) {
-    // "raw HTML" mode, no wrapping
+  if (!templateText || ChromesiteCompose.isFullDocument(rawContent)) {
+    // "raw HTML" mode, no wrapping — either no template is configured, or
+    // this page is already a complete document (e.g. the scaffolded
+    // 404.html) that must never be nested inside another one.
     if (!isPreview) return rawContent;
     let out = await rewriteAssetSrcsForPreview(rawContent);
     out = await rewriteScriptsForPreview(out);
@@ -2282,16 +2587,16 @@ document.getElementById("publishConfirm").addEventListener("click", async () => 
   await publishSite(account, project, token);
 });
 
-// Shared by all three deployment targets — walks the project root, skips
-// .chromesite/ automatically (it's a directory, not a file), and returns
-// { "index.html": "<composed html>", ... }.
+// Shared by all three deployment targets — recursively walks the project
+// root, skips .chromesite/assets/scripts/deploy-dir automatically, and
+// returns { "index.html": "<composed html>", "about/team.html": ..., ... }.
 async function getComposedPages() {
   const pages = {};
-  for await (const [name, handle] of dirHandle.entries()) {
-    if (handle.kind !== "file" || !name.endsWith(".html")) continue;
+  const exclude = await getPageExcludeSet();
+  for await (const { path, handle } of walkPages(dirHandle, exclude)) {
     const file = await handle.getFile();
     const raw = await file.text();
-    pages[name] = await composePage(raw, name);
+    pages[path] = await composePage(raw, path);
   }
   return pages;
 }
@@ -2323,6 +2628,19 @@ async function getProjectScripts() {
     scripts[name] = await (await handle.getFile()).arrayBuffer();
   }
   return scripts;
+}
+
+// Same shape again, for elements/ — see getElementsDirHandle()'s comment
+// for why it's a separate published folder from assets/ and scripts/.
+async function getProjectElements() {
+  const elementsDir = await getElementsDirHandle(false);
+  if (!elementsDir) return {};
+  const elements = {};
+  for await (const [name, handle] of elementsDir.entries()) {
+    if (handle.kind !== "file") continue;
+    elements[name] = await (await handle.getFile()).arrayBuffer();
+  }
+  return elements;
 }
 
 // ---- Cloudflare Pages Direct Upload — a content-hash-addressed protocol ----
@@ -2366,7 +2684,7 @@ function withCharset(mimeType) {
 
 // Normalizes composed pages (strings) and raw assets/scripts (ArrayBuffers)
 // into one list, with the leading-slash paths Cloudflare's manifest requires.
-function buildPagesFileList(pages, assets, scripts = {}) {
+function buildPagesFileList(pages, assets, scripts = {}, elements = {}) {
   const files = [];
   for (const [name, html] of Object.entries(pages)) {
     files.push({
@@ -2385,6 +2703,13 @@ function buildPagesFileList(pages, assets, scripts = {}) {
   for (const [name, arrayBuffer] of Object.entries(scripts)) {
     files.push({
       path: "/scripts/" + name,
+      arrayBuffer,
+      contentType: withCharset(assetMimeType(name)),
+    });
+  }
+  for (const [name, arrayBuffer] of Object.entries(elements)) {
+    files.push({
+      path: "/elements/" + name,
       arrayBuffer,
       contentType: withCharset(assetMimeType(name)),
     });
@@ -2508,7 +2833,8 @@ async function publishSite(account, project, token) {
     const pages = await getComposedPages();
     const assets = await getProjectAssets();
     const scripts = await getProjectScripts();
-    const files = buildPagesFileList(pages, assets, scripts);
+    const elements = await getProjectElements();
+    const files = buildPagesFileList(pages, assets, scripts, elements);
 
     setStatus(`Hashing ${files.length} file(s)...`);
     await hashFileList(files);
@@ -2578,6 +2904,7 @@ async function publishToNetlify(siteId, token) {
   const pages = await getComposedPages();
   const assets = await getProjectAssets();
   const scripts = await getProjectScripts();
+  const elements = await getProjectElements();
 
   setStatus("Hashing files...");
   const fileEntries = Object.entries(pages).map(([name, content]) => ({
@@ -2589,6 +2916,9 @@ async function publishToNetlify(siteId, token) {
   }
   for (const [name, arrayBuffer] of Object.entries(scripts)) {
     fileEntries.push({ path: "/scripts/" + name, content: arrayBuffer });
+  }
+  for (const [name, arrayBuffer] of Object.entries(elements)) {
+    fileEntries.push({ path: "/elements/" + name, content: arrayBuffer });
   }
   const digests = {};
   for (const f of fileEntries) digests[f.path] = await sha1Hex(f.content);
@@ -2654,11 +2984,12 @@ async function renderToLocalFolder() {
   const pages = await getComposedPages();
   const assets = await getProjectAssets();
   const scripts = await getProjectScripts();
+  const elements = await getProjectElements();
 
   setStatus(`Writing ${folderName}/ folder...`);
   const distDir = await dirHandle.getDirectoryHandle(folderName, { create: true });
   for (const [name, content] of Object.entries(pages)) {
-    const handle = await distDir.getFileHandle(name, { create: true });
+    const handle = await getNestedFileHandle(distDir, name, { create: true });
     const writable = await handle.createWritable();
     await writable.write(content);
     await writable.close();
@@ -2684,7 +3015,17 @@ async function renderToLocalFolder() {
     }
   }
 
-  setStatus(`Rendered ${Object.keys(pages).length} page(s), ${Object.keys(assets).length} asset(s), and ${Object.keys(scripts).length} script(s) to the ${folderName}/ folder.`);
+  if (Object.keys(elements).length) {
+    const distElementsDir = await distDir.getDirectoryHandle("elements", { create: true });
+    for (const [name, arrayBuffer] of Object.entries(elements)) {
+      const handle = await distElementsDir.getFileHandle(name, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(arrayBuffer);
+      await writable.close();
+    }
+  }
+
+  setStatus(`Rendered ${Object.keys(pages).length} page(s), ${Object.keys(assets).length} asset(s), ${Object.keys(scripts).length} script(s), and ${Object.keys(elements).length} element(s) to the ${folderName}/ folder.`);
 }
 
 function setStatus(msg) {
