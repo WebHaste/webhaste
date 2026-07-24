@@ -51,7 +51,9 @@ links to it. Two more files, both in `.chromesite/`:
   a menu name, value is `"navbar"` (default, horizontal) or `"columns"`
   (each top-level item becomes a heading with its `children` listed below
   it — typical for a multi-column footer). E.g. `"layouts": { "footer":
-  "columns" }`.
+  "columns" }`. Every rendered menu also gets `cs-menu cs-menu-<name>`
+  classes (e.g. `cs-menu-header`, `cs-menu-footer`) regardless of layout,
+  so you can target a specific menu in site CSS.
 - **`pages.json`** (optional) — per-page `<title>`/meta description
   override, keyed by filename:
   ```json

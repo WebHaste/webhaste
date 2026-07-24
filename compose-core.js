@@ -31,7 +31,7 @@
     none: "",
   };
 
-  function renderNavBootstrap5(items) {
+  function renderNavBootstrap5(items, name) {
     const li = items
       .map((item) => {
         if (item.children) {
@@ -46,10 +46,10 @@
         return `<li class="nav-item"><a class="nav-link" href="${item.href}">${item.label}</a></li>`;
       })
       .join("");
-    return `<ul class="navbar-nav">${li}</ul>`;
+    return `<ul class="navbar-nav cs-menu cs-menu-${name}">${li}</ul>`;
   }
 
-  function renderNavTailwind(items) {
+  function renderNavTailwind(items, name) {
     const li = items
       .map((item) => {
         if (item.children) {
@@ -64,10 +64,10 @@
         return `<a href="${item.href}" class="px-3 py-2 inline-block">${item.label}</a>`;
       })
       .join("");
-    return `<div class="flex items-center">${li}</div>`;
+    return `<div class="flex items-center cs-menu cs-menu-${name}">${li}</div>`;
   }
 
-  function renderNavPlain(items) {
+  function renderNavPlain(items, name) {
     const li = items
       .map((item) => {
         if (item.children) {
@@ -77,7 +77,7 @@
         return `<li><a href="${item.href}">${item.label}</a></li>`;
       })
       .join("");
-    return `<ul>${li}</ul>`;
+    return `<ul class="cs-menu cs-menu-${name}">${li}</ul>`;
   }
 
   // Footer-style menu, laid out as N side-by-side columns instead of a
@@ -89,7 +89,7 @@
     return item.children && item.children.length ? item.children : [item];
   }
 
-  function renderColumnsBootstrap5(items) {
+  function renderColumnsBootstrap5(items, name) {
     // Bootstrap's grid is 12 columns wide; divide evenly among the
     // top-level items (floor, min 1) rather than requiring 12 % n === 0.
     const width = Math.max(1, Math.floor(12 / items.length));
@@ -101,10 +101,10 @@
         return `<div class="col-md-${width}"><h6>${item.label}</h6><ul>${li}</ul></div>`;
       })
       .join("");
-    return `<div class="menu menu-footer row">${cols}</div>`;
+    return `<div class="cs-menu cs-menu-${name} row">${cols}</div>`;
   }
 
-  function renderColumnsTailwind(items) {
+  function renderColumnsTailwind(items, name) {
     const n = Math.max(1, Math.min(12, items.length));
     const cols = items
       .map((item) => {
@@ -114,10 +114,10 @@
         return `<div><h6 class="font-semibold mb-2">${item.label}</h6><div class="flex flex-col">${links}</div></div>`;
       })
       .join("");
-    return `<div class="menu menu-footer grid grid-cols-1 md:grid-cols-${n} gap-8">${cols}</div>`;
+    return `<div class="cs-menu cs-menu-${name} grid grid-cols-1 md:grid-cols-${n} gap-8">${cols}</div>`;
   }
 
-  function renderColumnsPlain(items) {
+  function renderColumnsPlain(items, name) {
     const cols = items
       .map((item) => {
         const li = columnLinks(item)
@@ -126,23 +126,27 @@
         return `<div style="flex:1"><h6>${item.label}</h6><ul>${li}</ul></div>`;
       })
       .join("");
-    return `<div class="menu menu-footer" style="display:flex;gap:2rem;">${cols}</div>`;
+    return `<div class="cs-menu cs-menu-${name}" style="display:flex;gap:2rem;">${cols}</div>`;
   }
 
-  function renderMenuColumns(items, framework) {
-    if (framework === "bootstrap5") return renderColumnsBootstrap5(items);
-    if (framework === "tailwind") return renderColumnsTailwind(items);
-    return renderColumnsPlain(items);
+  function renderMenuColumns(items, framework, name) {
+    if (framework === "bootstrap5") return renderColumnsBootstrap5(items, name);
+    if (framework === "tailwind") return renderColumnsTailwind(items, name);
+    return renderColumnsPlain(items, name);
   }
 
   // layout: "navbar" (default) or "columns" — per-menu setting from
   // nav.json's top-level "layouts" map (see DEFAULT_NAV in editor.js).
-  function renderMenu(items, framework, layout) {
+  // name: the menu's key in nav.json (e.g. "header", "footer") — stamped
+  // onto the output as a "cs-menu-<name>" class (namespaced with "cs-" so
+  // it doesn't collide with a generic ".menu" rule in any CSS a site later
+  // loads) so each menu can be targeted in site CSS regardless of layout.
+  function renderMenu(items, framework, layout, name) {
     if (!items || !items.length) return "";
-    if (layout === "columns") return renderMenuColumns(items, framework);
-    if (framework === "bootstrap5") return renderNavBootstrap5(items);
-    if (framework === "tailwind") return renderNavTailwind(items);
-    return renderNavPlain(items);
+    if (layout === "columns") return renderMenuColumns(items, framework, name);
+    if (framework === "bootstrap5") return renderNavBootstrap5(items, name);
+    if (framework === "tailwind") return renderNavTailwind(items, name);
+    return renderNavPlain(items, name);
   }
 
   // True for a page whose raw content is already a complete HTML document
@@ -166,7 +170,12 @@
     const pageTitle = pageMeta.title || title;
 
     let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
-      renderMenu(navData.menus && navData.menus[menuName], framework, navData.layouts && navData.layouts[menuName])
+      renderMenu(
+        navData.menus && navData.menus[menuName],
+        framework,
+        navData.layouts && navData.layouts[menuName],
+        menuName
+      )
     );
     out = out
       .replace(/{{FRAMEWORK_ASSETS}}/g, FRAMEWORK_ASSETS[framework] || "")

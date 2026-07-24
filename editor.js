@@ -2141,7 +2141,7 @@ async function composePage(rawContent, title, isPreview = false) {
   const pageTitle = pageMeta.title || title;
 
   let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
-    ChromesiteCompose.renderMenu(navData.menus?.[menuName], framework, navData.layouts?.[menuName])
+    ChromesiteCompose.renderMenu(navData.menus?.[menuName], framework, navData.layouts?.[menuName], menuName)
   );
   out = out
     .replace(/{{FRAMEWORK_ASSETS}}/g, FRAMEWORK_ASSETS_PREVIEW[framework] || "")
