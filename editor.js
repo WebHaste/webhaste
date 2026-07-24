@@ -831,6 +831,7 @@ function decorateBlocks() {
       '<button type="button" data-action="edit-attrs" title="Edit ID / classes">⚙</button>' +
       '<button type="button" data-action="move-up" title="Move block up">↑</button>' +
       '<button type="button" data-action="move-down" title="Move block down">↓</button>' +
+      '<button type="button" data-action="cursor-after" title="Place cursor below this block">⏎</button>' +
       '<button type="button" data-action="delete" title="Delete block">🗑</button>';
     block.appendChild(toolbar);
   });
@@ -850,7 +851,9 @@ function decorateDivs() {
     const toolbar = document.createElement("div");
     toolbar.className = "cs-div-toolbar";
     toolbar.contentEditable = "false";
-    toolbar.innerHTML = '<button type="button" title="Edit ID / classes">⚙</button>';
+    toolbar.innerHTML =
+      '<button type="button" data-action="edit-attrs" title="Edit ID / classes">⚙</button>' +
+      '<button type="button" data-action="cursor-after" title="Place cursor below this div">⏎</button>';
     div.appendChild(toolbar);
   });
 }
@@ -904,6 +907,34 @@ function openDivAttrsDialog(el) {
   divAttrsDialog.showModal();
 }
 
+// A collapsed Range positioned between two block-level siblings has no line
+// box to render a caret in, so Blink silently snaps it back to the nearest
+// real text no matter how the Range is built — real content is needed to
+// hold a caret. A bare "&nbsp;" text node rather than a wrapping <p> matters
+// for what happens *next*, not just for the caret itself: insertBlock()
+// deliberately inserts new blocks via plain Range.insertNode() instead of
+// execCommand (see the comment above insertBlock() — execCommand's
+// insertHTML "cleans up"/reconciles the inserted HTML in ways that mangle
+// multi-child wrapper blocks). Range.insertNode() inserts as a *child* when
+// the Range's container is an Element — which is exactly why a <p> caused
+// the next block to land inside it — but *splits and inserts as a sibling*
+// when the container is a Text node. A lone nbsp text node gives Blink
+// something to render a caret in while keeping that container a Text node,
+// so a block inserted from here lands next to it, not inside it. Shared by
+// the .cs-block and plain div toolbars' "place cursor after" buttons.
+function placeCursorAfter(el) {
+  const gap = document.createTextNode(" ");
+  el.after(gap);
+  const visualEl = document.getElementById("visualArea");
+  visualEl.focus();
+  const range = document.createRange();
+  range.setStart(gap, 0);
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 document.getElementById("visualArea").addEventListener("click", (e) => {
   const btn = e.target.closest(".cs-block-toolbar button");
   if (!btn) return;
@@ -919,6 +950,8 @@ document.getElementById("visualArea").addEventListener("click", (e) => {
     block.parentNode.insertBefore(block, block.previousElementSibling);
   } else if (btn.dataset.action === "move-down" && block.nextElementSibling) {
     block.parentNode.insertBefore(block.nextElementSibling, block);
+  } else if (btn.dataset.action === "cursor-after") {
+    placeCursorAfter(block);
   }
   scheduleSave();
 });
@@ -927,7 +960,13 @@ document.getElementById("visualArea").addEventListener("click", (e) => {
   const btn = e.target.closest(".cs-div-toolbar button");
   if (!btn) return;
   e.preventDefault();
-  openDivAttrsDialog(btn.closest(".cs-div-toolbar").parentElement);
+  const div = btn.closest(".cs-div-toolbar").parentElement;
+  if (btn.dataset.action === "cursor-after") {
+    placeCursorAfter(div);
+    scheduleSave();
+    return;
+  }
+  openDivAttrsDialog(div);
 });
 
 document.getElementById("divAttrsCancel").addEventListener("click", () => divAttrsDialog.close());
