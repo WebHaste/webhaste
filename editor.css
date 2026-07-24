@@ -339,6 +339,9 @@ dialog input, dialog textarea {
 }
 .nav-tree-toolbar button { font-size: 12px; padding: 5px 9px; }
 .nav-tree-toolbar .spacer { flex: 1; }
+.nav-layout-label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.nav-layout-label.hidden { display: none; }
+.nav-layout-label select { font-size: 12px; padding: 3px 5px; }
 
 .nav-tree, .nav-children {
   list-style: none;

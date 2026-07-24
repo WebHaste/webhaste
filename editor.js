@@ -640,7 +640,15 @@ async function refreshFileList() {
   for await (const entry of walkPages(dirHandle, exclude)) entries.push(entry);
   entries.sort((a, b) => a.path.localeCompare(b.path));
 
-  for (const { path: name, handle } of entries) {
+  // 404.html is a full standalone HTML document (see compose-core.js's
+  // isFullDocument()), not a body fragment like every other page — loading
+  // its <!DOCTYPE>/<head>/<style> into visualArea's contenteditable innerHTML
+  // doesn't survive intact and breaks editing. It's still discovered and
+  // published normally by getComposedPages() (a separate walkPages() call);
+  // this only hides it from the sidebar so it can't be opened here.
+  const visibleEntries = entries.filter((e) => e.path.toLowerCase() !== "404.html");
+
+  for (const { path: name, handle } of visibleEntries) {
     const item = document.createElement("div");
     item.className = "file-item";
     item.dataset.name = name;
@@ -2133,7 +2141,7 @@ async function composePage(rawContent, title, isPreview = false) {
   const pageTitle = pageMeta.title || title;
 
   let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
-    ChromesiteCompose.renderMenu(navData.menus?.[menuName], framework)
+    ChromesiteCompose.renderMenu(navData.menus?.[menuName], framework, navData.layouts?.[menuName])
   );
   out = out
     .replace(/{{FRAMEWORK_ASSETS}}/g, FRAMEWORK_ASSETS_PREVIEW[framework] || "")
@@ -2290,6 +2298,7 @@ document.getElementById("editNav").addEventListener("click", async () => {
   setNavViewMode(false);
   renderMenuTabs();
   renderMenuTree(currentMenuName ? navWorkingData.menus[currentMenuName] : []);
+  syncLayoutSelect();
   navDialog.showModal();
 });
 document.getElementById("navCancel").addEventListener("click", () => navDialog.close());
@@ -2321,7 +2330,22 @@ function selectMenu(name) {
   currentMenuName = name;
   renderMenuTabs();
   renderMenuTree(navWorkingData.menus[name] || []);
+  syncLayoutSelect();
 }
+
+// Reflects navWorkingData.layouts[currentMenuName] ("navbar"/"columns",
+// default "navbar") into the toolbar <select>. Called whenever the selected
+// menu or navWorkingData itself changes underneath it.
+function syncLayoutSelect() {
+  document.getElementById("navMenuLayout").value =
+    (currentMenuName && navWorkingData.layouts && navWorkingData.layouts[currentMenuName]) || "navbar";
+}
+
+document.getElementById("navMenuLayout").addEventListener("change", (e) => {
+  if (!currentMenuName) return;
+  if (!navWorkingData.layouts) navWorkingData.layouts = {};
+  navWorkingData.layouts[currentMenuName] = e.target.value;
+});
 
 document.getElementById("navAddMenu").addEventListener("click", () => {
   const name = prompt("New menu name (e.g. sidebar):", "");
@@ -2338,10 +2362,12 @@ document.getElementById("navDeleteMenu").addEventListener("click", () => {
   if (!currentMenuName) return;
   if (!confirm(`Delete the "${currentMenuName}" menu? This can't be undone until you Save.`)) return;
   delete navWorkingData.menus[currentMenuName];
+  if (navWorkingData.layouts) delete navWorkingData.layouts[currentMenuName];
   const remaining = Object.keys(navWorkingData.menus);
   currentMenuName = remaining[0] || null;
   renderMenuTabs();
   renderMenuTree(currentMenuName ? navWorkingData.menus[currentMenuName] : []);
+  syncLayoutSelect();
 });
 
 // ---- Tree rendering ----
@@ -2476,6 +2502,7 @@ document.getElementById("navToggleJson").addEventListener("click", () => {
     currentMenuName = names.includes(currentMenuName) ? currentMenuName : names[0] || null;
     renderMenuTabs();
     renderMenuTree(currentMenuName ? navWorkingData.menus[currentMenuName] : []);
+    syncLayoutSelect();
     setNavViewMode(false);
   }
 });
@@ -2487,6 +2514,7 @@ function setNavViewMode(jsonMode) {
   document.getElementById("navMenuTabs").classList.toggle("hidden", jsonMode);
   document.getElementById("navAddMenu").classList.toggle("hidden", jsonMode);
   document.getElementById("navDeleteMenu").classList.toggle("hidden", jsonMode);
+  document.getElementById("navLayoutLabel").classList.toggle("hidden", jsonMode);
   document.getElementById("navAddRootItem").classList.toggle("hidden", jsonMode);
   document.getElementById("navToggleJson").textContent = jsonMode ? "Back to Tree" : "Edit as JSON";
 }

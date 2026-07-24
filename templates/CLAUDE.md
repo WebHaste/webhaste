@@ -47,6 +47,11 @@ links to it. Two more files, both in `.chromesite/`:
   ```json
   { "label": "New Page", "href": "/some-page.html" }
   ```
+  A top-level `"layouts"` map controls how a whole menu renders: each key is
+  a menu name, value is `"navbar"` (default, horizontal) or `"columns"`
+  (each top-level item becomes a heading with its `children` listed below
+  it — typical for a multi-column footer). E.g. `"layouts": { "footer":
+  "columns" }`.
 - **`pages.json`** (optional) — per-page `<title>`/meta description
   override, keyed by filename:
   ```json

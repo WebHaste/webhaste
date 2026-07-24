@@ -80,8 +80,66 @@
     return `<ul>${li}</ul>`;
   }
 
-  function renderMenu(items, framework) {
-    if (!items) return "";
+  // Footer-style menu, laid out as N side-by-side columns instead of a
+  // horizontal navbar: each top-level item becomes a column heading, with
+  // its children (if any) as the column's link list. A top-level item with
+  // no children falls back to being its own single-link column, so a mixed
+  // menu never silently drops an item.
+  function columnLinks(item) {
+    return item.children && item.children.length ? item.children : [item];
+  }
+
+  function renderColumnsBootstrap5(items) {
+    // Bootstrap's grid is 12 columns wide; divide evenly among the
+    // top-level items (floor, min 1) rather than requiring 12 % n === 0.
+    const width = Math.max(1, Math.floor(12 / items.length));
+    const cols = items
+      .map((item) => {
+        const li = columnLinks(item)
+          .map((c) => `<li><a href="${c.href}">${c.label}</a></li>`)
+          .join("");
+        return `<div class="col-md-${width}"><h6>${item.label}</h6><ul>${li}</ul></div>`;
+      })
+      .join("");
+    return `<div class="menu menu-footer row">${cols}</div>`;
+  }
+
+  function renderColumnsTailwind(items) {
+    const n = Math.max(1, Math.min(12, items.length));
+    const cols = items
+      .map((item) => {
+        const links = columnLinks(item)
+          .map((c) => `<a href="${c.href}" class="block py-1">${c.label}</a>`)
+          .join("");
+        return `<div><h6 class="font-semibold mb-2">${item.label}</h6><div class="flex flex-col">${links}</div></div>`;
+      })
+      .join("");
+    return `<div class="menu menu-footer grid grid-cols-1 md:grid-cols-${n} gap-8">${cols}</div>`;
+  }
+
+  function renderColumnsPlain(items) {
+    const cols = items
+      .map((item) => {
+        const li = columnLinks(item)
+          .map((c) => `<li><a href="${c.href}">${c.label}</a></li>`)
+          .join("");
+        return `<div style="flex:1"><h6>${item.label}</h6><ul>${li}</ul></div>`;
+      })
+      .join("");
+    return `<div class="menu menu-footer" style="display:flex;gap:2rem;">${cols}</div>`;
+  }
+
+  function renderMenuColumns(items, framework) {
+    if (framework === "bootstrap5") return renderColumnsBootstrap5(items);
+    if (framework === "tailwind") return renderColumnsTailwind(items);
+    return renderColumnsPlain(items);
+  }
+
+  // layout: "navbar" (default) or "columns" — per-menu setting from
+  // nav.json's top-level "layouts" map (see DEFAULT_NAV in editor.js).
+  function renderMenu(items, framework, layout) {
+    if (!items || !items.length) return "";
+    if (layout === "columns") return renderMenuColumns(items, framework);
     if (framework === "bootstrap5") return renderNavBootstrap5(items);
     if (framework === "tailwind") return renderNavTailwind(items);
     return renderNavPlain(items);
@@ -108,7 +166,7 @@
     const pageTitle = pageMeta.title || title;
 
     let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
-      renderMenu(navData.menus && navData.menus[menuName], framework)
+      renderMenu(navData.menus && navData.menus[menuName], framework, navData.layouts && navData.layouts[menuName])
     );
     out = out
       .replace(/{{FRAMEWORK_ASSETS}}/g, FRAMEWORK_ASSETS[framework] || "")
