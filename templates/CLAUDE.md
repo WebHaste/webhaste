@@ -61,7 +61,10 @@ links to it. Two more files, both in `.chromesite/`:
   ```
   A page without an entry here falls back to a default title built from the
   file name and site name — fine for minor pages, worth setting explicitly
-  for anything meant to be found via search or shared as a link.
+  for anything meant to be found via search or shared as a link. Unlike
+  `site.config.json`/`nav.json`, this file is *not* scaffolded up front —
+  it's created the first time something needs a title/description override.
+  Don't assume it exists; check before reading or editing it.
 
 ## Content blocks
 
@@ -80,13 +83,25 @@ content — something likely to get reused across pages — consider dropping
 it in `.chromesite/blocks/<name>.html` as its own file instead of inlining
 it. Anything there shows up as an insertable block tile in the editor's
 Blocks dialog, labeled from the filename, and can be reused without
-duplicating markup by hand.
+duplicating markup by hand. Write just the inner markup in that file —
+*not* the `cs-block` wrapper shown above. The wrapper (with a freshly
+generated id) is added by the editor at the moment a block is inserted
+onto a page, not stored in the block's own source file.
 
 **See `.chromesite/block-library.md`** for the full list of blocks actually
 available in this site's Blocks dialog — both the extension's built-in ones
 (Hero, CTA, Testimonial, etc., with their real markup for this site's
 `cssFramework`) and this site's own custom ones. It's generated, not
 hand-written — see "Do not hand-edit" below.
+
+## No package manager or build step
+
+There's no `package.json`, no `node_modules`, and nothing to `npm install`
+— ChromeSite never scaffolds any of that into a project. `.chromesite/compose.js`
+is a self-contained, dependency-free Node script; running it is the only
+"tooling" this repo has. Don't add a `package.json` or install dependencies
+for a task unless the user explicitly asks for build tooling beyond what
+ChromeSite itself provides.
 
 ## Testing your changes (requires Node)
 
@@ -114,7 +129,11 @@ way to render a page outside the extension itself.
 ## Do not hand-edit
 
 - `dist/` (or whatever `deployDirectory` points at) — build output from
-  "Render to Local Folder," overwritten on every render.
+  "Render to Local Folder," overwritten on every render. ChromeSite doesn't
+  scaffold a `.gitignore`, so some projects end up committing `dist/` to
+  version control anyway — if so, expect its diffs to show up in `git
+  status` after every render; that's expected noise from the build, not
+  something to investigate or hand-fix.
 - `.chromesite/compose.js`, `.chromesite/compose-core.js`, and
   `.chromesite/block-library.md` — regenerated every time the project
   folder is opened in the editor, so hand edits won't stick. (Unlike this

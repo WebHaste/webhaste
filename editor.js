@@ -104,9 +104,9 @@ cm.on("change", (instance, changeObj) => {
 
 // ---- Editor enabled/disabled state ----
 // No file is open until the user opens or creates one; until then the
-// visual/code panes must not look interactable, since saveCurrentFile()
-// (further down) is a silent no-op without a currentFileHandle to write to
-// — typing there gives the impression content is being saved when it isn't.
+// visual/code panes must not look interactable, since flushPendingSave()
+// (further down) is a silent no-op without a pending save queued — typing
+// there gives the impression content is being saved when it isn't.
 function setEditorEnabled(enabled) {
   document.querySelector(".editor-pane").classList.toggle("editor-disabled", !enabled);
   document.getElementById("visualArea").contentEditable = enabled ? "true" : "false";
@@ -121,7 +121,12 @@ setEditorEnabled(false);
 // both when the open file is deleted out from under it, and when switching
 // project folders (a file handle from the old folder has no business still
 // being live in the editor once a different folder's file list is showing).
+// Also drops any save still queued for that file — deletePage() has already
+// removed it from disk by the time this runs, and pickFolder's new dirHandle
+// makes the old handle meaningless, so there's nothing left to flush.
 function clearEditorState() {
+  clearTimeout(saveTimer);
+  pendingSave = null;
   currentFileHandle = null;
   currentFileName = null;
   cm.setValue("");
@@ -761,6 +766,12 @@ async function deletePage(name) {
 }
 
 async function openFile(name, handle) {
+  // Flush any edit still queued for whatever was open before this — this
+  // read below is a fresh handle.getFile(), and if that's the same file
+  // being reopened with a save still in flight, reading now would win the
+  // race and clobber fileCache with the stale on-disk copy.
+  await flushPendingSave();
+  clearTimeout(saveTimer);
   currentFileHandle = handle;
   currentFileName = name;
   const file = await handle.getFile();
@@ -1320,13 +1331,6 @@ function insertBlock(blockTypeId, html) {
   scheduleSave();
 }
 
-function scheduleSave() {
-  syncFromActiveView();
-  renderPreview();
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveCurrentFile, 400);
-}
-
 function highlightActiveFile(name) {
   document.querySelectorAll(".file-item").forEach((el) => {
     el.classList.toggle("active", el.dataset.name === name);
@@ -1659,14 +1663,51 @@ imagePropsDialog.addEventListener("close", () => {
 // what's on screen — this is the "local drive as source of truth" model.
 // (codeArea's autosave hook lives on the `cm.on("change", ...)` listener
 // above, since CodeMirror owns that view now.)
+//
+// pendingSave captures *which* file a queued write targets at the moment
+// it's scheduled, rather than flushPendingSave() reading the then-current
+// currentFileHandle/currentFileName when its timer fires. Without that
+// capture, switching to a different file within the 400ms debounce window
+// re-targeted the queued write at whatever file was open when the timer
+// fired — silently dropping the original edit on the floor (it stayed in
+// fileCache, but openFile() re-reads from disk on open, so reopening the
+// first file later in the session clobbered that in-memory edit with the
+// stale on-disk copy). openFile() below also flushes any pending save
+// before it reads from disk, so a same-file "switch away and back" within
+// the debounce window can't hit that stale-read race either.
 let saveTimer = null;
+let pendingSave = null; // { handle, name } or null
 
-async function saveCurrentFile() {
-  if (!currentFileHandle) return;
-  const writable = await currentFileHandle.createWritable();
-  await writable.write(fileCache.get(currentFileName));
-  await writable.close();
-  setStatus(`Saved ${currentFileName}`);
+function scheduleSave() {
+  syncFromActiveView();
+  renderPreview();
+  pendingSave = { handle: currentFileHandle, name: currentFileName };
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushPendingSave, 400);
+}
+
+// pendingSave is only cleared on a *successful* write — if createWritable/
+// write/close throws (permission lapsed, disk full, file locked by another
+// program), the previous version of this silently ate the rejection and the
+// status bar kept showing the last successful "Saved" message, so a failed
+// write looked identical to a real one. Leaving pendingSave set here means
+// the edit isn't lost even though it didn't land on disk yet: the next
+// keystroke's scheduleSave() will overwrite it with the same target (no-op
+// for the retry), and — more importantly — openFile()'s flush-before-read
+// will retry it before ever navigating away, instead of quietly reading
+// stale disk content over top of it.
+async function flushPendingSave() {
+  if (!pendingSave) return;
+  const { handle, name } = pendingSave;
+  try {
+    const writable = await handle.createWritable();
+    await writable.write(fileCache.get(name));
+    await writable.close();
+    pendingSave = null;
+    setStatus(`Saved ${name}`);
+  } catch (err) {
+    setStatus(`Couldn't save ${name}: ${err.message} — your edits are still here and will be retried.`);
+  }
 }
 
 // ---- Template / global nav system ----
@@ -2796,7 +2837,7 @@ async function hashFileList(files) {
 
 async function getPagesUploadToken(account, project, token) {
   const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${account}/pages/projects/${project}/upload-token`,
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/pages/projects/${encodeURIComponent(project)}/upload-token`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   const data = await res.json();
@@ -2888,7 +2929,7 @@ async function createPagesDeployment(account, project, token, manifest) {
   const formData = new FormData();
   formData.append("manifest", JSON.stringify(manifest));
   const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${account}/pages/projects/${project}/deployments`,
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/pages/projects/${encodeURIComponent(project)}/deployments`,
     { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData }
   );
   return res.json();
@@ -2992,7 +3033,7 @@ async function publishToNetlify(siteId, token) {
 
   try {
     setStatus("Creating Netlify deploy...");
-    const createRes = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/deploys`, {
+    const createRes = await fetch(`https://api.netlify.com/api/v1/sites/${encodeURIComponent(siteId)}/deploys`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -3102,10 +3143,28 @@ function setStatus(msg) {
 // Surfaces the PREVIEW_LINK_GUARD_SCRIPT's blocked-link notices in the
 // status bar, so clicking a nav link in the preview gives feedback instead
 // of just silently doing nothing.
-window.addEventListener("message", (e) => {
-  if (e.data && e.data.source === "chromesite-preview" && e.data.type === "blocked-link") {
-    setStatus(`Preview: links aren't navigable here (would have opened "${e.data.href}") — open that file directly to preview it.`);
+//
+// The sandboxed preview iframes (no allow-same-origin) post with an opaque
+// origin, so e.origin is always the string "null" and can't tell one opaque
+// sender from another — checking e.source against the two iframes we
+// actually control (the main #previewFrame and, if open, the popped-out
+// window's #cs-preview-frame) is what actually verifies this came from our
+// own preview and not some other page that happened to get a reference to
+// this tab and forged the same {source, type} shape.
+function isKnownPreviewFrameWindow(win) {
+  const mainFrame = document.getElementById("previewFrame");
+  if (mainFrame && win === mainFrame.contentWindow) return true;
+  if (previewWindow && !previewWindow.closed) {
+    const popoutFrame = previewWindow.document.getElementById("cs-preview-frame");
+    if (popoutFrame && win === popoutFrame.contentWindow) return true;
   }
+  return false;
+}
+
+window.addEventListener("message", (e) => {
+  if (!e.data || e.data.source !== "chromesite-preview" || e.data.type !== "blocked-link") return;
+  if (!isKnownPreviewFrameWindow(e.source)) return;
+  setStatus(`Preview: links aren't navigable here (would have opened "${e.data.href}") — open that file directly to preview it.`);
 });
 
 // Kick things off

@@ -20,7 +20,8 @@
   "web_accessible_resources": [
     {
       "resources": ["vendor/bootstrap/*", "vendor/tailwind/*", "preview-guard.js"],
-      "matches": ["<all_urls>"]
+      "matches": ["<all_urls>"],
+      "use_dynamic_url": true
     }
   ],
   "action": {
