@@ -191,6 +191,13 @@
     <p class="hint" id="pagePropsFileName"></p>
     <label>Title <input type="text" id="pagePropsTitle" placeholder="Leave blank to use the default title" /></label>
     <label>Meta Description <textarea id="pagePropsDescription" rows="3"></textarea></label>
+    <label>Status
+      <select id="pagePropsStatus">
+        <option value="active">Active</option>
+        <option value="draft">Draft</option>
+      </select>
+    </label>
+    <p class="hint">Draft pages are excluded from Publish, Render to Local Folder, and sitemap.xml.</p>
     <div class="dialog-actions">
       <button id="pagePropsCancel">Cancel</button>
       <button id="pagePropsSave" class="primary">Save</button>

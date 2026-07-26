@@ -187,5 +187,46 @@
     return out;
   }
 
-  return { FRAMEWORK_ASSETS, renderMenu, composePage, isFullDocument };
+  // A page counts as a draft when pages.json marks it so — the same
+  // per-page metadata store the Page Properties dialog already writes
+  // title/description into. Checked here (not just in editor.js) so
+  // cli/compose.js filters identically to what Publish/Render would ship.
+  function isDraftPage(pageMeta) {
+    return !!(pageMeta && pageMeta.status === "draft");
+  }
+
+  function escapeXml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&apos;",
+    }[c]));
+  }
+
+  // Builds sitemap.xml from the same page list a publish/render pass ships
+  // — pageEntries is [{ path, lastmod }], already gathered by the caller
+  // (file mtimes come from browser File objects on one side and fs.stat on
+  // the other, so that part can't live in this dependency-free module).
+  // Drafts and 404.html (never a page visitors are intentionally routed to)
+  // are excluded here so both callers can't drift on the rule. Returns null
+  // when no domain is configured — a sitemap of host-less URLs is useless,
+  // and callers should skip writing the file entirely rather than publish
+  // a broken one.
+  function buildSitemap({ pageEntries, pagesData, config }) {
+    const domain = ((config && config.domain) || "").trim().replace(/\/+$/, "");
+    if (!domain) return null;
+    const data = pagesData || {};
+    const urls = pageEntries
+      .filter(({ path }) => path.toLowerCase() !== "404.html" && !isDraftPage(data[path]))
+      .map(({ path, lastmod }) => {
+        const loc = path === "index.html" ? domain : `${domain}/${path}`;
+        return `  <url>\n    <loc>${escapeXml(loc)}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`;
+      })
+      .join("\n");
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+  }
+
+  return { FRAMEWORK_ASSETS, renderMenu, composePage, isFullDocument, isDraftPage, buildSitemap };
 });

@@ -31,6 +31,9 @@ created automatically the first time you open a folder:
 my-site/
   index.html              ← published
   about.html               ← published
+  robots.txt                ← published as-is (not composed/templated);
+                              scaffolded once, never overwritten — see
+                              "Draft pages, sitemap.xml, robots.txt" below
   CLAUDE.md                ← agent-facing guide to this site's conventions —
                               fragment pages, template placeholders, nav/
                               pages.json wiring, block format. Scaffolded once;
@@ -197,3 +200,41 @@ for the repo's own `cli/` copy) and defaults its target folder accordingly.
 The point: a site is composable with just Node, with no dependency on this
 extension's source repo being checked out anywhere — see `templates/CLAUDE.md`'s
 "Testing your changes" section, which is what actually points agents at it.
+
+### 8. Draft pages, sitemap.xml, robots.txt
+
+**Drafts** are a `status: "draft"` key in `pages.json` (the same per-page
+metadata store Page Properties already writes `title`/`description` into),
+toggled from a Status select in that dialog — "Active" is the default and
+isn't written to the file at all, so existing `pages.json` files need no
+migration. `ChromesiteCompose.isDraftPage(pageMeta)` in `compose-core.js` is
+the single check both `editor.js` and `cli/compose.js` use, so a draft is
+excluded identically everywhere: `collectPublishPages()` (the function all
+three deploy targets and the sitemap now go through — the old
+`getComposedPages()` was renamed since it also collects sitemap `lastmod`
+timestamps in the same walk), `cli/compose.js`, and the sitemap below. The
+file itself is untouched on disk either way — a draft is a metadata flag,
+not a renamed/moved file — and the sidebar shows a "DRAFT" badge
+(`refreshFileList()`) so its status isn't hidden info. Live preview of the
+currently-open page bypasses this filter entirely (it calls `composePage()`
+directly on whatever's open), so editing a draft still previews normally.
+
+**`sitemap.xml`** is generated fresh on every Publish/Render — never
+hand-edited, unlike `robots.txt` below — by `ChromesiteCompose.buildSitemap()`
+from `config.domain` plus the same non-draft page list `collectPublishPages()`
+produces (`404.html` is excluded too, since it's never a page visitors are
+intentionally routed to). It returns `null` when `domain` is unset, and
+callers skip writing the file rather than publish a sitemap of host-less
+URLs. `lastmod` comes from each page file's mtime — `File.lastModified` in
+the browser, `fs.statSync().mtime` in `cli/compose.js` — which is the one
+piece that can't live in the dependency-free shared module, so callers
+gather `{ path, lastmod }` entries themselves and pass them in.
+
+**`robots.txt`** is the opposite of `sitemap.xml`: a real root-level file,
+scaffolded once by `ensureScaffold()` from `templates/robots.txt` (default
+`User-agent: *` / `Allow: /`) and never overwritten after that, same
+copy-once pattern as `CLAUDE.md`. Since it's a hand-editable file rather
+than generated output, publish just reads it and passes it through
+untouched — same treatment as `assets/` — rather than regenerating it. It's
+`.txt`, not `.html`, so `walkPages()` never discovers it as a content page
+(no sidebar entry, no templating).

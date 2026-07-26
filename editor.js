@@ -455,6 +455,21 @@ async function ensureScaffold() {
     await writable.close();
   }
 
+  // robots.txt — a real, hand-editable root file (not regenerated on every
+  // publish like sitemap.xml, since Disallow rules etc. are something a
+  // site owner sets once and expects to stick). Same copied-in-once-then-
+  // left-alone pattern as CLAUDE.md/404.html below.
+  try {
+    await dirHandle.getFileHandle("robots.txt");
+  } catch {
+    const res = await fetch(chrome.runtime.getURL("templates/robots.txt"));
+    const text = await res.text();
+    const handle = await dirHandle.getFileHandle("robots.txt", { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
+  }
+
   // templates/ + a starter layout, copied in from the extension's own bundled copy
   const templatesDir = await cfgDir.getDirectoryHandle("templates", { create: true });
   try {
@@ -641,6 +656,7 @@ async function refreshFileList() {
   fileCache.clear();
 
   const exclude = await getPageExcludeSet();
+  const pagesData = await getPagesData();
   const entries = [];
   for await (const entry of walkPages(dirHandle, exclude)) entries.push(entry);
   entries.sort((a, b) => a.path.localeCompare(b.path));
@@ -649,8 +665,8 @@ async function refreshFileList() {
   // isFullDocument()), not a body fragment like every other page — loading
   // its <!DOCTYPE>/<head>/<style> into visualArea's contenteditable innerHTML
   // doesn't survive intact and breaks editing. It's still discovered and
-  // published normally by getComposedPages() (a separate walkPages() call);
-  // this only hides it from the sidebar so it can't be opened here.
+  // published normally by collectPublishPages() (a separate walkPages()
+  // call); this only hides it from the sidebar so it can't be opened here.
   const visibleEntries = entries.filter((e) => e.path.toLowerCase() !== "404.html");
 
   for (const { path: name, handle } of visibleEntries) {
@@ -667,6 +683,13 @@ async function refreshFileList() {
       homeIcon.title = "Home page";
       homeIcon.textContent = " 🏠";
       nameEl.appendChild(homeIcon);
+    }
+    if (ChromesiteCompose.isDraftPage(pagesData[name])) {
+      const draftBadge = document.createElement("span");
+      draftBadge.className = "file-item-draft-badge";
+      draftBadge.title = "Draft — excluded from Publish/Render and sitemap.xml";
+      draftBadge.textContent = "DRAFT";
+      nameEl.appendChild(draftBadge);
     }
     item.appendChild(nameEl);
 
@@ -719,6 +742,7 @@ async function openPagePropertiesDialog(name) {
   document.getElementById("pagePropsFileName").textContent = name;
   document.getElementById("pagePropsTitle").value = meta.title || "";
   document.getElementById("pagePropsDescription").value = meta.description || "";
+  document.getElementById("pagePropsStatus").value = ChromesiteCompose.isDraftPage(meta) ? "draft" : "active";
   pagePropertiesDialog.showModal();
 }
 
@@ -727,18 +751,28 @@ document.getElementById("pagePropsCancel").addEventListener("click", () => pageP
 document.getElementById("pagePropsSave").addEventListener("click", async () => {
   const title = document.getElementById("pagePropsTitle").value.trim();
   const description = document.getElementById("pagePropsDescription").value.trim();
+  const isDraft = document.getElementById("pagePropsStatus").value === "draft";
   const pagesData = await getPagesData();
 
-  if (!title && !description) {
+  if (!title && !description && !isDraft) {
     delete pagesData[pagePropsFileName];
   } else {
-    pagesData[pagePropsFileName] = { title, description };
+    pagesData[pagePropsFileName] = { title, description, ...(isDraft ? { status: "draft" } : {}) };
   }
 
   const cfgDir = await getConfigDir(true);
   await writeJSONFile(cfgDir, "pages.json", pagesData);
   pagePropertiesDialog.close();
+
+  // refreshFileList() clears fileCache to rebuild it from disk — flush any
+  // edit still sitting in the save debounce first (same ordering openFile()
+  // uses), or a pending flushPendingSave() would fire after the clear and
+  // write "undefined" over the currently-open page. renderPreview() must
+  // run before that clear too, since it reads the current page straight out
+  // of fileCache.
+  await flushPendingSave();
   renderPreview();
+  await refreshFileList();
   setStatus(`Saved properties for ${pagePropsFileName}.`);
 });
 
@@ -2696,20 +2730,41 @@ document.getElementById("publishConfirm").addEventListener("click", async () => 
 });
 
 // Shared by all three deployment targets — recursively walks the project
-// root, skips .chromesite/assets/scripts/deploy-dir automatically, and
-// returns { "index.html": "<composed html>", "about/team.html": ..., ... }.
-async function getComposedPages() {
+// root, skips .chromesite/assets/scripts/deploy-dir automatically, skips
+// pages.json-marked drafts (see ChromesiteCompose.isDraftPage — Page
+// Properties' Status field), and returns both the composed pages and the
+// per-page mtimes sitemap.xml needs, in one pass rather than walking the
+// directory tree twice.
+async function collectPublishPages() {
   const pages = {};
+  const pageEntries = [];
   const exclude = await getPageExcludeSet();
+  const pagesData = await getPagesData();
   for await (const { path, handle } of walkPages(dirHandle, exclude)) {
+    if (ChromesiteCompose.isDraftPage(pagesData[path])) continue;
     const file = await handle.getFile();
     const raw = await file.text();
     pages[path] = await composePage(raw, path);
+    pageEntries.push({ path, lastmod: new Date(file.lastModified).toISOString().slice(0, 10) });
   }
-  return pages;
+  return { pages, pageEntries, pagesData };
 }
 
-// Raw bytes, not composed text — kept separate from getComposedPages()
+// robots.txt is a real, hand-editable project-root file (scaffolded once,
+// see ensureScaffold()) rather than something regenerated like sitemap.xml
+// — read and passed through untouched at publish time, same treatment as
+// assets/. Returns null if the site owner deleted it.
+async function getRobotsTxtContent() {
+  try {
+    const handle = await dirHandle.getFileHandle("robots.txt");
+    return await (await handle.getFile()).text();
+  } catch (err) {
+    if (err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
+// Raw bytes, not composed text — kept separate from collectPublishPages()
 // since composePage()'s template/nav substitution is meaningless for
 // binary blobs. Returns {} if assets/ doesn't exist yet (the default state
 // of every project until the first upload).
@@ -2938,11 +2993,29 @@ async function createPagesDeployment(account, project, token, manifest) {
 async function publishSite(account, project, token) {
   try {
     setStatus("Composing pages...");
-    const pages = await getComposedPages();
+    const { pages, pageEntries, pagesData } = await collectPublishPages();
+    const config = await getSiteConfig();
     const assets = await getProjectAssets();
     const scripts = await getProjectScripts();
     const elements = await getProjectElements();
     const files = buildPagesFileList(pages, assets, scripts, elements);
+
+    const sitemap = ChromesiteCompose.buildSitemap({ pageEntries, pagesData, config });
+    if (sitemap) {
+      files.push({
+        path: "/sitemap.xml",
+        arrayBuffer: new TextEncoder().encode(sitemap).buffer,
+        contentType: withCharset("application/xml"),
+      });
+    }
+    const robots = await getRobotsTxtContent();
+    if (robots) {
+      files.push({
+        path: "/robots.txt",
+        arrayBuffer: new TextEncoder().encode(robots).buffer,
+        contentType: withCharset("text/plain"),
+      });
+    }
 
     setStatus(`Hashing ${files.length} file(s)...`);
     await hashFileList(files);
@@ -3009,7 +3082,8 @@ async function sha1Hex(data) {
 
 async function publishToNetlify(siteId, token) {
   setStatus("Composing pages...");
-  const pages = await getComposedPages();
+  const { pages, pageEntries, pagesData } = await collectPublishPages();
+  const config = await getSiteConfig();
   const assets = await getProjectAssets();
   const scripts = await getProjectScripts();
   const elements = await getProjectElements();
@@ -3028,6 +3102,10 @@ async function publishToNetlify(siteId, token) {
   for (const [name, arrayBuffer] of Object.entries(elements)) {
     fileEntries.push({ path: "/elements/" + name, content: arrayBuffer });
   }
+  const sitemap = ChromesiteCompose.buildSitemap({ pageEntries, pagesData, config });
+  if (sitemap) fileEntries.push({ path: "/sitemap.xml", content: sitemap });
+  const robots = await getRobotsTxtContent();
+  if (robots) fileEntries.push({ path: "/robots.txt", content: robots });
   const digests = {};
   for (const f of fileEntries) digests[f.path] = await sha1Hex(f.content);
 
@@ -3089,7 +3167,7 @@ async function renderToLocalFolder() {
   const folderName = sanitizeDeployDirectory(config.deployDirectory);
 
   setStatus("Composing pages...");
-  const pages = await getComposedPages();
+  const { pages, pageEntries, pagesData } = await collectPublishPages();
   const assets = await getProjectAssets();
   const scripts = await getProjectScripts();
   const elements = await getProjectElements();
@@ -3100,6 +3178,21 @@ async function renderToLocalFolder() {
     const handle = await getNestedFileHandle(distDir, name, { create: true });
     const writable = await handle.createWritable();
     await writable.write(content);
+    await writable.close();
+  }
+
+  const sitemap = ChromesiteCompose.buildSitemap({ pageEntries, pagesData, config });
+  if (sitemap) {
+    const handle = await getNestedFileHandle(distDir, "sitemap.xml", { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(sitemap);
+    await writable.close();
+  }
+  const robots = await getRobotsTxtContent();
+  if (robots) {
+    const handle = await getNestedFileHandle(distDir, "robots.txt", { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(robots);
     await writable.close();
   }
 
@@ -3133,7 +3226,10 @@ async function renderToLocalFolder() {
     }
   }
 
-  setStatus(`Rendered ${Object.keys(pages).length} page(s), ${Object.keys(assets).length} asset(s), ${Object.keys(scripts).length} script(s), and ${Object.keys(elements).length} element(s) to the ${folderName}/ folder.`);
+  const extras = [sitemap && "sitemap.xml", robots && "robots.txt"].filter(Boolean).join(", ");
+  setStatus(
+    `Rendered ${Object.keys(pages).length} page(s), ${Object.keys(assets).length} asset(s), ${Object.keys(scripts).length} script(s), and ${Object.keys(elements).length} element(s)${extras ? `, plus ${extras},` : ""} to the ${folderName}/ folder.`
+  );
 }
 
 function setStatus(msg) {

@@ -75,8 +75,20 @@ button.primary:hover { background: #1d4ed8; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
 }
 .file-item-home { font-size: 12px; }
+.file-item-draft-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #d9a441;
+  border: 1px solid #d9a441;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
 .file-item-actions {
   display: none;
   flex-shrink: 0;

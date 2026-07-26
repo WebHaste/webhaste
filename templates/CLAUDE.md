@@ -35,6 +35,9 @@ site and change over time. Check this file first:
 - `deploymentTarget` / `deployDirectory` — where "Publish" sends the site.
   Not usually relevant to content edits, but useful context if asked about
   publishing.
+- `domain` — the live site's URL (e.g. `https://example.com`). Drives
+  `sitemap.xml` generation (see below); no sitemap is produced while it's
+  unset.
 
 ## Making a new page reachable
 
@@ -65,6 +68,29 @@ links to it. Two more files, both in `.chromesite/`:
   `site.config.json`/`nav.json`, this file is *not* scaffolded up front —
   it's created the first time something needs a title/description override.
   Don't assume it exists; check before reading or editing it.
+
+  A page entry can also carry `"status": "draft"` (set from the Page
+  Properties dialog's Status field; the key is omitted entirely for the
+  default "Active" state). A draft page stays on disk and still previews
+  normally in the editor, but is skipped by Publish, Render to Local
+  Folder, and `sitemap.xml` — treat it as work in progress, not a live URL,
+  when deciding whether to link to it from `nav.json` or other pages.
+
+## sitemap.xml and robots.txt
+
+`sitemap.xml` is generated automatically at publish/render time from
+`site.config.json`'s `domain` and every non-draft page — don't create or
+hand-edit one in the project root, it plays no part in composing it. For
+"Render to Local Folder" it lands inside the deploy folder (`dist/` by
+default — see that folder's own "don't hand-edit" note below); for
+Cloudflare/Netlify Publish it's uploaded straight to the live site and
+never touches a file here at all. If `domain` is unset, no sitemap is
+produced.
+
+`robots.txt`, by contrast, is a real project file at the root, scaffolded
+once with a permissive default (`User-agent: *` / `Allow: /`) and never
+regenerated — safe to hand-edit (e.g. adding `Disallow:` rules) same as any
+other file here.
 
 ## Content blocks
 

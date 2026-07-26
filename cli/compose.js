@@ -207,10 +207,19 @@ function main() {
   fs.mkdirSync(distDir, { recursive: true });
 
   const exclude = new Set(["assets", "scripts", "elements", ".chromesite", distName]);
-  const pageFiles = collectHtmlFiles(root, exclude);
+  // Drafts (pages.json status: "draft", set via the extension's Page
+  // Properties dialog) are skipped here the same way Publish/Render to
+  // Local Folder skip them — ChromesiteCompose.isDraftPage() is the single
+  // source of truth for both, so this CLI never ships a page the extension
+  // itself would exclude.
+  const pageFiles = collectHtmlFiles(root, exclude).filter(
+    (relPath) => !ChromesiteCompose.isDraftPage(pagesData[relPath])
+  );
 
+  const pageEntries = [];
   for (const relPath of pageFiles) {
-    const rawContent = fs.readFileSync(path.join(root, relPath), "utf8");
+    const srcPath = path.join(root, relPath);
+    const rawContent = fs.readFileSync(srcPath, "utf8");
     const composed = ChromesiteCompose.composePage({
       templateText,
       rawContent,
@@ -222,14 +231,32 @@ function main() {
     const dest = path.join(distDir, relPath);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.writeFileSync(dest, composed);
+    pageEntries.push({ relPath, lastmod: fs.statSync(srcPath).mtime.toISOString().slice(0, 10) });
   }
 
   const assetCount = copyDirRecursive(path.join(root, "assets"), path.join(distDir, "assets"));
   const scriptCount = copyDirRecursive(path.join(root, "scripts"), path.join(distDir, "scripts"));
   const elementCount = copyDirRecursive(path.join(root, "elements"), path.join(distDir, "elements"));
 
+  // sitemap.xml — regenerated every run from the current page list, same as
+  // a real Publish/Render would. buildSitemap() returns null when no domain
+  // is configured, since a sitemap of host-less URLs is meaningless.
+  const sitemap = ChromesiteCompose.buildSitemap({
+    pageEntries: pageEntries.map(({ relPath, lastmod }) => ({ path: relPath, lastmod })),
+    pagesData,
+    config,
+  });
+  if (sitemap) fs.writeFileSync(path.join(distDir, "sitemap.xml"), sitemap);
+
+  // robots.txt — a real, hand-editable project-root file (see ensureScaffold()
+  // in editor.js), copied through untouched rather than regenerated.
+  const robotsPath = path.join(root, "robots.txt");
+  const hasRobots = fs.existsSync(robotsPath);
+  if (hasRobots) fs.copyFileSync(robotsPath, path.join(distDir, "robots.txt"));
+
+  const extras = [sitemap && "sitemap.xml", hasRobots && "robots.txt"].filter(Boolean).join(", ");
   console.log(
-    `Rendered ${pageFiles.length} page(s), ${assetCount} asset(s), ${scriptCount} script(s), and ${elementCount} element(s) to ${path.join(path.relative(root, distDir) || ".", "/")}`
+    `Rendered ${pageFiles.length} page(s), ${assetCount} asset(s), ${scriptCount} script(s), and ${elementCount} element(s)${extras ? `, plus ${extras},` : ""} to ${path.join(path.relative(root, distDir) || ".", "/")}`
   );
 }
 
