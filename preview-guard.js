@@ -12,5 +12,5 @@ document.addEventListener("click", function (e) {
   const a = e.target.closest("a[href]");
   if (!a || a.hasAttribute("data-bs-toggle")) return;
   e.preventDefault();
-  window.parent.postMessage({ source: "chromesite-preview", type: "blocked-link", href: a.getAttribute("href") }, "*");
+  window.parent.postMessage({ source: "webhaste-preview", type: "blocked-link", href: a.getAttribute("href") }, "*");
 }, true);

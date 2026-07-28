@@ -10,13 +10,13 @@
  * just guessing from the template placeholders.
  *
  * This file lives in two places, and works unmodified in both:
- *   1. chromesite/cli/compose.js — the extension's own dev-tool copy,
+ *   1. this repo's own cli/compose.js — the extension's own dev-tool copy,
  *      requiring "../compose-core.js" (repo root). Point it at any project
  *      with a siteDir argument.
- *   2. <site>/.chromesite/compose.js — auto-scaffolded into every project
+ *   2. <site>/.webhaste/compose.js — auto-scaffolded into every project
  *      by ensureScaffold() in editor.js, alongside a sibling copy of
  *      compose-core.js, so a site is self-contained and composable without
- *      the chromesite extension's source repo being checked out anywhere.
+ *      the webhaste extension's source repo being checked out anywhere.
  *      Regenerated on every folder open (not copy-once like CLAUDE.md),
  *      so it never drifts from whatever version of the extension actually
  *      renders the live preview/publish output.
@@ -28,11 +28,11 @@
  * Usage:
  *   node compose.js [siteDir] [--out outDir]
  *
- *   siteDir  Project folder to compose. Must contain a .chromesite/ folder.
+ *   siteDir  Project folder to compose. Must contain a .webhaste/ folder.
  *            Default: this site's own root when run from a scaffolded
- *            .chromesite/compose.js, otherwise the current directory.
+ *            .webhaste/compose.js, otherwise the current directory.
  *   --out    Output folder, relative to siteDir (default: deployDirectory
- *            from .chromesite/site.config.json, or "dist"). Use this to
+ *            from .webhaste/site.config.json, or "dist"). Use this to
  *            render to a scratch folder instead of overwriting the site's
  *            real dist/ output.
  *
@@ -48,22 +48,22 @@ const fs = require("fs");
 const path = require("path");
 
 // compose-core.js sits next to this file when scaffolded into a site's own
-// .chromesite/ (case 2 above), or one level up when this is the chromesite
+// .webhaste/ (case 2 above), or one level up when this is the webhaste
 // repo's own cli/compose.js (case 1).
-let ChromesiteCompose;
+let WebhasteCompose;
 try {
-  ChromesiteCompose = require("./compose-core.js");
+  WebhasteCompose = require("./compose-core.js");
 } catch {
-  ChromesiteCompose = require("../compose-core.js");
+  WebhasteCompose = require("../compose-core.js");
 }
 
 // When scaffolded, this file's parent directory is literally named
-// .chromesite/ — use that as the signal to default siteDir to the site's
-// own root, so `node .chromesite/compose.js` works regardless of the
+// .webhaste/ — use that as the signal to default siteDir to the site's
+// own root, so `node .webhaste/compose.js` works regardless of the
 // caller's cwd. The repo dev-tool copy has no such parent and keeps
 // defaulting to cwd, since it's meant to be pointed at whatever project a
-// chromesite contributor is testing against.
-const scaffoldedSiteRoot = path.basename(__dirname) === ".chromesite" ? path.join(__dirname, "..") : null;
+// webhaste contributor is testing against.
+const scaffoldedSiteRoot = path.basename(__dirname) === ".webhaste" ? path.join(__dirname, "..") : null;
 
 const DEFAULT_CONFIG = {
   siteName: "My Site",
@@ -137,7 +137,7 @@ function copyDirRecursive(src, dest) {
 // relative paths (e.g. "about/team.html") — always "/", never path.join,
 // so the ids match the browser side's convention and pagesData[relPath]
 // lookups work identically on Windows and POSIX. `exclude` is a set of
-// top-level folder names (assets/scripts/.chromesite/the dist dir) that
+// top-level folder names (assets/scripts/.webhaste/the dist dir) that
 // must be skipped so re-running compose doesn't rediscover its own prior
 // output as new source pages.
 function collectHtmlFiles(dir, exclude, prefix = "") {
@@ -160,9 +160,9 @@ function parseArgs(argv) {
     console.log(
       "Usage: node compose.js [siteDir] [--out outDir]\n\n" +
         "  siteDir  Project folder to compose (default: this site's own root if\n" +
-        "           run from a scaffolded .chromesite/compose.js, else cwd)\n" +
+        "           run from a scaffolded .webhaste/compose.js, else cwd)\n" +
         "  --out    Output folder, relative to siteDir (default: deployDirectory\n" +
-        "           from .chromesite/site.config.json, or \"dist\")"
+        "           from .webhaste/site.config.json, or \"dist\")"
     );
     process.exit(0);
   }
@@ -181,10 +181,10 @@ function parseArgs(argv) {
 function main() {
   const { siteDir, outDir } = parseArgs(process.argv.slice(2));
   const root = path.resolve(siteDir);
-  const cfgDir = path.join(root, ".chromesite");
+  const cfgDir = path.join(root, ".webhaste");
 
   if (!fs.existsSync(cfgDir)) {
-    console.error(`No .chromesite/ folder found in ${root} — is this a ChromeSite project?`);
+    console.error(`No .webhaste/ folder found in ${root} — is this a WebHaste project?`);
     process.exit(1);
   }
 
@@ -206,21 +206,21 @@ function main() {
   const distDir = path.join(root, distName);
   fs.mkdirSync(distDir, { recursive: true });
 
-  const exclude = new Set(["assets", "scripts", "elements", ".chromesite", distName]);
+  const exclude = new Set(["assets", "scripts", "elements", ".webhaste", distName]);
   // Drafts (pages.json status: "draft", set via the extension's Page
   // Properties dialog) are skipped here the same way Publish/Render to
-  // Local Folder skip them — ChromesiteCompose.isDraftPage() is the single
+  // Local Folder skip them — WebhasteCompose.isDraftPage() is the single
   // source of truth for both, so this CLI never ships a page the extension
   // itself would exclude.
   const pageFiles = collectHtmlFiles(root, exclude).filter(
-    (relPath) => !ChromesiteCompose.isDraftPage(pagesData[relPath])
+    (relPath) => !WebhasteCompose.isDraftPage(pagesData[relPath])
   );
 
   const pageEntries = [];
   for (const relPath of pageFiles) {
     const srcPath = path.join(root, relPath);
     const rawContent = fs.readFileSync(srcPath, "utf8");
-    const composed = ChromesiteCompose.composePage({
+    const composed = WebhasteCompose.composePage({
       templateText,
       rawContent,
       title: relPath,
@@ -241,7 +241,7 @@ function main() {
   // sitemap.xml — regenerated every run from the current page list, same as
   // a real Publish/Render would. buildSitemap() returns null when no domain
   // is configured, since a sitemap of host-less URLs is meaningless.
-  const sitemap = ChromesiteCompose.buildSitemap({
+  const sitemap = WebhasteCompose.buildSitemap({
     pageEntries: pageEntries.map(({ relPath, lastmod }) => ({ path: relPath, lastmod })),
     pagesData,
     config,

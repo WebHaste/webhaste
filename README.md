@@ -1,10 +1,10 @@
-# ChromeSite Website Builder & Publisher for Chrome
+# WebHaste Website Builder & Publisher for Chrome
 
-ChromeSite is a browser-based website management tool (CMS) for small- to medium-sized informational sites. It runs in any Chromium browser (Chrome, Edge, Brave, etc.). It is designed to let anyone easily edit website pages and publish them directly to Cloudflare Pages or Netlify Pages. It also can render an FTP-ready site that you can host anywhere.
+WebHaste is a browser-based website management tool (CMS) for small- to medium-sized informational sites. It runs in any Chromium browser (Chrome, Edge, Brave, etc.). It is designed to let anyone easily edit website pages and publish them directly to Cloudflare Pages or Netlify Pages. It also can render an FTP-ready site that you can host anywhere.
 
-ChromeSite is also built from the ground-up to be easy for AI agents to work with. Point your preferred coding agent to your site folder to get help building templates and blocks, as well as generating content directly.
+WebHaste is also built from the ground-up to be easy for AI agents to work with. Point your preferred coding agent to your site folder to get help building templates and blocks, as well as generating content directly.
 
-ChromeSite does not natively handle dynamic elements or server-side processing, such as database-driven features. There are ways to include some of these features using embeds and iframes, but if your site needs those, you probably will want to look at other site management tools.
+WebHaste does not natively handle dynamic elements or server-side processing, such as database-driven features. There are ways to include some of these features using embeds and iframes, but if your site needs those, you probably will want to look at other site management tools.
 
 User-facing help docs and developer docs live at **chromecms.com** (built, naturally, using this extension), not in this README.
 
@@ -14,7 +14,7 @@ The preferred installation option for most users is to visit the Chrome Web Stor
 
 If you are an experienced Chrome developer, you can download/clone/fork the source code from this repo and run it directly in your browser in developer mode.
 
-## How to use ChromeSite
+## How to use WebHaste
 
 Launch the extension in your browser, and then navigate to the folder you have set up for your site files. This directory will be used to store your site content partials, design template and any related settings and metadata.
 
@@ -24,11 +24,11 @@ Note: Do not serve a website directly from your project's root folder. Doing thi
 
 ### Cloudflare Pages and Netlify Pages Integration
 
-ChromeSite has tools to deploy rendered sites directly to Cloudflare Pages and Netlify Pages, two popular static HTML hosting services. In most cases, if you deploy to these services your hosting and SSL certificate are provided for free.
+WebHaste has tools to deploy rendered sites directly to Cloudflare Pages and Netlify Pages, two popular static HTML hosting services. In most cases, if you deploy to these services your hosting and SSL certificate are provided for free.
 
 In the case of both services, you will need to set up an account with the provider first, and set up your Pages project.
 
-## How a ChromeSite project is put together
+## How a WebHaste project is put together
 
 ```
 ├── index.html ...              ← page content (fragments — see below)
@@ -40,7 +40,7 @@ In the case of both services, you will need to set up an account with the provid
 │   │                              of the chosen cssFramework)
 │   └── scripts.js              ← site-wide custom JS
 ├── dist/                       ← build output — generated, don't hand-edit
-└── .chromesite/
+└── .webhaste/
     ├── site.config.json        ← framework, paragraph mode, deploy target
     ├── nav.json                ← header/footer menu structure
     ├── pages.json              ← optional per-page <title>/meta overrides
@@ -71,7 +71,7 @@ The template defines where these placeholders go:
 | `{{YEAR}}`              | Current year                                   |
 
 To build your own template, copy one of the existing files in
-`.chromesite/templates/`, adjust markup, and point `activeTemplate` at it.
+`.webhaste/templates/`, adjust markup, and point `activeTemplate` at it.
 
 For how the extension itself is built — the File System Access storage
 model, block library, publish pipeline, and headless rendering internals —

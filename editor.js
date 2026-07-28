@@ -174,7 +174,7 @@ document.getElementById("pickFolder").addEventListener("click", async () => {
   }
 });
 
-// ---- .chromesite/ scaffolding ----
+// ---- .webhaste/ scaffolding ----
 // Creates the config directory (site.config.json, nav.json, templates/) the
 // first time a folder is opened, so project settings live in the repo
 // itself rather than the browser's extension storage.
@@ -200,11 +200,11 @@ const DEFAULT_NAV = {
 };
 
 async function getConfigDir(create = true) {
-  return dirHandle.getDirectoryHandle(".chromesite", { create });
+  return dirHandle.getDirectoryHandle(".webhaste", { create });
 }
 
 // ---- assets/ — a published (not dot-prefixed) folder for images/files the
-// user inserts into pages. Unlike .chromesite/, it doesn't exist until the
+// user inserts into pages. Unlike .webhaste/, it doesn't exist until the
 // first upload, so callers that only want to *read* it (listing, publish)
 // pass create=false and must handle a null return.
 async function getAssetsDirHandle(create = false) {
@@ -246,7 +246,7 @@ async function getElementsDirHandle(create = false) {
   }
 }
 
-// ---- .chromesite/blocks/ — the site-specific extension point for
+// ---- .webhaste/blocks/ — the site-specific extension point for
 // BLOCK_LIBRARY (see below). Not auto-scaffolded like templates/, since
 // it's opt-in: it doesn't exist until a site owner adds a block file by
 // hand, same as assets/.
@@ -259,7 +259,7 @@ async function getBlocksDirHandle(create = false) {
   }
 }
 
-// One block per .html file in .chromesite/blocks/. Content is used as-is
+// One block per .html file in .webhaste/blocks/. Content is used as-is
 // for any CSS framework, since it's markup the site author already wrote
 // for their own site — no editor changes needed to add one, just the file.
 async function getCustomBlocks() {
@@ -392,7 +392,7 @@ async function getNestedParentDirHandle(rootDir, relativePath, opts) {
 // Recursively walks a project folder yielding every page (.html file), at
 // any depth, as { path, handle } — path is the full "/"-joined relative
 // path (e.g. "about/team.html"). `exclude` is a set of top-level folder
-// names (.chromesite, assets, scripts, the deploy dir) that aren't pages
+// names (.webhaste, assets, scripts, the deploy dir) that aren't pages
 // and must never be treated as one, so re-rendering doesn't rediscover a
 // prior dist/ output as new source pages.
 async function* walkPages(dir, exclude, prefix = "") {
@@ -408,7 +408,7 @@ async function* walkPages(dir, exclude, prefix = "") {
 
 async function getPageExcludeSet() {
   const config = await getSiteConfig();
-  return new Set([".chromesite", "assets", "scripts", "elements", sanitizeDeployDirectory(config.deployDirectory)]);
+  return new Set([".webhaste", "assets", "scripts", "elements", sanitizeDeployDirectory(config.deployDirectory)]);
 }
 
 async function ensureScaffold() {
@@ -485,7 +485,7 @@ async function ensureScaffold() {
 
   // CLAUDE.md — agent-facing guide to this project's conventions (fragment
   // pages, template placeholders, nav/pages.json wiring, block format).
-  // Lives at the project root, not .chromesite/, so it's discoverable the
+  // Lives at the project root, not .webhaste/, so it's discoverable the
   // same way a repo-root CLAUDE.md/AGENTS.md normally is. Same
   // copied-in-once-then-left-alone pattern as simple-layout.html above —
   // never overwritten if the site owner already has one (e.g. edited it, or
@@ -503,8 +503,8 @@ async function ensureScaffold() {
 
   // compose-core.js + compose.js — a self-contained, dependency-free Node
   // CLI for headlessly rendering this site (see cli/compose.js's own header
-  // comment for the full story). Copied into .chromesite/ so the site is
-  // composable without the chromesite extension's source repo being
+  // comment for the full story). Copied into .webhaste/ so the site is
+  // composable without the webhaste extension's source repo being
   // checked out anywhere else. Regenerated on every folder open, same as
   // block-library.md below — unlike CLAUDE.md/simple-layout.html, nobody's
   // meant to hand-edit these, and staleness here would mean "the CLI check
@@ -684,7 +684,7 @@ async function refreshFileList() {
       homeIcon.textContent = " 🏠";
       nameEl.appendChild(homeIcon);
     }
-    if (ChromesiteCompose.isDraftPage(pagesData[name])) {
+    if (WebhasteCompose.isDraftPage(pagesData[name])) {
       const draftBadge = document.createElement("span");
       draftBadge.className = "file-item-draft-badge";
       draftBadge.title = "Draft — excluded from Publish/Render and sitemap.xml";
@@ -742,7 +742,7 @@ async function openPagePropertiesDialog(name) {
   document.getElementById("pagePropsFileName").textContent = name;
   document.getElementById("pagePropsTitle").value = meta.title || "";
   document.getElementById("pagePropsDescription").value = meta.description || "";
-  document.getElementById("pagePropsStatus").value = ChromesiteCompose.isDraftPage(meta) ? "draft" : "active";
+  document.getElementById("pagePropsStatus").value = WebhasteCompose.isDraftPage(meta) ? "draft" : "active";
   pagePropertiesDialog.showModal();
 }
 
@@ -1193,7 +1193,7 @@ document.getElementById("richControls").addEventListener("click", (e) => {
 // prompt() since execCommand("createLink") only ever takes a URL, not a
 // target attribute ----
 const linkDialog = document.getElementById("linkDialog");
-const LINK_MARKER_HREF = "chromesite:new-link";
+const LINK_MARKER_HREF = "webhaste:new-link";
 let savedLinkRange = null;
 
 function openLinkDialog() {
@@ -1503,7 +1503,7 @@ document.getElementById("assetUploadInput").addEventListener("change", async (e)
   setStatus(`Uploaded ${file.name}.`);
 });
 
-// ---- Blocks dialog — built-in BLOCK_LIBRARY + site-specific .chromesite/blocks/ ----
+// ---- Blocks dialog — built-in BLOCK_LIBRARY + site-specific .webhaste/blocks/ ----
 const blocksDialog = document.getElementById("blocksDialog");
 let blockHtmlById = new Map();
 
@@ -1747,7 +1747,7 @@ async function flushPendingSave() {
 // ---- Template / global nav system ----
 // Pages never contain header/nav/footer themselves. A layout.html template
 // has named placeholders — {{NAV:header}}, {{NAV:footer}}, etc. — resolved
-// against .chromesite/nav.json, which supports nested "children" arrays for
+// against .webhaste/nav.json, which supports nested "children" arrays for
 // dropdowns. Markup for each menu is generated per the site's chosen CSS
 // framework, so the same nav.json can render as Bootstrap 5, Tailwind, or
 // plain HTML depending on one setting.
@@ -1763,7 +1763,7 @@ function slugifyBlockType(id) {
 // bootstrap5 markup exists today; a block with no entry for the site's
 // active framework is shown disabled in the grid rather than hidden, so
 // it's discoverable once that variant gets added. Site-specific custom
-// blocks don't belong here — see getCustomBlocks() / .chromesite/blocks/.
+// blocks don't belong here — see getCustomBlocks() / .webhaste/blocks/.
 const BLOCK_LIBRARY = [
   {
     id: "container",
@@ -1980,9 +1980,9 @@ tailwind: `
   },
 ];
 
-// ---- .chromesite/block-library.md — agent/human-readable reference for
+// ---- .webhaste/block-library.md — agent/human-readable reference for
 // every block available in the Blocks dialog (built-in BLOCK_LIBRARY above,
-// plus this site's custom .chromesite/blocks/*.html), filtered to the
+// plus this site's custom .webhaste/blocks/*.html), filtered to the
 // site's active cssFramework. This is purely generated output — nobody's
 // meant to hand-edit it — so unlike CLAUDE.md/simple-layout.html (see
 // ensureScaffold()), it's safe to regenerate on every folder open, keeping
@@ -1993,8 +1993,8 @@ async function writeBlockLibraryDoc(cfgDir, framework) {
   const lines = [
     "# Available blocks",
     "",
-    `Auto-generated by ChromeSite — reflects the extension's built-in block ` +
-      `library plus this site's custom blocks in \`.chromesite/blocks/\`, ` +
+    `Auto-generated by WebHaste — reflects the extension's built-in block ` +
+      `library plus this site's custom blocks in \`.webhaste/blocks/\`, ` +
       `filtered to this site's current CSS framework (\`${framework}\`). ` +
       `Regenerated every time the project folder is opened in the editor — ` +
       `don't hand-edit, changes here won't stick.`,
@@ -2016,15 +2016,15 @@ async function writeBlockLibraryDoc(cfgDir, framework) {
     lines.push("");
   }
 
-  lines.push("## Custom (`.chromesite/blocks/`)", "");
+  lines.push("## Custom (`.webhaste/blocks/`)", "");
   const customBlocks = await getCustomBlocks();
   if (customBlocks.length) {
     for (const block of customBlocks) {
-      lines.push(`- **${block.label}** — \`.chromesite/blocks/${block.id.replace(/^custom:/, "")}\``);
+      lines.push(`- **${block.label}** — \`.webhaste/blocks/${block.id.replace(/^custom:/, "")}\``);
     }
   } else {
     lines.push(
-      "None yet. Add one by dropping an `.html` file into `.chromesite/blocks/` — see `CLAUDE.md`."
+      "None yet. Add one by dropping an `.html` file into `.webhaste/blocks/` — see `CLAUDE.md`."
     );
   }
   lines.push("");
@@ -2040,7 +2040,7 @@ async function writeBlockLibraryDoc(cfgDir, framework) {
 // silently blocked there (CSS <link> tags are unaffected, which is why the
 // preview still looked right but dropdowns etc. didn't respond to clicks).
 // Published output isn't an extension page, so it keeps using the CDN
-// directly via ChromesiteCompose.FRAMEWORK_ASSETS (compose-core.js); only
+// directly via WebhasteCompose.FRAMEWORK_ASSETS (compose-core.js); only
 // the preview swaps in these locally-vendored copies of the same scripts.
 const FRAMEWORK_ASSETS_PREVIEW = {
   bootstrap5:
@@ -2146,6 +2146,30 @@ function fileToDataUrl(file) {
   });
 }
 
+// renderPreview() runs on every keystroke in the visual editor (see
+// scheduleSave() — only the disk *write* is debounced, the preview
+// recomposition is not), so re-reading and re-base64-encoding every
+// asset/element/CSS-background image on every single input event would
+// waste work proportional to file size, on every keystroke, for files that
+// essentially never change while the user is typing elsewhere on the page.
+// Keyed on the file's own size/lastModified — cheap metadata available from
+// getFile() without reading its bytes — so a cache hit costs one
+// getFileHandle()/getFile() call instead of a full read + base64 encode.
+const previewDataUrlCache = new Map(); // `${dirName}:${name}` -> { size, lastModified, dataUrl }
+
+async function getCachedDataUrl(dirHandle, dirName, name) {
+  const fileHandle = await dirHandle.getFileHandle(name);
+  const file = await fileHandle.getFile();
+  const key = `${dirName}:${name}`;
+  const cached = previewDataUrlCache.get(key);
+  if (cached && cached.size === file.size && cached.lastModified === file.lastModified) {
+    return cached.dataUrl;
+  }
+  const dataUrl = await fileToDataUrl(file);
+  previewDataUrlCache.set(key, { size: file.size, lastModified: file.lastModified, dataUrl });
+  return dataUrl;
+}
+
 // Matches both "assets/x.jpg" (page-relative) and "/assets/x.jpg" (root-
 // relative) — templates need the root-relative form to resolve correctly on
 // nested pages once published (see rewriteScriptsForPreview's comment
@@ -2167,14 +2191,45 @@ async function rewriteAssetSrcsForPreview(html) {
   const urlByName = {};
   for (const name of names) {
     try {
-      const fileHandle = await assetsDir.getFileHandle(name);
-      urlByName[name] = await fileToDataUrl(await fileHandle.getFile());
+      urlByName[name] = await getCachedDataUrl(assetsDir, "assets", name);
     } catch {
       // File genuinely missing from assets/ — leave it broken in preview too.
     }
   }
 
   return html.replace(ASSET_SRC_RE, (match, name) =>
+    urlByName[name] ? `src="${urlByName[name]}"` : match
+  );
+}
+
+// Same problem again for elements/ (see getElementsDirHandle()'s comment) —
+// that folder was only ever meant for <link>-style references, but a
+// template's <img src="/elements/logo.png"> hits the exact same
+// can't-reach-the-real-file issue as assets/*.jpg above, so it needs the
+// same data: URL rewrite for preview.
+const ELEMENTS_SRC_RE = /src="\/?elements\/([^"]+)"/g;
+
+async function rewriteElementsSrcsForPreview(html) {
+  const names = new Set();
+  html.replace(ELEMENTS_SRC_RE, (match, name) => {
+    names.add(name);
+    return match;
+  });
+  if (!names.size) return html;
+
+  const elementsDir = await getElementsDirHandle(false);
+  if (!elementsDir) return html;
+
+  const urlByName = {};
+  for (const name of names) {
+    try {
+      urlByName[name] = await getCachedDataUrl(elementsDir, "elements", name);
+    } catch {
+      // File genuinely missing from elements/ — leave it broken in preview too.
+    }
+  }
+
+  return html.replace(ELEMENTS_SRC_RE, (match, name) =>
     urlByName[name] ? `src="${urlByName[name]}"` : match
   );
 }
@@ -2199,6 +2254,49 @@ async function rewriteAssetSrcsForPreview(html) {
 const SCRIPTS_CSS_HREF_RE = /href="\/?scripts\/([^"]+\.css)"/g;
 const SCRIPTS_CSS_LINK_RE = /<link[^>]*href="\/?scripts\/([^"]+\.css)"[^>]*>/g;
 
+// A CSS background-image (or any other url()) pointing at assets/elements/
+// scripts hits the exact same can't-reach-the-real-file problem as
+// ASSET_SRC_RE — it's just embedded in CSS text instead of an HTML
+// attribute, so it needs the same data: URL treatment before the CSS gets
+// inlined into a <style> block above. Captures which top-level folder it
+// points at so the right directory handle can be picked per match; quote
+// character (or lack of one) is captured too so it can be required to match
+// on the closing side via the \2 backreference.
+const CSS_URL_RE = /url\((["']?)(?:\/)?(assets|elements|scripts)\/([^"')]+?)\1\)/g;
+const CSS_URL_DIR_GETTERS = {
+  assets: getAssetsDirHandle,
+  elements: getElementsDirHandle,
+  scripts: getScriptsDirHandle,
+};
+
+async function rewriteCssUrlsForPreview(css) {
+  const refs = new Set();
+  css.replace(CSS_URL_RE, (match, quote, dirName, name) => {
+    refs.add(`${dirName}/${name}`);
+    return match;
+  });
+  if (!refs.size) return css;
+
+  const dataUrlByRef = {};
+  for (const ref of refs) {
+    const slash = ref.indexOf("/");
+    const dirName = ref.slice(0, slash);
+    const name = ref.slice(slash + 1);
+    try {
+      const dir = await CSS_URL_DIR_GETTERS[dirName](false);
+      if (!dir) continue;
+      dataUrlByRef[ref] = await getCachedDataUrl(dir, dirName, name);
+    } catch {
+      // File genuinely missing — leave that url() broken in preview too.
+    }
+  }
+
+  return css.replace(CSS_URL_RE, (match, quote, dirName, name) => {
+    const dataUrl = dataUrlByRef[`${dirName}/${name}`];
+    return dataUrl ? `url(${dataUrl})` : match;
+  });
+}
+
 async function rewriteScriptsForPreview(html) {
   const names = new Set();
   html.replace(SCRIPTS_CSS_HREF_RE, (match, name) => {
@@ -2214,7 +2312,8 @@ async function rewriteScriptsForPreview(html) {
   for (const name of names) {
     try {
       const fileHandle = await scriptsDir.getFileHandle(name);
-      cssByName[name] = await (await fileHandle.getFile()).text();
+      const rawCss = await (await fileHandle.getFile()).text();
+      cssByName[name] = await rewriteCssUrlsForPreview(rawCss);
     } catch {
       // File genuinely missing from scripts/ — leave the link broken in preview too.
     }
@@ -2227,12 +2326,13 @@ async function rewriteScriptsForPreview(html) {
 
 async function composePage(rawContent, title, isPreview = false) {
   const templateText = await getActiveTemplateText();
-  if (!templateText || ChromesiteCompose.isFullDocument(rawContent)) {
+  if (!templateText || WebhasteCompose.isFullDocument(rawContent)) {
     // "raw HTML" mode, no wrapping — either no template is configured, or
     // this page is already a complete document (e.g. the scaffolded
     // 404.html) that must never be nested inside another one.
     if (!isPreview) return rawContent;
     let out = await rewriteAssetSrcsForPreview(rawContent);
+    out = await rewriteElementsSrcsForPreview(out);
     out = await rewriteScriptsForPreview(out);
     return out + PREVIEW_LINK_GUARD_SCRIPT;
   }
@@ -2243,19 +2343,20 @@ async function composePage(rawContent, title, isPreview = false) {
   // shared module — this is the exact same function cli/compose.js calls
   // under Node, so a headless render always matches what actually ships.
   if (!isPreview) {
-    return ChromesiteCompose.composePage({ templateText, rawContent, title, config, navData, pagesData });
+    return WebhasteCompose.composePage({ templateText, rawContent, title, config, navData, pagesData });
   }
 
   // Preview can't reuse composePage() as-is: it needs FRAMEWORK_ASSETS_PREVIEW
   // (vendored CDN copies, see comment above) instead of the real CDN tags,
-  // and rewriteAssetSrcsForPreview/rewriteScriptsForPreview + the link guard
-  // script only make sense inside the sandboxed srcdoc iframe.
+  // and rewriteAssetSrcsForPreview/rewriteElementsSrcsForPreview/
+  // rewriteScriptsForPreview + the link guard script only make sense inside
+  // the sandboxed srcdoc iframe.
   const framework = config.cssFramework || "bootstrap5";
   const pageMeta = pagesData[title] || {};
   const pageTitle = pageMeta.title || title;
 
   let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
-    ChromesiteCompose.renderMenu(navData.menus?.[menuName], framework, navData.layouts?.[menuName], menuName)
+    WebhasteCompose.renderMenu(navData.menus?.[menuName], framework, navData.layouts?.[menuName], menuName)
   );
   out = out
     .replace(/{{FRAMEWORK_ASSETS}}/g, FRAMEWORK_ASSETS_PREVIEW[framework] || "")
@@ -2265,6 +2366,7 @@ async function composePage(rawContent, title, isPreview = false) {
     .replace(/{{SITE_NAME}}/g, config.siteName || "")
     .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
   out = await rewriteAssetSrcsForPreview(out);
+  out = await rewriteElementsSrcsForPreview(out);
   out = await rewriteScriptsForPreview(out);
   out += PREVIEW_LINK_GUARD_SCRIPT;
   return out;
@@ -2367,7 +2469,7 @@ document.getElementById("openPreviewWindowBtn").addEventListener("click", () => 
   // OS window rather than spawning duplicates, even if our `previewWindow`
   // reference above is stale (e.g. the user closed it without us noticing).
   const isNewWindow = !previewWindow || previewWindow.closed;
-  previewWindow = window.open("", "chromesite-preview-window", "width=1280,height=900");
+  previewWindow = window.open("", "webhaste-preview-window", "width=1280,height=900");
   if (!previewWindow) {
     setStatus("Preview window was blocked — allow pop-ups for this extension to use it.");
     return;
@@ -2423,7 +2525,7 @@ document.getElementById("navSave").addEventListener("click", async () => {
   await writeJSONFile(cfgDir, "nav.json", navWorkingData);
   navDialog.close();
   renderPreview();
-  setStatus("Menus updated (.chromesite/nav.json).");
+  setStatus("Menus updated (.webhaste/nav.json).");
 });
 
 // ---- Menu tabs (header / footer / custom names) ----
@@ -2678,7 +2780,7 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
   applyParagraphMode(config.paragraphMode);
   siteSettingsDialog.close();
   renderPreview();
-  setStatus("Site settings saved (.chromesite/site.config.json).");
+  setStatus("Site settings saved (.webhaste/site.config.json).");
 });
 
 function applyParagraphMode(mode) {
@@ -2730,8 +2832,8 @@ document.getElementById("publishConfirm").addEventListener("click", async () => 
 });
 
 // Shared by all three deployment targets — recursively walks the project
-// root, skips .chromesite/assets/scripts/deploy-dir automatically, skips
-// pages.json-marked drafts (see ChromesiteCompose.isDraftPage — Page
+// root, skips .webhaste/assets/scripts/deploy-dir automatically, skips
+// pages.json-marked drafts (see WebhasteCompose.isDraftPage — Page
 // Properties' Status field), and returns both the composed pages and the
 // per-page mtimes sitemap.xml needs, in one pass rather than walking the
 // directory tree twice.
@@ -2741,7 +2843,7 @@ async function collectPublishPages() {
   const exclude = await getPageExcludeSet();
   const pagesData = await getPagesData();
   for await (const { path, handle } of walkPages(dirHandle, exclude)) {
-    if (ChromesiteCompose.isDraftPage(pagesData[path])) continue;
+    if (WebhasteCompose.isDraftPage(pagesData[path])) continue;
     const file = await handle.getFile();
     const raw = await file.text();
     pages[path] = await composePage(raw, path);
@@ -3000,7 +3102,7 @@ async function publishSite(account, project, token) {
     const elements = await getProjectElements();
     const files = buildPagesFileList(pages, assets, scripts, elements);
 
-    const sitemap = ChromesiteCompose.buildSitemap({ pageEntries, pagesData, config });
+    const sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
     if (sitemap) {
       files.push({
         path: "/sitemap.xml",
@@ -3102,7 +3204,7 @@ async function publishToNetlify(siteId, token) {
   for (const [name, arrayBuffer] of Object.entries(elements)) {
     fileEntries.push({ path: "/elements/" + name, content: arrayBuffer });
   }
-  const sitemap = ChromesiteCompose.buildSitemap({ pageEntries, pagesData, config });
+  const sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
   if (sitemap) fileEntries.push({ path: "/sitemap.xml", content: sitemap });
   const robots = await getRobotsTxtContent();
   if (robots) fileEntries.push({ path: "/robots.txt", content: robots });
@@ -3181,7 +3283,7 @@ async function renderToLocalFolder() {
     await writable.close();
   }
 
-  const sitemap = ChromesiteCompose.buildSitemap({ pageEntries, pagesData, config });
+  const sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
   if (sitemap) {
     const handle = await getNestedFileHandle(distDir, "sitemap.xml", { create: true });
     const writable = await handle.createWritable();
@@ -3258,7 +3360,7 @@ function isKnownPreviewFrameWindow(win) {
 }
 
 window.addEventListener("message", (e) => {
-  if (!e.data || e.data.source !== "chromesite-preview" || e.data.type !== "blocked-link") return;
+  if (!e.data || e.data.source !== "webhaste-preview" || e.data.type !== "blocked-link") return;
   if (!isKnownPreviewFrameWindow(e.source)) return;
   setStatus(`Preview: links aren't navigable here (would have opened "${e.data.href}") — open that file directly to preview it.`);
 });

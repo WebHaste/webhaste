@@ -1,10 +1,10 @@
-# ChromeSite extension internals
+# WebHaste extension internals
 
-This doc is for anyone — human or agent — hacking on the ChromeSite
+This doc is for anyone — human or agent — hacking on the WebHaste
 **extension's own source** in this repo. If you're looking for how to *use*
-ChromeSite to build a site, see the main [README](README.md) or
+WebHaste to build a site, see the main [README](README.md) or
 chromecms.com instead. If you're an agent working inside a site *built with*
-ChromeSite (not this repo), that project has its own scaffolded `CLAUDE.md`
+WebHaste (not this repo), that project has its own scaffolded `CLAUDE.md`
 at its root — see `templates/CLAUDE.md`, the source that gets copied in.
 
 ## How the pieces fit
@@ -22,7 +22,7 @@ Every keystroke debounces into a direct write back to that file on disk —
 so the "local drive as source of truth" model is real: there's no separate
 save step, and no server round-trip.
 
-### 2. Project config — `.chromesite/`
+### 2. Project config — `.webhaste/`
 Site-wide settings live in a dot-prefixed directory inside the project
 folder itself — the same convention as `.vscode/` or `.github/`. It's
 created automatically the first time you open a folder:
@@ -44,7 +44,7 @@ my-site/
     styles.css                 not shown in the Assets dialog, since these
     main.js                    aren't content, they're referenced by the
                                 template itself (e.g. <link href="scripts/styles.css">)
-  .chromesite/              ← committed to git, never published
+  .webhaste/              ← committed to git, never published
     site.config.json         ← siteName, domain, paragraphMode, cssFramework, activeTemplate
     nav.json                 ← named menus, supports nested "children" for dropdowns
     compose.js                ← headless Node CLI, self-contained — regenerated
@@ -55,14 +55,14 @@ my-site/
       simple-layout.html      ← the wrapper template(s)
 ```
 
-`CLAUDE.md` is scaffolded at the project **root**, not inside `.chromesite/`,
+`CLAUDE.md` is scaffolded at the project **root**, not inside `.webhaste/`,
 so agent tooling that auto-discovers a root-level `CLAUDE.md`/`AGENTS.md`
 picks it up without being told where to look. Its content is copied in from
 this repo's own `templates/CLAUDE.md` — same mechanism as the starter
 `simple-layout.html`, see `ensureScaffold()` in `editor.js`.
 
 Both `assets/` and `scripts/` are lazy — created on first use, not scaffolded
-up front like `.chromesite/`. A template references its own scripts directly
+up front like `.webhaste/`. A template references its own scripts directly
 (`<link rel="stylesheet" href="scripts/styles.css">`, `<script src="scripts/main.js">`)
 since there's no placeholder/auto-injection for them, unlike `{{FRAMEWORK_ASSETS}}`.
 
@@ -102,7 +102,7 @@ dialog — a drag-and-drop nested tree editor (SortableJS-based) is planned
 for later, but hand-editing in VS Code works fine in the meantime since
 it's a real file.
 
-### 4. Content blocks — `BLOCK_LIBRARY` + `.chromesite/blocks/`
+### 4. Content blocks — `BLOCK_LIBRARY` + `.webhaste/blocks/`
 
 Pre-baked HTML snippets inserted via the Blocks dialog, then hand-edited in
 place (headline/copy/images) — Elementor-style, not a live component system.
@@ -114,7 +114,7 @@ Two sources feed the same grid:
   by `cssFramework` (`bootstrap5` only today); a block with no entry for the
   site's active framework shows disabled rather than hidden, so it's still
   discoverable once that variant gets added.
-- **Site-specific (`.chromesite/blocks/*.html`)** — one block per HTML file,
+- **Site-specific (`.webhaste/blocks/*.html`)** — one block per HTML file,
   used as-is regardless of framework since it's markup the site author
   already wrote. Opt-in and not scaffolded — the `blocks/` directory doesn't
   exist until someone adds a file to it, same as `assets/`.
@@ -125,7 +125,7 @@ types) can't have their `src` retargeted from Visual view like text can —
 that's a Code view edit.
 
 `writeBlockLibraryDoc()` in `ensureScaffold()` regenerates
-`.chromesite/block-library.md` on every folder open: every `BLOCK_LIBRARY`
+`.webhaste/block-library.md` on every folder open: every `BLOCK_LIBRARY`
 entry's markup for the site's active `cssFramework`, plus a list of its
 custom blocks. It exists specifically so an agent working in a site's own
 repo (which has no visibility into this extension's source) can still see
@@ -192,8 +192,8 @@ srcdoc-iframe-specific asset rewriting that a real render doesn't.
 `cli/compose.js` is the Node-side consumer: point it at any project folder
 and it composes every page + copies `assets/`/`scripts/` into a `dist/`-like
 output, matching `renderToLocalFolder()`. The same file is also what
-`ensureScaffold()` copies into every project as `.chromesite/compose.js`
-(alongside a sibling `.chromesite/compose-core.js`) — it self-detects which
+`ensureScaffold()` copies into every project as `.webhaste/compose.js`
+(alongside a sibling `.webhaste/compose-core.js`) — it self-detects which
 context it's running in (`require("./compose-core.js")` succeeds when
 scaffolded next to a sibling copy, falls back to `require("../compose-core.js")`
 for the repo's own `cli/` copy) and defaults its target folder accordingly.
@@ -207,7 +207,7 @@ extension's source repo being checked out anywhere — see `templates/CLAUDE.md`
 metadata store Page Properties already writes `title`/`description` into),
 toggled from a Status select in that dialog — "Active" is the default and
 isn't written to the file at all, so existing `pages.json` files need no
-migration. `ChromesiteCompose.isDraftPage(pageMeta)` in `compose-core.js` is
+migration. `WebhasteCompose.isDraftPage(pageMeta)` in `compose-core.js` is
 the single check both `editor.js` and `cli/compose.js` use, so a draft is
 excluded identically everywhere: `collectPublishPages()` (the function all
 three deploy targets and the sitemap now go through — the old
@@ -220,7 +220,7 @@ currently-open page bypasses this filter entirely (it calls `composePage()`
 directly on whatever's open), so editing a draft still previews normally.
 
 **`sitemap.xml`** is generated fresh on every Publish/Render — never
-hand-edited, unlike `robots.txt` below — by `ChromesiteCompose.buildSitemap()`
+hand-edited, unlike `robots.txt` below — by `WebhasteCompose.buildSitemap()`
 from `config.domain` plus the same non-draft page list `collectPublishPages()`
 produces (`404.html` is excluded too, since it's never a page visitors are
 intentionally routed to). It returns `null` when `domain` is unset, and

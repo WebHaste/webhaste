@@ -11,13 +11,13 @@
 
    Zero dependencies, no ES module syntax (so a plain <script> tag can load
    it in the browser with no build step) — UMD-lite: attach to
-   module.exports under Node, to globalThis.ChromesiteCompose in a browser.
+   module.exports under Node, to globalThis.WebhasteCompose in a browser.
    --------------------------------------------------------------------- */
 (function (root, factory) {
   if (typeof module !== "undefined" && module.exports) {
     module.exports = factory();
   } else {
-    root.ChromesiteCompose = factory();
+    root.WebhasteCompose = factory();
   }
 })(typeof self !== "undefined" ? self : this, function () {
   // Same CDN tags as the published site gets — NOT the vendored/local copies

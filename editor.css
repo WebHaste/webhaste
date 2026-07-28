@@ -13,12 +13,11 @@ body {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: linear-gradient(180deg,rgba(29, 83, 146, 1) 5%, rgba(0, 46, 99, 1) 50%);
+  background: linear-gradient(180deg, #2b504f 5%, #2a3c3b 40%, #2a3c3b 60%, #2b504f 95%);
   border-bottom: 1px solid #3d3d3d;
 }
 .spacer { flex: 1; }
 .folder-name { font-size: 13px; }
-.brand-icon { width: 30px; height: 30px; border-radius: 5px; }
 button {
   background: #3a3a3a;
   color: #eee;
@@ -53,7 +52,7 @@ button.primary:hover { background: #1d4ed8; }
   min-height: 0;
 }
 .file-list {
-  background: #034694;
+  background: #262d2d;
   border-right: 1px solid #3d3d3d;
   padding: 8px;
   overflow-y: auto;
@@ -279,7 +278,7 @@ button.primary:hover { background: #1d4ed8; }
 .visual-area img.border { border: 1px solid #d1d5db; }
 .visual-area img.p-1 { padding: .25rem; }
 .visual-area img.rounded { border-radius: .375rem; }
-.preview-pane { border-left: 8px solid #034694; }
+.preview-pane { border-left: 8px solid #939999; }
 .preview-label {
   display: flex;
   align-items: center;

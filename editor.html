@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>ChromeSite</title>
+<title>WebHaste</title>
 <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css" />
 <link rel="stylesheet" href="vendor/codemirror/theme/dracula.css" />
 <link rel="stylesheet" href="vendor/codemirror/addon/lint/lint.css" />
@@ -10,7 +10,7 @@
 </head>
 <body>
   <header class="topbar">
-    <img src="icons/icon48.png" alt="ChromeSite" class="brand-icon" />
+    <img src="icons/webhaste-horiz.png" alt="WebHaste" class="brand-icon" />
     <button id="pickFolder">📁 Open Project Folder</button>
     <button id="newFile">＋ New File</button>
     <span id="folderName" class="folder-name">No folder selected</span>
@@ -83,7 +83,7 @@
   </main>
 
   <dialog id="navDialog">
-    <h3>Menus — .chromesite/nav.json</h3>
+    <h3>Menus — .webhaste/nav.json</h3>
     <div class="nav-menu-tabs" id="navMenuTabs"></div>
     <div class="nav-tree-toolbar">
       <button id="navAddMenu" type="button">+ New Menu</button>
@@ -108,7 +108,7 @@
   </dialog>
 
   <dialog id="siteSettingsDialog">
-    <h3>Site Settings — .chromesite/site.config.json</h3>
+    <h3>Site Settings — .webhaste/site.config.json</h3>
     <label>Site Name <input id="cfgSiteName" type="text" /></label>
     <label>Domain <input id="cfgDomain" type="text" placeholder="example.com" /></label>
     <label>Layout Template
@@ -138,7 +138,7 @@
     </label>
     <label>Local Render Folder <input id="cfgDeployDirectory" type="text" placeholder="dist" /></label>
     <p class="hint">Used by "Render to local folder". Defaults to "dist" for SFTP/manual deploys — use "docs" for GitHub Pages' /docs convention, or whatever your host's publish directory expects.</p>
-    <p class="hint">Stored in .chromesite/, travels with the git repo, not published.</p>
+    <p class="hint">Stored in .webhaste/, travels with the git repo, not published.</p>
     <div class="dialog-actions">
       <button id="siteSettingsCancel">Cancel</button>
       <button id="siteSettingsSave" class="primary">Save</button>
@@ -242,7 +242,7 @@
 
   <dialog id="blocksDialog">
     <h3>Insert Block</h3>
-    <p class="hint">Click a block to insert it, then edit its text/images in place. Add your own by dropping .html files into .chromesite/blocks/.</p>
+    <p class="hint">Click a block to insert it, then edit its text/images in place. Add your own by dropping .html files into .webhaste/blocks/.</p>
     <div id="blockGrid" class="block-grid"></div>
     <div class="dialog-actions">
       <button id="blocksDialogClose">Close</button>
