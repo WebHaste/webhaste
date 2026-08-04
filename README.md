@@ -18,7 +18,7 @@ If you are an experienced Chrome developer, you can download/clone/fork the sour
 
 Launch the extension in your browser, and then navigate to the folder you have set up for your site files. This directory will be used to store your site content partials, design template and any related settings and metadata.
 
-There is a [Bootstrap 5.x Starter Template](https://github.com/desttools/chromesite-starter-bootstrap) on Github that you can use to accelerate your template and block development.
+There is a [Bootstrap 5.x Starter Template](https://github.com/desttools/webhaste-starter-bootstrap) on Github that you can use to accelerate your template and block development.
 
 Note: Do not serve a website directly from your project's root folder. Doing this will display page stubs without the proper HTML template structure. If your site is set to "Render to Local Folder" mode, you can specify a sub-folder in your site folder (typically "dist" or "www") that will contain your full, stand-alone site. You CAN serve directly from this location, or use a sync to move it to your hosting server. You also can use an SFTP solution to manually move the files to a server if needed.
 
@@ -36,8 +36,11 @@ In the case of both services, you will need to set up an account with the provid
 ├── assets/                     ← images and files referenced by pages
 ├── elements/                   ← favicons, template backgrounds, shims
 ├── scripts/
+│   ├── bootstrap.min.css       ← If you choose to store a css Framework locally
+│   │                              instead of using a CDN (either works)
 │   ├── styles.css              ← site-wide custom CSS (layered on top
-│   │                              of the chosen cssFramework)
+│   │                              of the chosen css Framework)
+│   ├── bootstrap.bundle.min.js ← JS for CSS library if stored locally (if needed)
 │   └── scripts.js              ← site-wide custom JS
 ├── dist/                       ← build output — generated, don't hand-edit
 └── .webhaste/
@@ -66,9 +69,13 @@ The template defines where these placeholders go:
 | `{{TITLE}}`              | From `pages.json`, or a default built from the filename + site name |
 | `{{META_DESCRIPTION}}`  | From `pages.json`, or blank                    |
 | `{{NAV:header}}` / `{{NAV:footer}}` | Rendered menu markup from `nav.json`, per the framework in use |
-| `{{FRAMEWORK_ASSETS}}`  | CSS/JS tags for whichever `cssFramework` is configured |
 | `{{SITE_NAME}}`         | From `site.config.json`                        |
 | `{{YEAR}}`              | Current year                                   |
+
+`cssFramework` only controls which class names `{{NAV:...}}` renders with
+(Bootstrap, Tailwind, or plain). It does not pull in that framework's actual
+CSS/JS — add a real `<link>`/`<script>` tag to the template's `<head>`
+yourself (a CDN URL, or a local file under `scripts/`) if you want one.
 
 To build your own template, copy one of the existing files in
 `.webhaste/templates/`, adjust markup, and point `activeTemplate` at it.

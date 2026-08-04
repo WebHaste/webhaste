@@ -64,7 +64,9 @@ this repo's own `templates/CLAUDE.md` — same mechanism as the starter
 Both `assets/` and `scripts/` are lazy — created on first use, not scaffolded
 up front like `.webhaste/`. A template references its own scripts directly
 (`<link rel="stylesheet" href="scripts/styles.css">`, `<script src="scripts/main.js">`)
-since there's no placeholder/auto-injection for them, unlike `{{FRAMEWORK_ASSETS}}`.
+— there's no placeholder/auto-injection for any of a template's `<head>`
+content, including a CSS framework; WebHaste doesn't bundle or inject one
+(see "Navigation" below for why that changed).
 
 Because these are real files (not `chrome.storage.local`), the whole
 project — content, template, menus, and settings — travels with the repo
@@ -92,10 +94,22 @@ etc. — same JSON, multiple placements per page.
 
 **`cssFramework` in `site.config.json`** controls how that nav JSON gets
 rendered into markup: `bootstrap5` emits `navbar-nav`/`dropdown-menu`
-classes plus the Bootstrap CDN tags via `{{FRAMEWORK_ASSETS}}`, `tailwind`
-emits a CSS-only hover dropdown with the Tailwind CDN script, and `none`
-emits plain unstyled `<ul>`/`<li>`. The nav data itself never changes —
-only the renderer picked for composing it.
+classes, `tailwind` emits a CSS-only hover dropdown, and `none` emits plain
+unstyled `<ul>`/`<li>`. The nav data itself never changes — only the
+renderer picked for composing it.
+
+`cssFramework` only picks the nav markup's class names — it does **not**
+pull in the framework's CSS/JS itself. WebHaste used to auto-inject CDN
+`<link>`/`<script>` tags for the chosen framework via a `{{FRAMEWORK_ASSETS}}`
+template placeholder, but Chrome Web Store review rejected that (Manifest V3
+forbids remotely-hosted code anywhere in the extension package, even for
+strings that only ever end up in someone else's *published* site, never
+executed by the extension itself). A template's `<head>` is now expected to
+reference whatever CSS framework the site author wants directly — a CDN tag
+they type themselves, or a local file under `scripts/` — the same way it
+already handles `scripts/styles.css`/`main.js`. Existing sites whose
+templates still contain a literal `{{FRAMEWORK_ASSETS}}` placeholder need it
+replaced by hand; it's no longer substituted.
 
 Editing `nav.json` right now is a raw-JSON textarea in the "Edit Menus"
 dialog — a drag-and-drop nested tree editor (SortableJS-based) is planned

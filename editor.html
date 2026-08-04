@@ -18,7 +18,7 @@
     <button id="siteSettingsBtn">⚙️ Site Settings</button>
     <button id="editNav">🔗 Edit Menus</button>
     <button id="publishBtn" class="primary">🚀 Publish</button>
-    <a id="helpLink" href="https://chromecms.com/docs" target="_blank" rel="noopener noreferrer">❓ Help</a>
+    <a id="helpLink" href="https://chromecms.com/docs" target="_blank" rel="noopener noreferrer"><img src="icons/hasty-head.png" alt="" class="help-icon" /> Help</a>
   </header>
 
   <main class="workspace">
@@ -206,6 +206,7 @@
 
   <dialog id="newFileDialog">
     <h3>New Page</h3>
+    <label>Page title <input type="text" id="newFileTitle" placeholder="e.g. About Us" /></label>
     <label>Folder <input type="text" id="newFileFolder" placeholder="e.g. about (leave blank for site root)" /></label>
     <label>File name <input type="text" id="newFileName" placeholder="e.g. team.html" value="untitled.html" /></label>
     <p class="hint" id="newFilePreview"></p>

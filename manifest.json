@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "WebHaste",
   "version": "0.1.0",
-  "description": "Build sites locally in Chrome, publish them to Cloudflare Pages.",
+  "description": "Build sites locally in Chrome, publish them to Cloudflare Pages, Netlify or your preferred hosting.",
   "permissions": [
     "storage",
     "tabs"
@@ -19,7 +19,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["vendor/bootstrap/*", "vendor/tailwind/*", "preview-guard.js"],
+      "resources": ["preview-guard.js"],
       "matches": ["<all_urls>"],
       "use_dynamic_url": true
     }

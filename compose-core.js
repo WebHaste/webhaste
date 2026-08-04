@@ -20,17 +20,6 @@
     root.WebhasteCompose = factory();
   }
 })(typeof self !== "undefined" ? self : this, function () {
-  // Same CDN tags as the published site gets — NOT the vendored/local copies
-  // FRAMEWORK_ASSETS_PREVIEW in editor.js swaps in for the sandboxed preview
-  // iframe, which has no equivalent when rendering outside the extension.
-  const FRAMEWORK_ASSETS = {
-    bootstrap5:
-      '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">\n' +
-      '<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>',
-    tailwind: '<script src="https://cdn.tailwindcss.com"></script>',
-    none: "",
-  };
-
   function renderNavBootstrap5(items, name) {
     const li = items
       .map((item) => {
@@ -178,7 +167,6 @@
       )
     );
     out = out
-      .replace(/{{FRAMEWORK_ASSETS}}/g, FRAMEWORK_ASSETS[framework] || "")
       .replace(/{{CONTENT}}/g, rawContent)
       .replace(/{{TITLE}}/g, pageTitle ? `${pageTitle} | ${config.siteName || ""}` : config.siteName || "Untitled")
       .replace(/{{META_DESCRIPTION}}/g, pageMeta.description || "")
@@ -228,5 +216,5 @@
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
   }
 
-  return { FRAMEWORK_ASSETS, renderMenu, composePage, isFullDocument, isDraftPage, buildSitemap };
+  return { renderMenu, composePage, isFullDocument, isDraftPage, buildSitemap };
 });

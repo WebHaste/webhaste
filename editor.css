@@ -44,6 +44,7 @@ button.primary:hover { background: #1d4ed8; }
   display: inline-block;
 }
 .topbar a:hover { background: #454545; }
+.help-icon { width: 20px; height: 20px; vertical-align: middle; margin-right: 2px; }
 
 .workspace {
   flex: 1;

@@ -17,8 +17,11 @@ file's contents.
 The current layout template is `.webhaste/templates/<activeTemplate>`
 (see `.webhaste/site.config.json` → `activeTemplate` for which file).
 It also defines `{{TITLE}}`, `{{META_DESCRIPTION}}`, `{{NAV:<menu>}}`,
-`{{FRAMEWORK_ASSETS}}`, `{{SITE_NAME}}`, and `{{YEAR}}` placeholders — check
-that file if you need to know what wraps every page (header/nav/footer).
+`{{SITE_NAME}}`, and `{{YEAR}}` placeholders — check that file if you need
+to know what wraps every page (header/nav/footer). Any CSS framework
+`<link>`/`<script>` tags are NOT a placeholder — they're literal markup in
+the template's `<head>`, same as `scripts/styles.css`/`main.js`; WebHaste
+doesn't inject or manage them.
 
 ## Read `.webhaste/site.config.json` before writing markup
 
@@ -27,7 +30,12 @@ site and change over time. Check this file first:
 
 - `cssFramework` — `bootstrap5`, `tailwind`, or `none`. Write class names
   that match whichever is active; classes for the wrong framework are dead
-  weight (or actively wrong) in the published output.
+  weight (or actively wrong) in the published output. This only controls
+  which class names nav menus render with — it does NOT pull in the
+  framework's actual CSS/JS; that has to be a real `<link>`/`<script>` tag
+  in the template's `<head>` (or absent, if `cssFramework` and the template
+  markup have drifted apart — check the template itself, not just this
+  file, before assuming a framework is actually loaded).
 - `paragraphMode` — `p` or `div`. Matches how the visual editor's Enter key
   behaves; hand-written content should follow the same convention so it's
   consistent with what a human editing the same page would produce.

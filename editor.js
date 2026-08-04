@@ -584,12 +584,14 @@ document.getElementById("newFile").addEventListener("click", () => {
 // ---- New File dialog — separate Folder + File name fields so users don't
 // have to type a correct nested path (e.g. "about/team.html") by hand ----
 const newFileDialog = document.getElementById("newFileDialog");
+const newFileTitleInput = document.getElementById("newFileTitle");
 const newFileFolderInput = document.getElementById("newFileFolder");
 const newFileNameInput = document.getElementById("newFileName");
 const newFilePreview = document.getElementById("newFilePreview");
 const newFileSaveBtn = document.getElementById("newFileSave");
 
 function openNewFileDialog() {
+  newFileTitleInput.value = "";
   newFileFolderInput.value = "";
   newFileNameInput.value = "untitled.html";
   updateNewFilePreview();
@@ -633,6 +635,7 @@ async function updateNewFilePreview() {
 newFileSaveBtn.addEventListener("click", async () => {
   const path = buildPagePath(newFileFolderInput.value, newFileNameInput.value);
   const handle = await getNestedFileHandle(dirHandle, path, { create: true });
+  const title = newFileTitleInput.value.trim();
 
   // Only seed starter content for a genuinely new (empty) file — an
   // already-existing page (the "warn, don't silently clobber" case) keeps
@@ -640,8 +643,18 @@ newFileSaveBtn.addEventListener("click", async () => {
   const file = await handle.getFile();
   if (file.size === 0) {
     const writable = await handle.createWritable();
-    await writable.write("<h1>New page</h1>\n<p>Start writing here.</p>");
+    await writable.write(`<div class="container my-5"><h1>${title || "New page"}</h1>\n<p>Start writing here, or delete this block if not needed.</p></div>`);
     await writable.close();
+  }
+
+  // Save the page title into pages.json (same store Page Properties writes
+  // to) right away, so it's not left blank if the author forgets to set it
+  // later via Page Properties.
+  if (title) {
+    const pagesData = await getPagesData();
+    pagesData[path] = { ...pagesData[path], title };
+    const cfgDir = await getConfigDir(true);
+    await writeJSONFile(cfgDir, "pages.json", pagesData);
   }
 
   newFileDialog.close();
@@ -2035,21 +2048,6 @@ async function writeBlockLibraryDoc(cfgDir, framework) {
   await writable.close();
 }
 
-// The Live Preview pane renders via iframe.srcdoc, which inherits editor.html's
-// extension CSP (script-src 'self') — so the CDN <script> tags above get
-// silently blocked there (CSS <link> tags are unaffected, which is why the
-// preview still looked right but dropdowns etc. didn't respond to clicks).
-// Published output isn't an extension page, so it keeps using the CDN
-// directly via WebhasteCompose.FRAMEWORK_ASSETS (compose-core.js); only
-// the preview swaps in these locally-vendored copies of the same scripts.
-const FRAMEWORK_ASSETS_PREVIEW = {
-  bootstrap5:
-    '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">\n' +
-    `<script src="${chrome.runtime.getURL("vendor/bootstrap/bootstrap.bundle.min.js")}"></script>`,
-  tailwind: `<script src="${chrome.runtime.getURL("vendor/tailwind/tailwind-cdn.js")}"></script>`,
-  none: "",
-};
-
 // Backs the Image Properties dialog's preset buttons. Each group's values
 // map to a class string that may be more than one token (Tailwind has no
 // single-class equivalent for Bootstrap's img-fluid/img-thumbnail) — the
@@ -2072,12 +2070,12 @@ const IMAGE_CLASS_PRESETS = {
   },
 };
 
-// Nav rendering + FRAMEWORK_ASSETS (published-output CDN tags) now live in
-// compose-core.js (loaded before this file, see editor.html) — it's the
-// shared source of truth with cli/compose.js's headless Node render, so the
-// two never drift. See composePage() below for the one place framework
-// asset handling still branches locally, which is preview-only (CSP forces
-// vendored copies in the sandboxed iframe instead of the real CDN).
+// Nav rendering lives in compose-core.js (loaded before this file, see
+// editor.html) — it's the shared source of truth with cli/compose.js's
+// headless Node render, so the two never drift. WebHaste doesn't inject any
+// CSS framework assets itself (published or preview) — a template's
+// <head> is expected to reference whatever the site author wants directly,
+// same as it already does for scripts/styles.css and scripts/main.js.
 
 async function getSiteConfig() {
   const cfgDir = await getConfigDir(true);
@@ -2238,14 +2236,14 @@ async function rewriteElementsSrcsForPreview(html) {
 // above, but the fix differs: a <link href="scripts/x.css"> can't be
 // swapped for a data: URL and left as a <link> the way images can, because
 // that's still a resource *load*, and while style-src isn't restricted by
-// editor.html's CSP (see FRAMEWORK_ASSETS_PREVIEW's comment above), there's
+// editor.html's manifest CSP (script-src 'self' 'wasm-unsafe-eval'), there's
 // no reason to route through a URL at all when the actual CSS text is sitting
 // right there on disk — so the whole <link> tag is replaced with an inline
 // <style> block containing the file's real contents instead.
 // scripts/*.js is NOT handled here: executing it would require a <script>
-// that's either inline or src="data:"/"blob:", and script-src 'self' (a
-// Manifest V3 platform restriction, see FRAMEWORK_ASSETS_PREVIEW's comment)
-// blocks all three for anything not shipped inside the extension package
+// that's either inline or src="data:"/"blob:", and script-src 'self' (the
+// same Manifest V3 platform restriction as above) blocks all three for
+// anything not shipped inside the extension package
 // itself — which arbitrary per-site scripts/main.js never is. There's no
 // preview-side workaround; test JS via "Render to local folder" and opening
 // the output directly in a normal browser tab (no extension CSP there), or
@@ -2346,11 +2344,9 @@ async function composePage(rawContent, title, isPreview = false) {
     return WebhasteCompose.composePage({ templateText, rawContent, title, config, navData, pagesData });
   }
 
-  // Preview can't reuse composePage() as-is: it needs FRAMEWORK_ASSETS_PREVIEW
-  // (vendored CDN copies, see comment above) instead of the real CDN tags,
-  // and rewriteAssetSrcsForPreview/rewriteElementsSrcsForPreview/
-  // rewriteScriptsForPreview + the link guard script only make sense inside
-  // the sandboxed srcdoc iframe.
+  // Preview can't reuse composePage() as-is: rewriteAssetSrcsForPreview/
+  // rewriteElementsSrcsForPreview/rewriteScriptsForPreview + the link guard
+  // script only make sense inside the sandboxed srcdoc iframe.
   const framework = config.cssFramework || "bootstrap5";
   const pageMeta = pagesData[title] || {};
   const pageTitle = pageMeta.title || title;
@@ -2359,7 +2355,6 @@ async function composePage(rawContent, title, isPreview = false) {
     WebhasteCompose.renderMenu(navData.menus?.[menuName], framework, navData.layouts?.[menuName], menuName)
   );
   out = out
-    .replace(/{{FRAMEWORK_ASSETS}}/g, FRAMEWORK_ASSETS_PREVIEW[framework] || "")
     .replace(/{{CONTENT}}/g, rawContent)
     .replace(/{{TITLE}}/g, pageTitle ? `${pageTitle} | ${config.siteName || ""}` : config.siteName || "Untitled")
     .replace(/{{META_DESCRIPTION}}/g, pageMeta.description || "")
