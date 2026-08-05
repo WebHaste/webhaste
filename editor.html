@@ -217,7 +217,7 @@
   </dialog>
 
   <dialog id="linkDialog">
-    <h3>Insert Link</h3>
+    <h3 id="linkDialogTitle">Insert Link</h3>
     <label>URL <input type="text" id="linkUrlInput" placeholder="https://" /></label>
     <label>Opens in
       <select id="linkTargetSelect">
@@ -226,6 +226,7 @@
       </select>
     </label>
     <div class="dialog-actions">
+      <button id="linkRemove" class="hidden">Remove Link</button>
       <button id="linkCancel">Cancel</button>
       <button id="linkSave" class="primary">Insert</button>
     </div>
@@ -286,6 +287,17 @@
       <button id="imagePropsApply" class="primary">Apply</button>
     </div>
   </dialog>
+
+  <!-- Non-modal popup shown when clicking an existing link in Visual view —
+       a <dialog>'s showModal() would steal focus/inert the page, which is
+       too heavy for something meant to appear and disappear as you click
+       around; a plain positioned div dismissed on outside click fits better.
+       See showLinkBubble()/hideLinkBubble() in editor.js. -->
+  <div id="linkBubble" class="link-bubble hidden">
+    <span id="linkBubbleHref" class="link-bubble-url"></span>
+    <button type="button" id="linkBubbleEdit">Edit</button>
+    <button type="button" id="linkBubbleUnlink">Unlink</button>
+  </div>
 
   <div id="statusBar" class="status-bar">✅ Ready...</div>
 

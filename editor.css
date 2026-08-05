@@ -70,7 +70,7 @@ button.primary:hover { background: #1d4ed8; }
   border-radius: 4px;
   cursor: pointer;
 }
-.file-item:hover, .file-item.active { background: #3a3a3a; }
+.file-item:hover, .file-item.active { background: #5a5a5a; }
 .file-item-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -251,6 +251,47 @@ button.primary:hover { background: #1d4ed8; }
 .visual-area h2 { font-size: 1.4em; }
 .visual-area a { color: #2563eb; }
 
+/* ---- Link info bubble (see showLinkBubble()/hideLinkBubble() in editor.js)
+   Positioned with position:fixed and top/left set from JS via the clicked
+   <a>'s getBoundingClientRect() — it lives at the body level (not inside
+   #visualArea) specifically so it never needs stripping out of saved
+   content the way .cs-block-toolbar/.cs-div-toolbar do. */
+.link-bubble {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 360px;
+  background: #1e1e1e;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  padding: 6px 8px;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.link-bubble-url {
+  color: #6ea8fe;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+  min-width: 0; /* flex items default to min-width:auto, which blocks
+                   text-overflow:ellipsis from ever kicking in */
+}
+.link-bubble button {
+  flex: none;
+  background: #2a2a2a;
+  color: #eee;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.link-bubble button:hover { background: #3a3a3a; }
+
 /* Approximates the visual effect of the Image Properties dialog's preset
    classes (see IMAGE_CLASS_PRESETS in editor.js — keep these two lists in
    sync) so images aren't full native size while editing. #visualArea has
@@ -326,6 +367,10 @@ dialog input, dialog textarea {
   font-family: inherit;
 }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+/* Sits apart from Cancel/Save since it's destructive and only shown in Edit
+   mode (see openLinkDialog() in editor.js) — the auto margin keeps it
+   pinned to the left of the flex row instead of grouped with the others. */
+#linkRemove { margin-right: auto; }
 .hint { color: #888; font-size: 12px; }
 .hint.warning { color: #e0a030; }
 .hidden { display: none; }

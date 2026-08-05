@@ -29,7 +29,7 @@
             .join("");
           return `<li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">${item.label}</a>
-          <ul class="dropdown-menu">${dropdownItems}</ul>
+          <ul class="dropdown-menu dropdown-menu-end">${dropdownItems}</ul>
         </li>`;
         }
         return `<li class="nav-item"><a class="nav-link" href="${item.href}">${item.label}</a></li>`;

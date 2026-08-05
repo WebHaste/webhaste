@@ -132,6 +132,7 @@ function clearEditorState() {
   cm.setValue("");
   document.getElementById("visualArea").innerHTML = "";
   document.getElementById("previewFrame").srcdoc = "";
+  hideLinkBubble();
   setEditorEnabled(false);
 }
 
@@ -827,6 +828,7 @@ async function openFile(name, handle) {
   cm.setValue(text);
   document.getElementById("visualArea").innerHTML = text;
   decorateVisualArea();
+  hideLinkBubble();
   renderPreview();
   highlightActiveFile(name);
   setEditorEnabled(true);
@@ -1155,6 +1157,7 @@ function switchView(target) {
   syncFromActiveView();
   const html = fileCache.get(currentFileName) || "";
   currentView = target;
+  hideLinkBubble();
 
   const visualEl = document.getElementById("visualArea");
   const cmEl = cm.getWrapperElement();
@@ -1195,7 +1198,14 @@ document.getElementById("richControls").addEventListener("click", (e) => {
   document.getElementById("visualArea").focus();
   const cmd = btn.dataset.cmd;
   if (cmd === "createLink") {
-    openLinkDialog();
+    // Firing the toolbar's Link button with the caret already inside an
+    // existing link (no fresh selection made) means "edit this link", not
+    // "wrap this text in a new one" — same link the click-to-open bubble
+    // below would show. getEnclosingLink() covers both a collapsed caret
+    // inside the <a> and a selection that starts within it.
+    const sel = document.getSelection();
+    const anchorLink = sel.rangeCount ? getEnclosingLink(sel.getRangeAt(0).commonAncestorContainer) : null;
+    openLinkDialog(anchorLink);
   } else {
     document.execCommand(cmd, false, btn.dataset.value || undefined);
   }
@@ -1204,31 +1214,86 @@ document.getElementById("richControls").addEventListener("click", (e) => {
 
 // ---- Link dialog — URL + Same Window/New Window, replacing a plain
 // prompt() since execCommand("createLink") only ever takes a URL, not a
-// target attribute ----
+// target attribute. Doubles as the Edit-Link dialog: openLinkDialog(link)
+// pre-fills from an existing <a> and linkSave writes straight back to its
+// attributes instead of running createLink again (see editingLinkEl below) ----
 const linkDialog = document.getElementById("linkDialog");
 const LINK_MARKER_HREF = "webhaste:new-link";
 let savedLinkRange = null;
+// Non-null only while editing an existing link (openLinkDialog(link) was
+// given an element) — distinguishes "Save" writing straight to this <a>'s
+// attributes from the normal execCommand("createLink") insert path.
+let editingLinkEl = null;
 
-function openLinkDialog() {
-  const selection = document.getSelection();
-  if (!selection.rangeCount) return; // nothing selected/focused in the editor to link
-  savedLinkRange = selection.getRangeAt(0).cloneRange();
-  document.getElementById("linkUrlInput").value = "https://";
-  document.getElementById("linkTargetSelect").value = "_self";
+function getEnclosingLink(node) {
+  const el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+  return el ? el.closest("#visualArea a") : null;
+}
+
+function openLinkDialog(existingLink) {
+  editingLinkEl = existingLink || null;
+  document.getElementById("linkDialogTitle").textContent = editingLinkEl ? "Edit Link" : "Insert Link";
+  document.getElementById("linkSave").textContent = editingLinkEl ? "Save" : "Insert";
+  document.getElementById("linkRemove").classList.toggle("hidden", !editingLinkEl);
+
+  if (editingLinkEl) {
+    // Select the link's full contents so the dialog's context matches what
+    // the bubble's Edit button and a link double-click both do — editing
+    // never depends on how much of the link text happened to be selected.
+    const range = document.createRange();
+    range.selectNodeContents(editingLinkEl);
+    const selection = document.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    savedLinkRange = range.cloneRange();
+    document.getElementById("linkUrlInput").value = editingLinkEl.getAttribute("href") || "";
+    document.getElementById("linkTargetSelect").value = editingLinkEl.getAttribute("target") === "_blank" ? "_blank" : "_self";
+  } else {
+    const selection = document.getSelection();
+    if (!selection.rangeCount) return; // nothing selected/focused in the editor to link
+    savedLinkRange = selection.getRangeAt(0).cloneRange();
+    document.getElementById("linkUrlInput").value = "https://";
+    document.getElementById("linkTargetSelect").value = "_self";
+  }
   linkDialog.showModal();
 }
 
 document.getElementById("linkCancel").addEventListener("click", () => linkDialog.close());
 
+document.getElementById("linkRemove").addEventListener("click", () => {
+  const link = editingLinkEl;
+  linkDialog.close();
+  if (!link) return;
+  link.replaceWith(...link.childNodes);
+  scheduleSave();
+});
+
 document.getElementById("linkSave").addEventListener("click", () => {
   const url = document.getElementById("linkUrlInput").value.trim();
   const target = document.getElementById("linkTargetSelect").value;
   const range = savedLinkRange;
+  const link = editingLinkEl;
   linkDialog.close();
   if (!url || !range) return;
 
   const visualArea = document.getElementById("visualArea");
   visualArea.focus();
+
+  if (link) {
+    // Editing in place — no need to re-run createLink, this <a> already
+    // exists and its text content is untouched.
+    link.setAttribute("href", url);
+    if (target === "_blank") {
+      link.setAttribute("target", "_blank");
+      link.setAttribute("rel", "noopener noreferrer");
+    } else {
+      link.removeAttribute("target");
+      link.removeAttribute("rel");
+    }
+    scheduleSave();
+    return;
+  }
+
   const selection = document.getSelection();
   selection.removeAllRanges();
   selection.addRange(range);
@@ -1238,17 +1303,110 @@ document.getElementById("linkSave").addEventListener("click", () => {
   // unambiguously afterward even if the real URL already appears elsewhere
   // on the page.
   document.execCommand("createLink", false, LINK_MARKER_HREF);
-  const link = visualArea.querySelector(`a[href="${LINK_MARKER_HREF}"]`);
-  if (link) {
-    link.setAttribute("href", url);
+  const newLink = visualArea.querySelector(`a[href="${LINK_MARKER_HREF}"]`);
+  if (newLink) {
+    newLink.setAttribute("href", url);
     if (target === "_blank") {
-      link.setAttribute("target", "_blank");
-      link.setAttribute("rel", "noopener noreferrer");
+      newLink.setAttribute("target", "_blank");
+      newLink.setAttribute("rel", "noopener noreferrer");
     } else {
-      link.removeAttribute("target");
-      link.removeAttribute("rel");
+      newLink.removeAttribute("target");
+      newLink.removeAttribute("rel");
     }
   }
+  scheduleSave();
+});
+
+// ---- Link info bubble — clicking an existing link in Visual view used to
+// be a dead end: the only way to see its URL, let alone change it, was
+// switching to Code view. This shows the href plus Edit/Unlink right where
+// you clicked, and doubles as the entry point for "select this whole link"
+// (see the dblclick handler below) rather than requiring a manual
+// click-drag across it first. ----
+const linkBubble = document.getElementById("linkBubble");
+let bubbleLinkEl = null;
+
+function hideLinkBubble() {
+  linkBubble.classList.add("hidden");
+  bubbleLinkEl = null;
+}
+
+function showLinkBubble(link) {
+  bubbleLinkEl = link;
+  const href = link.getAttribute("href") || "";
+  // Deliberately plain text, not a real <a href>: relative hrefs like
+  // "about.html" are relative to the *site* being edited, not to this
+  // extension's own editor.html, so making it clickable here would
+  // navigate the bubble to the wrong place for anything but absolute URLs.
+  const hrefEl = document.getElementById("linkBubbleHref");
+  hrefEl.textContent = href || "(no URL)";
+  hrefEl.title = href;
+
+  linkBubble.classList.remove("hidden");
+  const linkRect = link.getBoundingClientRect();
+  const bubbleRect = linkBubble.getBoundingClientRect();
+  let top = linkRect.bottom + 6;
+  if (top + bubbleRect.height > window.innerHeight) top = linkRect.top - bubbleRect.height - 6;
+  let left = linkRect.left;
+  if (left + bubbleRect.width > window.innerWidth) left = window.innerWidth - bubbleRect.width - 8;
+  linkBubble.style.top = `${Math.max(4, top)}px`;
+  linkBubble.style.left = `${Math.max(4, left)}px`;
+}
+
+document.getElementById("visualArea").addEventListener("click", (e) => {
+  if (currentView !== "visual") return;
+  const link = e.target.closest("a");
+  if (link) {
+    showLinkBubble(link);
+  } else {
+    hideLinkBubble();
+  }
+});
+
+// Overrides the browser's default double-click-selects-one-word behavior
+// specifically on links — most links are short phrases, not single words
+// ("Contact us"), so a plain double-click leaves the rest unselected and a
+// URL/target edit would only apply cleanly to that one word's worth of <a>.
+// Selecting the full link here is what makes the Edit dialog's range always
+// correct without the user having to drag-select it by hand first.
+document.getElementById("visualArea").addEventListener("dblclick", (e) => {
+  if (currentView !== "visual") return;
+  const link = e.target.closest("a");
+  if (!link) return;
+  e.preventDefault();
+  const range = document.createRange();
+  range.selectNodeContents(link);
+  const selection = document.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  showLinkBubble(link);
+});
+
+document.getElementById("visualArea").addEventListener("scroll", hideLinkBubble);
+
+// Clicks on the link itself are handled by the visualArea listener above
+// (which runs first, since the event bubbles from the <a> up through
+// visualArea before reaching document) — this only needs to catch clicks
+// that land outside both the bubble and visualArea, e.g. the toolbar or a
+// dialog, where nothing else would ever close it.
+document.addEventListener("click", (e) => {
+  if (linkBubble.classList.contains("hidden")) return;
+  if (linkBubble.contains(e.target)) return;
+  if (e.target.closest("#visualArea")) return;
+  hideLinkBubble();
+});
+
+document.getElementById("linkBubbleEdit").addEventListener("click", () => {
+  const link = bubbleLinkEl;
+  hideLinkBubble();
+  if (link) openLinkDialog(link);
+});
+
+document.getElementById("linkBubbleUnlink").addEventListener("click", () => {
+  const link = bubbleLinkEl;
+  hideLinkBubble();
+  if (!link) return;
+  link.replaceWith(...link.childNodes);
   scheduleSave();
 });
 
