@@ -157,6 +157,7 @@
     const framework = config.cssFramework || "bootstrap5";
     const pageMeta = (pagesData && pagesData[title]) || {};
     const pageTitle = pageMeta.title || title;
+    const pageLang = pageMeta.language || config.language || "en";
 
     let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
       renderMenu(
@@ -171,6 +172,7 @@
       .replace(/{{TITLE}}/g, pageTitle ? `${pageTitle} | ${config.siteName || ""}` : config.siteName || "Untitled")
       .replace(/{{META_DESCRIPTION}}/g, pageMeta.description || "")
       .replace(/{{SITE_NAME}}/g, config.siteName || "")
+      .replace(/{{LANG}}/g, pageLang)
       .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
     return out;
   }

@@ -17,8 +17,10 @@ file's contents.
 The current layout template is `.webhaste/templates/<activeTemplate>`
 (see `.webhaste/site.config.json` → `activeTemplate` for which file).
 It also defines `{{TITLE}}`, `{{META_DESCRIPTION}}`, `{{NAV:<menu>}}`,
-`{{SITE_NAME}}`, and `{{YEAR}}` placeholders — check that file if you need
-to know what wraps every page (header/nav/footer). Any CSS framework
+`{{SITE_NAME}}`, `{{LANG}}`, and `{{YEAR}}` placeholders — check that file
+if you need to know what wraps every page (header/nav/footer). `{{LANG}}`
+fills the `<html lang="...">` attribute; see "Multi-language content"
+below for where its value comes from. Any CSS framework
 `<link>`/`<script>` tags are NOT a placeholder — they're literal markup in
 the template's `<head>`, same as `scripts/styles.css`/`main.js`; WebHaste
 doesn't inject or manage them.
@@ -46,6 +48,9 @@ site and change over time. Check this file first:
 - `domain` — the live site's URL (e.g. `https://example.com`). Drives
   `sitemap.xml` generation (see below); no sitemap is produced while it's
   unset.
+- `language` — a BCP 47 tag (e.g. `en`, `pt-BR`) that fills the template's
+  `{{LANG}}` placeholder for every page site-wide. Individual pages can
+  override this — see "Multi-language content" below.
 
 ## Making a new page reachable
 
@@ -83,6 +88,23 @@ links to it. Two more files, both in `.webhaste/`:
   normally in the editor, but is skipped by Publish, Render to Local
   Folder, and `sitemap.xml` — treat it as work in progress, not a live URL,
   when deciding whether to link to it from `nav.json` or other pages.
+
+  A page entry can also carry `"language"` — a BCP 47 tag overriding
+  `site.config.json`'s site-wide `language` for just that page (e.g. a
+  single Spanish-language page on an otherwise English site). Omitted key
+  means "inherit the site default," same pattern as `status`.
+
+## Multi-language content
+
+`{{LANG}}` in the layout template resolves per page as: this page's
+`pages.json` → `language` override, else `site.config.json` → `language`,
+else `"en"`. There's no separate translated-copy mechanism — a localized
+page is just a normal `.html` fragment (e.g. `about-es.html`) written in
+that language, linked from `nav.json` like any other page, with its
+`pages.json` entry's `language` set to match. `hreflang` alternate-language
+`<link>` tags aren't generated automatically; add them by hand in the
+template's `<head>` (or per-page, if editing raw HTML) if the site needs
+them.
 
 ## sitemap.xml and robots.txt
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "WebHaste",
-  "version": "0.1.0",
-  "description": "Build sites locally in Chrome, publish them to Cloudflare Pages, Netlify or your preferred hosting.",
+  "version": "0.1.1",
+  "description": "A browser-based CMS, optimized for AI collaboration. Generates static sites for SFTP or deploy to Cloudflare Pages or Netlify.",
   "permissions": [
     "storage",
     "tabs"

@@ -185,9 +185,67 @@ const DEFAULT_CONFIG = {
   paragraphMode: "p",
   activeTemplate: "simple-layout.html",
   cssFramework: "bootstrap5",
+  language: "en",
   deploymentTarget: "cloudflare",
   deployDirectory: "dist"
 };
+
+// Curated BCP 47 tags covering the common case for both Site Settings'
+// default-language picker and Page Properties' per-page override — not the
+// full ISO 639-1 list (180+ entries is worse UX for the 95% case). Either
+// dialog also offers a free-text "Other" option for anything not listed
+// here (regional variants like pt-BR, or rarer languages).
+const COMMON_LANGUAGES = [
+  ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
+  ["it", "Italian"], ["pt", "Portuguese"], ["pt-BR", "Portuguese (Brazil)"],
+  ["nl", "Dutch"], ["sv", "Swedish"], ["no", "Norwegian"], ["da", "Danish"],
+  ["fi", "Finnish"], ["pl", "Polish"], ["ru", "Russian"], ["uk", "Ukrainian"],
+  ["tr", "Turkish"], ["el", "Greek"], ["cs", "Czech"], ["ro", "Romanian"],
+  ["hu", "Hungarian"], ["he", "Hebrew"], ["ar", "Arabic"], ["hi", "Hindi"],
+  ["bn", "Bengali"], ["ur", "Urdu"], ["fa", "Persian"], ["th", "Thai"],
+  ["vi", "Vietnamese"], ["id", "Indonesian"], ["ms", "Malay"],
+  ["zh-Hans", "Chinese (Simplified)"], ["zh-Hant", "Chinese (Traditional)"],
+  ["ja", "Japanese"], ["ko", "Korean"], ["sw", "Swahili"],
+  ["af", "Afrikaans"], ["sq", "Albanian"], ["bg", "Bulgarian"],
+  ["hr", "Croatian"], ["sk", "Slovak"],
+];
+
+// Fills a language <select> with COMMON_LANGUAGES plus an "Other…" escape
+// hatch; includeSiteDefault adds a leading "(Use site default)" option for
+// Page Properties, where an unset value means "inherit site.config.json".
+function languageOptionsHTML(includeSiteDefault) {
+  const opts = includeSiteDefault ? [`<option value="">(Use site default)</option>`] : [];
+  for (const [code, label] of COMMON_LANGUAGES) {
+    opts.push(`<option value="${code}">${label} (${code})</option>`);
+  }
+  opts.push(`<option value="__other__">Other…</option>`);
+  return opts.join("");
+}
+
+// Sets a populated language <select> + its paired free-text "other" input
+// to reflect `value` (a BCP 47 tag, or "" to mean "no override"/inherit).
+function setLanguageSelectValue(selectEl, otherInputEl, value) {
+  const known = COMMON_LANGUAGES.some(([code]) => code === value);
+  if (!value) {
+    selectEl.value = "";
+    otherInputEl.style.display = "none";
+    otherInputEl.value = "";
+  } else if (known) {
+    selectEl.value = value;
+    otherInputEl.style.display = "none";
+    otherInputEl.value = "";
+  } else {
+    selectEl.value = "__other__";
+    otherInputEl.style.display = "";
+    otherInputEl.value = value;
+  }
+}
+
+// Reads back whatever setLanguageSelectValue() populated: "" (no override),
+// or the chosen/typed BCP 47 tag.
+function getLanguageSelectValue(selectEl, otherInputEl) {
+  return selectEl.value === "__other__" ? otherInputEl.value.trim() : selectEl.value;
+}
 const DEFAULT_NAV = {
   menus: {
     header: [
@@ -756,22 +814,35 @@ async function openPagePropertiesDialog(name) {
   document.getElementById("pagePropsFileName").textContent = name;
   document.getElementById("pagePropsTitle").value = meta.title || "";
   document.getElementById("pagePropsDescription").value = meta.description || "";
+  const pagePropsLanguageSelect = document.getElementById("pagePropsLanguage");
+  pagePropsLanguageSelect.innerHTML = languageOptionsHTML(true);
+  setLanguageSelectValue(pagePropsLanguageSelect, document.getElementById("pagePropsLanguageOther"), meta.language || "");
   document.getElementById("pagePropsStatus").value = WebhasteCompose.isDraftPage(meta) ? "draft" : "active";
   pagePropertiesDialog.showModal();
 }
+
+document.getElementById("pagePropsLanguage").addEventListener("change", (e) => {
+  document.getElementById("pagePropsLanguageOther").style.display = e.target.value === "__other__" ? "" : "none";
+});
 
 document.getElementById("pagePropsCancel").addEventListener("click", () => pagePropertiesDialog.close());
 
 document.getElementById("pagePropsSave").addEventListener("click", async () => {
   const title = document.getElementById("pagePropsTitle").value.trim();
   const description = document.getElementById("pagePropsDescription").value.trim();
+  const language = getLanguageSelectValue(document.getElementById("pagePropsLanguage"), document.getElementById("pagePropsLanguageOther"));
   const isDraft = document.getElementById("pagePropsStatus").value === "draft";
   const pagesData = await getPagesData();
 
-  if (!title && !description && !isDraft) {
+  if (!title && !description && !language && !isDraft) {
     delete pagesData[pagePropsFileName];
   } else {
-    pagesData[pagePropsFileName] = { title, description, ...(isDraft ? { status: "draft" } : {}) };
+    pagesData[pagePropsFileName] = {
+      title,
+      description,
+      ...(language ? { language } : {}),
+      ...(isDraft ? { status: "draft" } : {}),
+    };
   }
 
   const cfgDir = await getConfigDir(true);
@@ -2508,6 +2579,7 @@ async function composePage(rawContent, title, isPreview = false) {
   const framework = config.cssFramework || "bootstrap5";
   const pageMeta = pagesData[title] || {};
   const pageTitle = pageMeta.title || title;
+  const pageLang = pageMeta.language || config.language || "en";
 
   let out = templateText.replace(/{{NAV:(\w+)}}/g, (_, menuName) =>
     WebhasteCompose.renderMenu(navData.menus?.[menuName], framework, navData.layouts?.[menuName], menuName)
@@ -2517,6 +2589,7 @@ async function composePage(rawContent, title, isPreview = false) {
     .replace(/{{TITLE}}/g, pageTitle ? `${pageTitle} | ${config.siteName || ""}` : config.siteName || "Untitled")
     .replace(/{{META_DESCRIPTION}}/g, pageMeta.description || "")
     .replace(/{{SITE_NAME}}/g, config.siteName || "")
+    .replace(/{{LANG}}/g, pageLang)
     .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
   out = await rewriteAssetSrcsForPreview(out);
   out = await rewriteElementsSrcsForPreview(out);
@@ -2913,9 +2986,15 @@ document.getElementById("siteSettingsBtn").addEventListener("click", async () =>
   document.getElementById("templateSelect").value = config.activeTemplate || "";
   document.getElementById("cfgParagraphMode").value = config.paragraphMode || "p";
   document.getElementById("cfgCssFramework").value = config.cssFramework || "bootstrap5";
+  const cfgLanguageSelect = document.getElementById("cfgLanguage");
+  cfgLanguageSelect.innerHTML = languageOptionsHTML(false);
+  setLanguageSelectValue(cfgLanguageSelect, document.getElementById("cfgLanguageOther"), config.language || "en");
   document.getElementById("cfgDeploymentTarget").value = config.deploymentTarget || "cloudflare";
   document.getElementById("cfgDeployDirectory").value = config.deployDirectory || "dist";
   siteSettingsDialog.showModal();
+});
+document.getElementById("cfgLanguage").addEventListener("change", (e) => {
+  document.getElementById("cfgLanguageOther").style.display = e.target.value === "__other__" ? "" : "none";
 });
 document.getElementById("siteSettingsCancel").addEventListener("click", () => siteSettingsDialog.close());
 document.getElementById("siteSettingsSave").addEventListener("click", async () => {
@@ -2925,6 +3004,7 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
     paragraphMode: document.getElementById("cfgParagraphMode").value,
     activeTemplate: document.getElementById("templateSelect").value,
     cssFramework: document.getElementById("cfgCssFramework").value,
+    language: getLanguageSelectValue(document.getElementById("cfgLanguage"), document.getElementById("cfgLanguageOther")) || "en",
     deploymentTarget: document.getElementById("cfgDeploymentTarget").value,
     deployDirectory: sanitizeDeployDirectory(document.getElementById("cfgDeployDirectory").value),
   };

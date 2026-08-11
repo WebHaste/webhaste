@@ -129,6 +129,9 @@
         <option value="none">None (plain HTML)</option>
       </select>
     </label>
+    <label>Default Language <select id="cfgLanguage"></select></label>
+    <input id="cfgLanguageOther" type="text" placeholder="e.g. pt-BR" style="display:none" />
+    <p class="hint">Sets &lt;html lang&gt; for every page. Individual pages can override this in Page Properties.</p>
     <label>Deployment Target
       <select id="cfgDeploymentTarget">
         <option value="cloudflare">Cloudflare Pages</option>
@@ -191,6 +194,8 @@
     <p class="hint" id="pagePropsFileName"></p>
     <label>Title <input type="text" id="pagePropsTitle" placeholder="Leave blank to use the default title" /></label>
     <label>Meta Description <textarea id="pagePropsDescription" rows="3"></textarea></label>
+    <label>Language <select id="pagePropsLanguage"></select></label>
+    <input id="pagePropsLanguageOther" type="text" placeholder="e.g. pt-BR" style="display:none" />
     <label>Status
       <select id="pagePropsStatus">
         <option value="active">Active</option>
