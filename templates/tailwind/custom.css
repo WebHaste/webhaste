@@ -1,0 +1,9 @@
+/* Hand-written CSS for this site — not run through the Tailwind build at
+   all. Reference it from your template's <head> with a normal
+   <link rel="stylesheet" href="/scripts/custom.css">, loaded after
+   scripts/styles.css so a rule here can override a generated utility
+   class if it needs to.
+
+   Don't edit scripts/styles.css directly — it's generated from
+   tailwind-input.css by `npm run build:css` / `npm run watch:css` (see
+   package.json). Add new hand-written classes here instead. */

@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* .webhaste/ is a dot-directory, which Tailwind's automatic content
+   detection skips by default — but this project's templates and blocks
+   (the files that actually use Tailwind utility classes) live there. List
+   them explicitly, or their classes never make it into the compiled
+   output. Add more @source lines here if you add markup under another
+   dot-prefixed path. */
+@source "./.webhaste/templates";
+@source "./.webhaste/blocks";
+
+/* Add site-wide theme customization here, e.g.:
+
+   @theme {
+     --color-brand: #1d4ed8;
+   }
+
+   That generates bg-brand, text-brand, border-brand, etc. utilities
+   automatically. Reusable component classes (e.g. a custom button
+   variant) can go in an @layer components block the same way. See
+   https://tailwindcss.com/docs/theme for the full @theme reference.
+
+   For plain hand-written CSS that isn't run through Tailwind at all, use
+   scripts/custom.css instead — it's linked separately in your template
+   and never touched by the build. */

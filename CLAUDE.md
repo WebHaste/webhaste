@@ -111,6 +111,31 @@ already handles `scripts/styles.css`/`main.js`. Existing sites whose
 templates still contain a literal `{{FRAMEWORK_ASSETS}}` placeholder need it
 replaced by hand; it's no longer substituted.
 
+`tailwind` gets one deliberate exception to "WebHaste doesn't bundle or
+inject a framework": Tailwind's own zero-build CDN option is a `<script
+src>` (its runtime class-scanner), and that gets blocked by this
+extension's CSP inside the preview iframe (`script-src 'self'` — the same
+restriction that blocks a site's own `scripts/main.js` there, see
+`rewriteScriptsForPreview()`'s comment) — so a site using it would render
+fine once published but show unstyled in preview, with no error to explain
+why. `ensureScaffold()` sidesteps this by scaffolding **build tooling**,
+not the framework itself, the moment `cssFramework` is `"tailwind"`:
+`package.json` (a `tailwindcss`/`@tailwindcss/cli` devDependency plus
+`build:css`/`watch:css` scripts) and `tailwind-input.css` at the project
+root, plus `scripts/custom.css` for hand-written CSS that isn't run
+through Tailwind at all. Source content for these three lives in this
+repo's `templates/tailwind/`. The site author still has to run
+`npm install` themselves (the extension can't shell out) and still has to
+add the `<link href="/scripts/styles.css">` (and, if they want it,
+`<link href="/scripts/custom.css">`) to their template's `<head>` by
+hand — scaffolding stops at "the files exist and `npm run build:css`
+works," same as every other framework choice never touching template
+markup. Copied in once and never overwritten, same pattern as
+`CLAUDE.md`/`simple-layout.html`; the Site Settings dialog also re-runs
+`ensureScaffold()` after saving, so switching an *existing* project's
+`cssFramework` to `tailwind` scaffolds these too, not just a brand-new
+folder.
+
 Editing `nav.json` right now is a raw-JSON textarea in the "Edit Menus"
 dialog — a drag-and-drop nested tree editor (SortableJS-based) is planned
 for later, but hand-editing in VS Code works fine in the meantime since

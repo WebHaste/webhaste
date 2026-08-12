@@ -1,0 +1,12 @@
+{
+  "name": "webhaste-site",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./tailwind-input.css -o ./scripts/styles.css --minify",
+    "watch:css": "tailwindcss -i ./tailwind-input.css -o ./scripts/styles.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4",
+    "tailwindcss": "^4"
+  }
+}

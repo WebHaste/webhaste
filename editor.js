@@ -479,6 +479,7 @@ async function ensureScaffold() {
   } catch {
     await writeJSONFile(cfgDir, "site.config.json", DEFAULT_CONFIG);
   }
+  const config = await readJSONFile(cfgDir, "site.config.json", DEFAULT_CONFIG);
 
   // nav.json
   try {
@@ -492,8 +493,41 @@ async function ensureScaffold() {
   // Created upfront so they're visible on disk from the start rather than
   // only lazily appearing on first upload; { create: true } is already a
   // no-op if the folder exists, so this never disturbs existing content.
+  const projectDirs = {};
   for (const name of ["assets", "scripts", "elements"]) {
-    await dirHandle.getDirectoryHandle(name, { create: true });
+    projectDirs[name] = await dirHandle.getDirectoryHandle(name, { create: true });
+  }
+
+  // Tailwind build tooling — package.json, tailwind-input.css, and
+  // scripts/custom.css — only scaffolded when cssFramework is "tailwind".
+  // Tailwind is the one framework option that can't just be a CDN <link>/
+  // <script> a site owner types into their template's <head> like Bootstrap
+  // or "none" can: Tailwind's CDN "browser build" script gets blocked by
+  // this extension's own CSP inside the preview iframe (script-src 'self',
+  // same restriction that blocks a site's own scripts/main.js there — see
+  // rewriteScriptsForPreview()'s comment), so its runtime class-scanner
+  // never runs and nothing renders in preview even though it would once
+  // actually published. Precompiling avoids that gap entirely. Copied in
+  // once, same never-overwritten pattern as CLAUDE.md/simple-layout.html
+  // below — switching cssFramework away and back later won't clobber a
+  // site owner's edits to any of these three files.
+  if (config.cssFramework === "tailwind") {
+    for (const [src, dir, destName] of [
+      ["templates/tailwind/package.json", dirHandle, "package.json"],
+      ["templates/tailwind/tailwind-input.css", dirHandle, "tailwind-input.css"],
+      ["templates/tailwind/custom.css", projectDirs.scripts, "custom.css"],
+    ]) {
+      try {
+        await dir.getFileHandle(destName);
+      } catch {
+        const res = await fetch(chrome.runtime.getURL(src));
+        const text = await res.text();
+        const handle = await dir.getFileHandle(destName, { create: true });
+        const writable = await handle.createWritable();
+        await writable.write(text);
+        await writable.close();
+      }
+    }
   }
 
   // 404.html — Cloudflare Pages and Netlify both auto-serve a root-level
@@ -579,7 +613,6 @@ async function ensureScaffold() {
   }
 
   await populateTemplateDropdown();
-  const config = await readJSONFile(cfgDir, "site.config.json", DEFAULT_CONFIG);
   applyParagraphMode(config.paragraphMode);
   await writeBlockLibraryDoc(cfgDir, config.cssFramework || "bootstrap5");
 }
@@ -3011,6 +3044,12 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
   const cfgDir = await getConfigDir(true);
   await writeJSONFile(cfgDir, "site.config.json", config);
   applyParagraphMode(config.paragraphMode);
+  // Re-run scaffolding so switching cssFramework to "tailwind" here (not
+  // just on a brand-new folder open) still gets the Tailwind build files —
+  // see ensureScaffold()'s own comment. Also keeps block-library.md's
+  // framework-specific markup and compose.js/compose-core.js in sync
+  // immediately, rather than only on the next folder open.
+  await ensureScaffold();
   siteSettingsDialog.close();
   renderPreview();
   setStatus("Site settings saved (.webhaste/site.config.json).");
