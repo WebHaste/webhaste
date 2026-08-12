@@ -366,6 +366,16 @@ dialog input, dialog textarea {
   padding: 6px;
   font-family: inherit;
 }
+/* Overrides dialog label/input's block-stacked, full-width defaults above
+   — a checkbox needs to sit inline with its own text, not stretch to fill
+   the dialog width like a text input would. */
+dialog label.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+dialog label.checkbox-label input[type="checkbox"] { width: auto; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 /* Sits apart from Cancel/Save since it's destructive and only shown in Edit
    mode (see openLinkDialog() in editor.js) — the auto margin keeps it

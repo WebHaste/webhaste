@@ -153,7 +153,8 @@
     <label>Account ID <input id="cfAccount" type="text" /></label>
     <label>Project Name <input id="cfProject" type="text" /></label>
     <label>API Token <input id="cfToken" type="password" /></label>
-    <p class="hint">Stored locally in this browser only. Never sent anywhere but Cloudflare's API.</p>
+    <label class="checkbox-label"><input id="cfRemember" type="checkbox" checked /> Remember these details on this device</label>
+    <p class="hint">Stored locally in this browser only. Never sent anywhere but Cloudflare's API. Uncheck "Remember" on a shared or borrowed device — it also clears whatever was previously saved here.</p>
     <div class="dialog-actions">
       <button id="publishCancel">Cancel</button>
       <button id="publishConfirm" class="primary">Publish Now</button>
@@ -164,7 +165,8 @@
     <h3>Publish to Netlify</h3>
     <label>Site ID <input id="ntlSiteId" type="text" placeholder="e.g. 8f2c1a90-..." /></label>
     <label>Personal Access Token <input id="ntlToken" type="password" /></label>
-    <p class="hint">Find the Site ID under Site settings → General → Site details. Create a token under User settings → Applications → Personal access tokens.</p>
+    <label class="checkbox-label"><input id="ntlRemember" type="checkbox" checked /> Remember these details on this device</label>
+    <p class="hint">Find the Site ID under Site settings → General → Site details. Create a token under User settings → Applications → Personal access tokens. Uncheck "Remember" on a shared or borrowed device — it also clears whatever was previously saved here.</p>
     <div class="dialog-actions">
       <button id="netlifyCancel">Cancel</button>
       <button id="netlifyConfirm" class="primary">Publish Now</button>

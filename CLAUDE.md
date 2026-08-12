@@ -70,8 +70,18 @@ content, including a CSS framework; WebHaste doesn't bundle or inject one
 
 Because these are real files (not `chrome.storage.local`), the whole
 project — content, template, menus, and settings — travels with the repo
-when cloned to another machine. `chrome.storage.local` now only remembers
-which folder you last had open; it holds no project data.
+when cloned to another machine. `chrome.storage.local` mostly just
+remembers which folder you last had open; the one piece of real project
+data it does hold is deployment credentials (Cloudflare/Netlify account +
+token, see "Publishing" below) — deliberately *not* written into
+`site.config.json`, since that file is meant to be committed to git. Those
+credentials are namespaced per project via `site.config.json` →
+`projectId`, a random id `ensureScaffold()` generates and writes back the
+first time a project is opened (safe to commit — it's not a secret, just a
+key). Without that namespacing, every project shared the same fixed
+`chrome.storage.local` keys, so switching between two sites' folders in one
+browser profile would silently reuse — and overwrite — whichever site's
+credentials were entered most recently.
 
 ### 3. Navigation — `nav.json`
 
@@ -212,10 +222,28 @@ and POSTs the result as multipart form data to Cloudflare's Direct Upload
 endpoint. No git repo, no build step on Cloudflare's end — just files in,
 CDN URL out.
 
-The API token is entered once via a dialog and stored in
-`chrome.storage.local`. It's worth having users create a **scoped** token
-(Cloudflare Pages edit permission only) rather than a full account token,
-since extension storage isn't as hardened as an OS keychain.
+The API token is entered once per project via a dialog and stored in
+`chrome.storage.local`, under keys namespaced by that project's
+`site.config.json` → `projectId` (`projectStorageKey()` in `editor.js`) —
+see "Project config" above for why that namespacing exists. It's worth
+having users create a **scoped** token (Cloudflare Pages edit permission
+only) rather than a full account token, since extension storage isn't as
+hardened as an OS keychain. Netlify's Site ID + Personal Access Token are
+namespaced and stored the same way.
+
+Both dialogs also have a "Remember these details on this device" checkbox,
+checked by default (`cfRemember`/`ntlRemember` in `editor.html`) and reset
+to checked every time the dialog opens, so an earlier uncheck never sticks
+silently across sessions. `persistCredentials()` is the shared handler for
+both dialogs' confirm buttons: checked saves as normal; unchecked *removes*
+whatever was previously saved under those same namespaced keys, not just
+skips writing new values. That removal is the point — on a shared machine,
+someone unchecking it should actually stop the fields from autofilling next
+time, including a credential a previous user already saved, not just avoid
+adding a new one. There's no real user-management in WebHaste (no accounts,
+no roles), so this is a hygiene control for shared devices, not an access
+boundary — anyone with the folder open can still see/change any file,
+including re-checking the box.
 
 ### 7. Headless rendering — `compose-core.js` + `cli/compose.js`
 

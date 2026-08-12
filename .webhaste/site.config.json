@@ -1,0 +1,10 @@
+{
+  "siteName": "My Site",
+  "domain": "",
+  "paragraphMode": "p",
+  "activeTemplate": "simple-layout.html",
+  "cssFramework": "bootstrap5",
+  "language": "en",
+  "deploymentTarget": "cloudflare",
+  "deployDirectory": "dist"
+}

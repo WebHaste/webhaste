@@ -1,0 +1,20 @@
+{
+  "menus": {
+    "header": [
+      {
+        "label": "Home",
+        "href": "/index.html"
+      },
+      {
+        "label": "About",
+        "href": "/about.html"
+      }
+    ],
+    "footer": [
+      {
+        "label": "Contact",
+        "href": "/contact.html"
+      }
+    ]
+  }
+}

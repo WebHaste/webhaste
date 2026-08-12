@@ -20,21 +20,31 @@ Launch the extension in your browser, and then navigate to the folder you have s
 
 There is a [Bootstrap 5.x Starter Template](https://github.com/desttools/webhaste-starter-bootstrap) on Github that you can use to accelerate your template and block development.
 
-There is a [Tailwind Starter Template](https://github.com/desttools/webhaste-starter-tailwind) on Github that you can use to accelerate your template and block development. For sites in Tailwind mode, your local machine will need Node/NPM installed. When working with a Tailwind site, you'll need to run once:
+There is a [Tailwind Starter Template](https://github.com/desttools/webhaste-starter-tailwind) on Github that you can use to accelerate your template and block development. For sites in Tailwind mode, your local machine will need Node/NPM installed. 
+
+## Special Tailwind Instructions
+
+When working with a Tailwind site, you'll need to launch a Command Prompt or Terminal, navigate to your project's root folder, and run once:
 
 ``npm install``
 
-And then while you're making changes to the site, run:
+While you're making changes to the site, run this and leave running:
 
 ``npm run watch:css``
 
 This generates your site's CSS in real time as you edit the site.
 
+Or you can do a one-time CSS generation by running:
+
+``npm run build:css``
+
 ## Render Your Site Locally
 
-If your site is set to "Render to Local Folder" mode, you can specify a sub-folder in your site folder (typically "dist" or "www") that will contain your full, stand-alone site. You can serve directly from this folder, or use an SFTP or WebDAV solution to manually move the locally rendered files to a remote server.
+If your site is set to "Render to Local Folder" mode, you can specify a sub-folder in your site folder (typically "dist" or "www") that will contain your full, stand-alone site. You can serve directly from this folder, or use an SFTP or WebDAV solution to manually move the locally rendered files to a remote server. 
 
-Note: Do not serve a website directly from your project's root folder. Doing this will display page stubs without the proper HTML template and structure.  
+If you open rendered files directly in a browser, they likely will not appear with the correct styling. You typically will need to move the files to a remote server or view your site locally through an HTTP server instance (Node, Homebrew, etc).
+
+Note: Do not serve a website directly from your project's root folder. Doing this will display page stubs without the proper HTML template and structure. 
 
 ### Cloudflare Pages and Netlify Pages Integration
 
@@ -96,6 +106,7 @@ The template defines where these placeholders go:
 | `{{NAV:header}}` / `{{NAV:footer}}` | Rendered menu markup from `nav.json`, per the framework in use |
 | `{{SITE_NAME}}`         | From `site.config.json`                        |
 | `{{YEAR}}`              | Current year                                   |
+| `{{LANG}}`              | Used in the page language declaration          |
 
 `cssFramework` only controls which class names `{{NAV:...}}` renders with
 (Bootstrap, Tailwind, or plain). It does not pull in that framework's actual

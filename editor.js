@@ -479,7 +479,26 @@ async function ensureScaffold() {
   } catch {
     await writeJSONFile(cfgDir, "site.config.json", DEFAULT_CONFIG);
   }
-  const config = await readJSONFile(cfgDir, "site.config.json", DEFAULT_CONFIG);
+  let config = await readJSONFile(cfgDir, "site.config.json", DEFAULT_CONFIG);
+
+  // projectId — a random, non-secret id that namespaces this project's
+  // deployment credentials (Cloudflare/Netlify account + token) inside
+  // chrome.storage.local — see projectStorageKey() and the publish/Netlify
+  // dialog handlers below. Without it, every project shared the same fixed
+  // storage keys, so switching between two sites' folders in one browser
+  // profile silently reused (and could overwrite) whichever site's
+  // credentials were entered most recently — a real risk of publishing one
+  // site's content to another site's Cloudflare/Netlify project. Generated
+  // once and written back into site.config.json — safe to commit to git,
+  // since it's just a random id, never a secret — so cloning the same repo
+  // onto another machine keeps the same id, but two different projects
+  // never collide. Backfilled here (not just at file-creation time above)
+  // so projects scaffolded before this existed still get one the next time
+  // they're opened.
+  if (!config.projectId) {
+    config = { ...config, projectId: crypto.randomUUID() };
+    await writeJSONFile(cfgDir, "site.config.json", config);
+  }
 
   // nav.json
   try {
@@ -3064,15 +3083,50 @@ function applyParagraphMode(mode) {
 }
 
 
+// Namespaces a chrome.storage.local key to this one project via its
+// site.config.json → projectId (see ensureScaffold()), so two different
+// projects' deployment credentials — entered into the same dialogs below,
+// in the same browser profile — never collide or silently overwrite each
+// other. `config` must come from getSiteConfig()/readJSONFile() on an
+// already-scaffolded project, so projectId is always present by the time
+// this runs (ensureScaffold() runs on every folder open, before Publish is
+// reachable).
+function projectStorageKey(config, name) {
+  return `${config.projectId}:${name}`;
+}
+
+// Saves credential fields under this project's namespaced keys — or, if
+// `remember` is false, actively *removes* any previously-saved values for
+// those same keys instead of just skipping the write. The removal matters:
+// a junior editor unchecking "Remember" only stops a new save from
+// sticking, but does nothing about a credential the site owner already
+// saved in an earlier session — which would otherwise keep autofilling
+// regardless of what this session does. See the "Remember these details"
+// checkbox in publishDialog/netlifyDialog (editor.html).
+async function persistCredentials(config, fields, remember) {
+  const keyed = Object.entries(fields).map(([name, value]) => [projectStorageKey(config, name), value]);
+  if (remember) {
+    await chrome.storage.local.set(Object.fromEntries(keyed));
+  } else {
+    await chrome.storage.local.remove(keyed.map(([key]) => key));
+  }
+}
+
 // ---- Publish flow — routes to the configured deployment target ----
 document.getElementById("publishBtn").addEventListener("click", async () => {
   const config = await getSiteConfig();
   const target = config.deploymentTarget || "cloudflare";
 
   if (target === "netlify") {
-    const stored = await chrome.storage.local.get(["ntlSiteId", "ntlToken"]);
-    document.getElementById("ntlSiteId").value = stored.ntlSiteId || "";
-    document.getElementById("ntlToken").value = stored.ntlToken || "";
+    const siteIdKey = projectStorageKey(config, "ntlSiteId");
+    const tokenKey = projectStorageKey(config, "ntlToken");
+    const stored = await chrome.storage.local.get([siteIdKey, tokenKey]);
+    document.getElementById("ntlSiteId").value = stored[siteIdKey] || "";
+    document.getElementById("ntlToken").value = stored[tokenKey] || "";
+    // Reset to "remember" (the safe/previous default) on every open, rather
+    // than letting an earlier uncheck this session stick silently — an
+    // opt-out should be a deliberate choice each time, not a sticky one.
+    document.getElementById("ntlRemember").checked = true;
     document.getElementById("netlifyDialog").showModal();
     return;
   }
@@ -3085,10 +3139,17 @@ document.getElementById("publishBtn").addEventListener("click", async () => {
     return;
   }
 
-  const stored = await chrome.storage.local.get(["cfAccount", "cfProject", "cfToken"]);
-  document.getElementById("cfAccount").value = stored.cfAccount || "";
-  document.getElementById("cfProject").value = stored.cfProject || "";
-  document.getElementById("cfToken").value = stored.cfToken || "";
+  const accountKey = projectStorageKey(config, "cfAccount");
+  const projectKey = projectStorageKey(config, "cfProject");
+  const tokenKey = projectStorageKey(config, "cfToken");
+  const stored = await chrome.storage.local.get([accountKey, projectKey, tokenKey]);
+  document.getElementById("cfAccount").value = stored[accountKey] || "";
+  document.getElementById("cfProject").value = stored[projectKey] || "";
+  document.getElementById("cfToken").value = stored[tokenKey] || "";
+  // Reset to "remember" (the safe/previous default) on every open, rather
+  // than letting an earlier uncheck this session stick silently — an
+  // opt-out should be a deliberate choice each time, not a sticky one.
+  document.getElementById("cfRemember").checked = true;
   document.getElementById("publishDialog").showModal();
 });
 
@@ -3098,7 +3159,9 @@ document.getElementById("publishConfirm").addEventListener("click", async () => 
   const account = document.getElementById("cfAccount").value.trim();
   const project = document.getElementById("cfProject").value.trim();
   const token = document.getElementById("cfToken").value.trim();
-  await chrome.storage.local.set({ cfAccount: account, cfProject: project, cfToken: token });
+  const remember = document.getElementById("cfRemember").checked;
+  const config = await getSiteConfig();
+  await persistCredentials(config, { cfAccount: account, cfProject: project, cfToken: token }, remember);
   document.getElementById("publishDialog").close();
   await publishSite(account, project, token);
 });
@@ -3438,7 +3501,9 @@ document.getElementById("netlifyCancel").addEventListener("click", () =>
 document.getElementById("netlifyConfirm").addEventListener("click", async () => {
   const siteId = document.getElementById("ntlSiteId").value.trim();
   const token = document.getElementById("ntlToken").value.trim();
-  await chrome.storage.local.set({ ntlSiteId: siteId, ntlToken: token });
+  const remember = document.getElementById("ntlRemember").checked;
+  const config = await getSiteConfig();
+  await persistCredentials(config, { ntlSiteId: siteId, ntlToken: token }, remember);
   document.getElementById("netlifyDialog").close();
   await publishToNetlify(siteId, token);
 });

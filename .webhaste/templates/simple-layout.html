@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="{{LANG}}">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{TITLE}}</title>
+  <meta name="description" content="{{META_DESCRIPTION}}" />
+  <!-- WebHaste doesn't inject a CSS framework automatically. If you want
+       one (Bootstrap, Tailwind, or anything else), add its <link>/<script>
+       tags here yourself, or reference a local copy from scripts/. -->
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; }
+    .site-footer { text-align: center; padding: 20px; color: #888; font-size: 13px; }
+    main { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    {{NAV:header}}
+  </header>
+  <main>
+    {{CONTENT}}
+  </main>
+  <footer class="site-footer">
+    {{NAV:footer}}
+    <p>&copy; {{YEAR}} {{SITE_NAME}} — built locally, published globally.</p>
+  </footer>
+</body>
+</html>
