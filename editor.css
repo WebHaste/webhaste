@@ -44,6 +44,15 @@ button.primary:hover { background: #1d4ed8; }
   display: inline-block;
 }
 .topbar a:hover { background: #454545; }
+#recentProjects {
+  background: #3a3a3a;
+  color: #eee;
+  border: 1px solid #CCCCCC;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  max-width: 120px;
+}
 .help-icon { width: 20px; height: 20px; vertical-align: middle; margin-right: 2px; }
 
 .workspace {
@@ -56,11 +65,30 @@ button.primary:hover { background: #1d4ed8; }
   background: #262d2d;
   border-right: 1px solid #3d3d3d;
   padding: 8px;
-  overflow-y: auto;
-  font-size: 13px;
+  display: flex;
+  flex-direction: column;
   min-height: 0; /* same reasoning as .editor-pane/.preview-pane below */
 }
+.new-file-btn { width: 100%; margin-bottom: 8px; flex-shrink: 0; }
+#fileList {
+  overflow-y: auto;
+  font-size: 13px;
+  min-height: 0;
+}
 .file-list .hint { color: #777; font-size: 12px; }
+.file-folder summary {
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #bbb;
+  list-style: none;
+}
+.file-folder summary::-webkit-details-marker { display: none; }
+.file-folder summary::before { content: "▸ "; }
+.file-folder[open] > summary::before { content: "▾ "; }
+.file-folder summary:hover { background: #454545; }
+.file-folder-items { padding-left: 14px; }
 .file-item {
   display: flex;
   align-items: center;
@@ -90,11 +118,12 @@ button.primary:hover { background: #1d4ed8; }
   vertical-align: middle;
 }
 .file-item-actions {
-  display: none;
+  display: flex;
+  visibility: hidden;
   flex-shrink: 0;
   gap: 2px;
 }
-.file-item:hover .file-item-actions { display: flex; }
+.file-item:hover .file-item-actions { visibility: visible; }
 .file-item-action {
   background: transparent;
   border: none;

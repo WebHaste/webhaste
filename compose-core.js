@@ -205,8 +205,9 @@
   // and callers should skip writing the file entirely rather than publish
   // a broken one.
   function buildSitemap({ pageEntries, pagesData, config }) {
-    const domain = ((config && config.domain) || "").trim().replace(/\/+$/, "");
+    let domain = ((config && config.domain) || "").trim().replace(/\/+$/, "");
     if (!domain) return null;
+    if (!/^https?:\/\//i.test(domain)) domain = `https://${domain}`;
     const data = pagesData || {};
     const urls = pageEntries
       .filter(({ path }) => path.toLowerCase() !== "404.html" && !isDraftPage(data[path]))

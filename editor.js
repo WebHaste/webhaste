@@ -14,6 +14,15 @@ let currentFileHandle = null;  // handle for whatever file is open in the editor
 let currentFileName = null;
 const fileCache = new Map();   // name -> text content, kept in sync with disk
 
+// Folder names (top-level path segment) the user has collapsed in the file
+// list — session-only. refreshFileList() rebuilds the sidebar from scratch
+// on every call (innerHTML = ""), which would otherwise reset every <details>
+// to its default open state each time; this survives those rebuilds since
+// it lives outside the DOM. It only needs to survive rebuilds, not page
+// reloads — refreshFileList() runs solely on add/change/delete/switch-folder,
+// never on every keystroke, so this doesn't need to be more durable than that.
+const collapsedFolders = new Set();
+
 const HTML_VOID_ELEMENTS = new Set([
   "area", "base", "br", "col", "embed", "hr", "img", "input",
   "link", "meta", "param", "source", "track", "wbr",
@@ -148,6 +157,10 @@ function idb() {
     req.onerror = () => reject(req.error);
   });
 }
+// Generic key-value helpers on the same store — "Handle" in the name is a
+// holdover from when this only ever stored the one directory handle, but
+// IndexedDB structured-clones plain objects/arrays just as well, so recent-
+// projects bookkeeping below reuses these rather than opening a second store.
 async function saveHandle(key, handle) {
   const db = await idb();
   db.transaction(STORE, "readwrite").objectStore(STORE).put(handle, key);
@@ -160,6 +173,82 @@ async function loadHandle(key) {
     req.onerror = () => resolve(null);
   });
 }
+async function deleteHandle(key) {
+  const db = await idb();
+  db.transaction(STORE, "readwrite").objectStore(STORE).delete(key);
+}
+
+// ---- Recent projects (for the "Recent Projects" dropdown) ----
+// Keyed by site.config.json's projectId (see ensureScaffold()) rather than
+// folder name, since that's already the stable per-project id this codebase
+// uses to tell two project folders apart (originally for credential
+// namespacing — see projectStorageKey()) — folder names alone can collide.
+const RECENT_PROJECTS_KEY = "recentProjects";
+const RECENT_PROJECTS_LIMIT = 8;
+
+async function recordRecentProject(handle, config) {
+  if (!config.projectId) return;
+  const list = (await loadHandle(RECENT_PROJECTS_KEY)) || [];
+  const withoutCurrent = list.filter((e) => e.id !== config.projectId);
+  const next = [{ id: config.projectId, name: config.siteName || handle.name, lastOpened: Date.now() }, ...withoutCurrent];
+  const dropped = next.splice(RECENT_PROJECTS_LIMIT);
+  await saveHandle(RECENT_PROJECTS_KEY, next);
+  await saveHandle(`recentHandle:${config.projectId}`, handle);
+  for (const entry of dropped) await deleteHandle(`recentHandle:${entry.id}`);
+}
+
+async function forgetRecentProject(id) {
+  const list = (await loadHandle(RECENT_PROJECTS_KEY)) || [];
+  await saveHandle(RECENT_PROJECTS_KEY, list.filter((e) => e.id !== id));
+  await deleteHandle(`recentHandle:${id}`);
+}
+
+async function populateRecentProjectsDropdown() {
+  const select = document.getElementById("recentProjects");
+  if (!select) return;
+  const list = (await loadHandle(RECENT_PROJECTS_KEY)) || [];
+  select.innerHTML = '<option value="">🕘 Recent…</option>';
+  for (const entry of list) {
+    const opt = document.createElement("option");
+    opt.value = entry.id;
+    opt.textContent = entry.name;
+    select.appendChild(opt);
+  }
+  select.style.display = list.length ? "" : "none";
+}
+
+document.getElementById("recentProjects").addEventListener("change", async (e) => {
+  const id = e.target.value;
+  e.target.value = "";
+  if (!id) return;
+
+  const handle = await loadHandle(`recentHandle:${id}`);
+  if (!handle) {
+    setStatus("That recent project's folder reference was lost — please reopen it via \"Open Project Folder\".");
+    await forgetRecentProject(id);
+    await populateRecentProjectsDropdown();
+    return;
+  }
+
+  // Choosing an option is itself a user gesture, so — unlike the automatic
+  // restore-on-launch path in tryRestoreFolder() — this can request
+  // permission directly instead of just telling the user to reconnect.
+  let perm = await handle.queryPermission({ mode: "readwrite" });
+  if (perm !== "granted") perm = await handle.requestPermission({ mode: "readwrite" });
+  if (perm !== "granted") {
+    setStatus(`Permission to "${handle.name}" was denied.`);
+    return;
+  }
+
+  dirHandle = handle;
+  await saveHandle("projectDir", dirHandle);
+  document.getElementById("folderName").textContent = dirHandle.name;
+  clearEditorState();
+  await ensureScaffold();
+  await refreshFileList();
+  await recordRecentProject(dirHandle, await getSiteConfig());
+  await populateRecentProjectsDropdown();
+});
 
 // ---- Folder picking + listing ----
 document.getElementById("pickFolder").addEventListener("click", async () => {
@@ -170,6 +259,8 @@ document.getElementById("pickFolder").addEventListener("click", async () => {
     clearEditorState();
     await ensureScaffold();
     await refreshFileList();
+    await recordRecentProject(dirHandle, await getSiteConfig());
+    await populateRecentProjectsDropdown();
   } catch (err) {
     setStatus("Folder selection cancelled or failed: " + err.message);
   }
@@ -670,6 +761,7 @@ async function populateTemplateDropdown() {
 }
 
 async function tryRestoreFolder() {
+  await populateRecentProjectsDropdown();
   const handle = await loadHandle("projectDir");
   if (!handle) return;
   const perm = await handle.queryPermission({ mode: "readwrite" });
@@ -678,6 +770,8 @@ async function tryRestoreFolder() {
     document.getElementById("folderName").textContent = dirHandle.name;
     await ensureScaffold();
     await refreshFileList();
+    await recordRecentProject(dirHandle, await getSiteConfig());
+    await populateRecentProjectsDropdown();
   } else {
     // Chrome requires a user gesture to re-request; show a reconnect hint
     setStatus(`Folder "${handle.name}" needs to be reconnected — click "Open Project Folder".`);
@@ -793,50 +887,103 @@ async function refreshFileList() {
   // call); this only hides it from the sidebar so it can't be opened here.
   const visibleEntries = entries.filter((e) => e.path.toLowerCase() !== "404.html");
 
-  for (const { path: name, handle } of visibleEntries) {
-    const item = document.createElement("div");
-    item.className = "file-item";
-    item.dataset.name = name;
-
-    const nameEl = document.createElement("span");
-    nameEl.className = "file-item-name";
-    nameEl.textContent = name;
-    if (name === "index.html") {
-      const homeIcon = document.createElement("span");
-      homeIcon.className = "file-item-home";
-      homeIcon.title = "Home page";
-      homeIcon.textContent = " 🏠";
-      nameEl.appendChild(homeIcon);
+  // Group anything inside a subfolder under its top-level folder name as a
+  // collapsible <details> — only one level deep, since static sites built
+  // here are rarely nested further than e.g. "shows/baldknobbers.html", and
+  // a fully recursive tree isn't worth the complexity for that. Rows (files
+  // and folder groups alike) are re-sorted using a shared key so a folder
+  // still lands where its name would have sorted as a path segment, keeping
+  // the same overall ordering the flat list used to have.
+  const rows = [];
+  const folderGroups = new Map();
+  for (const entry of visibleEntries) {
+    const slash = entry.path.indexOf("/");
+    if (slash === -1) {
+      rows.push({ type: "file", entry, sortKey: entry.path });
+      continue;
     }
-    if (WebhasteCompose.isDraftPage(pagesData[name])) {
-      const draftBadge = document.createElement("span");
-      draftBadge.className = "file-item-draft-badge";
-      draftBadge.title = "Draft — excluded from Publish/Render and sitemap.xml";
-      draftBadge.textContent = "DRAFT";
-      nameEl.appendChild(draftBadge);
+    const folder = entry.path.slice(0, slash);
+    let group = folderGroups.get(folder);
+    if (!group) {
+      group = { type: "folder", name: folder, entries: [], sortKey: `${folder}/` };
+      folderGroups.set(folder, group);
+      rows.push(group);
     }
-    item.appendChild(nameEl);
-
-    const actions = document.createElement("span");
-    actions.className = "file-item-actions";
-    const propsBtn = document.createElement("button");
-    propsBtn.type = "button";
-    propsBtn.className = "file-item-action";
-    propsBtn.dataset.action = "props";
-    propsBtn.title = "Page properties (title, meta description)";
-    propsBtn.textContent = "⚙";
-    const deleteBtn = document.createElement("button");
-    deleteBtn.type = "button";
-    deleteBtn.className = "file-item-action file-item-delete";
-    deleteBtn.dataset.action = "delete";
-    deleteBtn.title = "Delete page";
-    deleteBtn.textContent = "🗑";
-    actions.append(propsBtn, deleteBtn);
-    item.appendChild(actions);
-
-    item.addEventListener("click", () => openFile(name, handle));
-    listEl.appendChild(item);
+    group.entries.push(entry);
   }
+  rows.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+  for (const row of rows) {
+    if (row.type === "file") {
+      listEl.appendChild(buildFileItem(row.entry.path, row.entry.handle, pagesData, row.entry.path));
+      continue;
+    }
+
+    const details = document.createElement("details");
+    details.className = "file-folder";
+    details.open = !collapsedFolders.has(row.name);
+    details.addEventListener("toggle", () => {
+      collapsedFolders[details.open ? "delete" : "add"](row.name);
+    });
+
+    const summary = document.createElement("summary");
+    summary.textContent = row.name;
+    details.appendChild(summary);
+
+    const itemsWrap = document.createElement("div");
+    itemsWrap.className = "file-folder-items";
+    for (const { path: name, handle } of row.entries) {
+      itemsWrap.appendChild(buildFileItem(name, handle, pagesData, name.slice(row.name.length + 1)));
+    }
+    details.appendChild(itemsWrap);
+
+    listEl.appendChild(details);
+  }
+}
+
+function buildFileItem(name, handle, pagesData, displayName) {
+  const item = document.createElement("div");
+  item.className = "file-item";
+  item.dataset.name = name;
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "file-item-name";
+  nameEl.textContent = displayName;
+  if (name === "index.html") {
+    const homeIcon = document.createElement("span");
+    homeIcon.className = "file-item-home";
+    homeIcon.title = "Home page";
+    homeIcon.textContent = " 🏠";
+    nameEl.appendChild(homeIcon);
+  }
+  if (WebhasteCompose.isDraftPage(pagesData[name])) {
+    const draftBadge = document.createElement("span");
+    draftBadge.className = "file-item-draft-badge";
+    draftBadge.title = "Draft — excluded from Publish/Render and sitemap.xml";
+    draftBadge.textContent = "DRAFT";
+    nameEl.appendChild(draftBadge);
+  }
+  item.appendChild(nameEl);
+
+  const actions = document.createElement("span");
+  actions.className = "file-item-actions";
+  const propsBtn = document.createElement("button");
+  propsBtn.type = "button";
+  propsBtn.className = "file-item-action";
+  propsBtn.dataset.action = "props";
+  propsBtn.title = "Page properties (title, meta description)";
+  propsBtn.textContent = "⚙";
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "file-item-action file-item-delete";
+  deleteBtn.dataset.action = "delete";
+  deleteBtn.title = "Delete page";
+  deleteBtn.textContent = "🗑";
+  actions.append(propsBtn, deleteBtn);
+  item.appendChild(actions);
+
+  item.addEventListener("click", () => openFile(name, handle));
+  return item;
 }
 
 // Delegated so the ⚙/🗑 buttons work no matter how #fileList gets

@@ -12,18 +12,21 @@
   <header class="topbar">
     <img src="icons/webhaste-horiz.png" alt="WebHaste" class="brand-icon" />
     <button id="pickFolder">📁 Open Project Folder</button>
-    <button id="newFile">＋ New File</button>
+    <select id="recentProjects" title="Switch to a recently opened project"></select>
     <span id="folderName" class="folder-name">No folder selected</span>
     <div class="spacer"></div>
     <button id="siteSettingsBtn">⚙️ Site Settings</button>
-    <button id="editNav">🔗 Edit Menus</button>
+    <button id="editNav">🔗 Menus</button>
     <button id="publishBtn" class="primary">🚀 Publish</button>
     <a id="helpLink" href="https://chromecms.com/docs" target="_blank" rel="noopener noreferrer"><img src="icons/hasty-head.png" alt="" class="help-icon" /> Help</a>
   </header>
 
   <main class="workspace">
-    <nav class="file-list" id="fileList">
-      <p class="hint">Files in your project folder will show up here.</p>
+    <nav class="file-list">
+      <button id="newFile" class="new-file-btn">📄 New File</button>
+      <div id="fileList">
+        <p class="hint">Files in your project folder will show up here.</p>
+      </div>
     </nav>
 
     <section class="editor-pane">
