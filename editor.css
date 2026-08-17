@@ -97,6 +97,10 @@ button.primary:hover { background: #1d4ed8; }
   padding: 5px 8px;
   border-radius: 4px;
   cursor: pointer;
+  /* Tall enough to fit .file-item-action's box even while display:none
+     off-hover — otherwise the row grows by a px or two the moment the
+     buttons render on hover. */
+  min-height: 20px;
 }
 .file-item:hover, .file-item.active { background: #5a5a5a; }
 .file-item-name {
@@ -118,19 +122,18 @@ button.primary:hover { background: #1d4ed8; }
   vertical-align: middle;
 }
 .file-item-actions {
-  display: flex;
-  visibility: hidden;
+  display: none;
   flex-shrink: 0;
   gap: 2px;
 }
-.file-item:hover .file-item-actions { visibility: visible; }
+.file-item:hover .file-item-actions { display: flex; }
 .file-item-action {
   background: transparent;
   border: none;
   border-radius: 3px;
   padding: 1px 5px;
   font-size: 13px;
-  line-height: 1.2;
+  line-height: 1;
   cursor: pointer;
 }
 .file-item-action:hover { background: #4a4a4a; }

@@ -424,6 +424,46 @@ async function getCustomBlocks() {
   return blocks;
 }
 
+// ---- .webhaste/backups/ — safety net for an edit that scheduleSave()
+// queued but flushPendingSave() had to defer (see openFile()'s
+// outgoing-file conflict check): rather than let that edit sit only in
+// memory until the file is revisited — vulnerable to being lost outright if
+// the tab closes first — it's written here immediately, at the moment it's
+// deferred. Lazy-created like blocks/, mirrors the page's own relative path
+// (getNestedFileHandle) so two same-named pages in different folders can't
+// collide, and lives under .webhaste/ so it's excluded from page discovery
+// the same way nav.json/blocks/ are — never shows in the sidebar, never
+// gets published. Cleaned up once the conflict is actually resolved
+// (flushPendingSave()'s filesWithBackup check) — it's a stopgap for the
+// unresolved window, not a version history feature.
+async function getBackupsDirHandle(create) {
+  try {
+    return await (await getConfigDir(true)).getDirectoryHandle("backups", { create });
+  } catch (err) {
+    if (err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
+async function writeConflictBackup(name, text) {
+  const dir = await getBackupsDirHandle(true);
+  const handle = await getNestedFileHandle(dir, name, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+
+async function removeConflictBackup(name) {
+  try {
+    const dir = await getBackupsDirHandle(false);
+    if (!dir) return;
+    const { dir: parent, name: leaf } = await getNestedParentDirHandle(dir, name);
+    await parent.removeEntry(leaf);
+  } catch (err) {
+    if (err.name !== "NotFoundError") throw err;
+  }
+}
+
 function labelFromBlockFilename(name) {
   return name.replace(/\.html?$/i, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -789,13 +829,23 @@ document.getElementById("newFile").addEventListener("click", () => {
 // ---- New File dialog — separate Folder + File name fields so users don't
 // have to type a correct nested path (e.g. "about/team.html") by hand ----
 const newFileDialog = document.getElementById("newFileDialog");
+const newFileDialogTitle = document.getElementById("newFileDialogTitle");
 const newFileTitleInput = document.getElementById("newFileTitle");
 const newFileFolderInput = document.getElementById("newFileFolder");
 const newFileNameInput = document.getElementById("newFileName");
 const newFilePreview = document.getElementById("newFilePreview");
 const newFileSaveBtn = document.getElementById("newFileSave");
 
+// Set only while the dialog is open on behalf of the Clone action below —
+// the dialog itself (fields, exists-check, "already exists" warning) is
+// otherwise identical for "new page" and "clone", so it's shared rather
+// than forked into a second dialog.
+let cloneSourceName = null;
+
 function openNewFileDialog() {
+  cloneSourceName = null;
+  newFileDialogTitle.textContent = "New Page";
+  newFileSaveBtn.textContent = "Create";
   newFileTitleInput.value = "";
   newFileFolderInput.value = "";
   newFileNameInput.value = "untitled.html";
@@ -803,7 +853,31 @@ function openNewFileDialog() {
   newFileDialog.showModal();
 }
 
-document.getElementById("newFileCancel").addEventListener("click", () => newFileDialog.close());
+async function openCloneDialog(name) {
+  const pagesData = await getPagesData();
+  const sourceTitle = pagesData[name]?.title || "";
+
+  const slash = name.lastIndexOf("/");
+  const folder = slash === -1 ? "" : name.slice(0, slash);
+  const base = slash === -1 ? name : name.slice(slash + 1);
+  const dot = base.lastIndexOf(".");
+  const stem = dot === -1 ? base : base.slice(0, dot);
+  const ext = dot === -1 ? "" : base.slice(dot);
+
+  cloneSourceName = name;
+  newFileDialogTitle.textContent = `Clone "${name}"`;
+  newFileSaveBtn.textContent = "Clone";
+  newFileTitleInput.value = sourceTitle ? `${sourceTitle} (Copy)` : "";
+  newFileFolderInput.value = folder;
+  newFileNameInput.value = `${stem}-copy${ext}`;
+  updateNewFilePreview();
+  newFileDialog.showModal();
+}
+
+document.getElementById("newFileCancel").addEventListener("click", () => {
+  cloneSourceName = null;
+  newFileDialog.close();
+});
 newFileFolderInput.addEventListener("input", updateNewFilePreview);
 newFileNameInput.addEventListener("input", updateNewFilePreview);
 
@@ -833,31 +907,50 @@ async function updateNewFilePreview() {
   newFileSaveBtn.disabled = false;
   newFilePreview.classList.toggle("warning", exists);
   newFilePreview.textContent = exists
-    ? `A page already exists at "${path}" — Create will open it as-is.`
-    : `Will create: ${path}`;
+    ? `A page already exists at "${path}" — ${cloneSourceName ? "Clone" : "Create"} will open it as-is.`
+    : `Will ${cloneSourceName ? "clone into" : "create"}: ${path}`;
 }
 
 newFileSaveBtn.addEventListener("click", async () => {
   const path = buildPagePath(newFileFolderInput.value, newFileNameInput.value);
   const handle = await getNestedFileHandle(dirHandle, path, { create: true });
   const title = newFileTitleInput.value.trim();
+  const sourceName = cloneSourceName;
+  cloneSourceName = null;
 
-  // Only seed starter content for a genuinely new (empty) file — an
-  // already-existing page (the "warn, don't silently clobber" case) keeps
-  // whatever it already has.
+  // Only seed content for a genuinely new (empty) file — an already-existing
+  // page (the "warn, don't silently clobber" case) keeps whatever it already
+  // has, cloning or not.
   const file = await handle.getFile();
   if (file.size === 0) {
+    let content = `<div class="container my-5"><h1>${title || "New page"}</h1>\n<p>Start writing here, or delete this block if not needed.</p></div>`;
+    if (sourceName) {
+      // Flush first in case sourceName is the page currently open with
+      // unsaved edits — same ordering flushPendingSave()'s other callers use
+      // to avoid reading stale disk content out from under an in-progress edit.
+      await flushPendingSave();
+      const sourceHandle = await getNestedFileHandle(dirHandle, sourceName, { create: false });
+      content = await (await sourceHandle.getFile()).text();
+    }
     const writable = await handle.createWritable();
-    await writable.write(`<div class="container my-5"><h1>${title || "New page"}</h1>\n<p>Start writing here, or delete this block if not needed.</p></div>`);
+    await writable.write(content);
     await writable.close();
   }
 
-  // Save the page title into pages.json (same store Page Properties writes
-  // to) right away, so it's not left blank if the author forgets to set it
-  // later via Page Properties.
-  if (title) {
-    const pagesData = await getPagesData();
-    pagesData[path] = { ...pagesData[path], title };
+  // Save the page title (and, when cloning, the source page's description/
+  // language) into pages.json right away — same store Page Properties
+  // writes to — so a clone isn't left blank if the author forgets to revisit
+  // Page Properties. Status is deliberately not carried over: a clone of a
+  // draft defaults back to active, same as any other new page.
+  const pagesData = await getPagesData();
+  const sourceMeta = sourceName ? pagesData[sourceName] : null;
+  if (title || sourceMeta) {
+    pagesData[path] = {
+      ...pagesData[path],
+      ...(sourceMeta?.description ? { description: sourceMeta.description } : {}),
+      ...(sourceMeta?.language ? { language: sourceMeta.language } : {}),
+      ...(title ? { title } : {}),
+    };
     const cfgDir = await getConfigDir(true);
     await writeJSONFile(cfgDir, "pages.json", pagesData);
   }
@@ -865,7 +958,7 @@ newFileSaveBtn.addEventListener("click", async () => {
   newFileDialog.close();
   await refreshFileList();
   await openFile(path, handle);
-  setStatus(`Created ${path}`);
+  setStatus(sourceName ? `Cloned ${sourceName} to ${path}` : `Created ${path}`);
 });
 
 async function refreshFileList() {
@@ -973,20 +1066,26 @@ function buildFileItem(name, handle, pagesData, displayName) {
   propsBtn.dataset.action = "props";
   propsBtn.title = "Page properties (title, meta description)";
   propsBtn.textContent = "⚙";
+  const cloneBtn = document.createElement("button");
+  cloneBtn.type = "button";
+  cloneBtn.className = "file-item-action";
+  cloneBtn.dataset.action = "clone";
+  cloneBtn.title = "Clone page";
+  cloneBtn.textContent = "⧉";
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "file-item-action file-item-delete";
   deleteBtn.dataset.action = "delete";
   deleteBtn.title = "Delete page";
   deleteBtn.textContent = "🗑";
-  actions.append(propsBtn, deleteBtn);
+  actions.append(propsBtn, cloneBtn, deleteBtn);
   item.appendChild(actions);
 
   item.addEventListener("click", () => openFile(name, handle));
   return item;
 }
 
-// Delegated so the ⚙/🗑 buttons work no matter how #fileList gets
+// Delegated so the ⚙/⧉/🗑 buttons work no matter how #fileList gets
 // re-rendered, and so their clicks can be stopped before they bubble up to
 // the row's own "open this file" listener above.
 document.getElementById("fileList").addEventListener("click", async (e) => {
@@ -997,6 +1096,8 @@ document.getElementById("fileList").addEventListener("click", async (e) => {
 
   if (actionBtn.dataset.action === "props") {
     await openPagePropertiesDialog(name);
+  } else if (actionBtn.dataset.action === "clone") {
+    await openCloneDialog(name);
   } else if (actionBtn.dataset.action === "delete") {
     await deletePage(name);
   }
@@ -1088,13 +1189,39 @@ async function openFile(name, handle) {
   // read below is a fresh handle.getFile(), and if that's the same file
   // being reopened with a save still in flight, reading now would win the
   // race and clobber fileCache with the stale on-disk copy.
-  await flushPendingSave();
+  //
+  // If the queued edit is for a *different* file than the one being opened
+  // here, don't let a conflict on it block this navigation — the user is
+  // leaving that file, so there's no one looking at it to ask "keep yours
+  // or theirs?" right now. Write it if it's clean; if not, leave it queued
+  // (fileCache/pendingSave keep the edit, nothing is lost or written over)
+  // and let the check run again — and finally surface the dialog — next
+  // time that file is itself written: reopened, saved via Page Properties,
+  // or published. Also back it up to .webhaste/backups/ right away, rather
+  // than only on tab close: a deferred edit can now sit unflushed for the
+  // rest of the session, and beforeunload isn't reliable enough (doesn't
+  // fire on a crash or a killed process) to be the only thing standing
+  // between that edit and being lost outright.
+  if (pendingSave && pendingSave.name !== name) {
+    const outgoing = pendingSave;
+    const diskFile = await outgoing.handle.getFile();
+    if (fileMetaChanged(outgoing.name, diskFile)) {
+      await writeConflictBackup(outgoing.name, fileCache.get(outgoing.name));
+      filesWithBackup.add(outgoing.name);
+      setStatus(`"${outgoing.name}" changed elsewhere — your edit there is backed up and queued, and will be resolved next time you open it.`);
+    } else {
+      await flushPendingSave();
+    }
+  } else {
+    await flushPendingSave();
+  }
   clearTimeout(saveTimer);
   currentFileHandle = handle;
   currentFileName = name;
   const file = await handle.getFile();
   const text = await file.text();
   fileCache.set(name, text);
+  recordFileMeta(name, file);
   cm.setValue(text);
   document.getElementById("visualArea").innerHTML = text;
   decorateVisualArea();
@@ -1522,7 +1649,7 @@ function openLinkDialog(existingLink) {
     const selection = document.getSelection();
     if (!selection.rangeCount) return; // nothing selected/focused in the editor to link
     savedLinkRange = selection.getRangeAt(0).cloneRange();
-    document.getElementById("linkUrlInput").value = "https://";
+    document.getElementById("linkUrlInput").value = "";
     document.getElementById("linkTargetSelect").value = "_self";
   }
   linkDialog.showModal();
@@ -1678,6 +1805,36 @@ document.getElementById("linkBubbleUnlink").addEventListener("click", () => {
   if (!link) return;
   link.replaceWith(...link.childNodes);
   scheduleSave();
+});
+
+// Keeps the dropdown showing the *actual* style of wherever the caret/
+// selection currently sits, instead of whatever was last picked — without
+// this, clicking into a paragraph right after applying "Heading 1"
+// elsewhere left the select still reading "Heading 1", and since <select>
+// only fires "change" on an actual value change, re-picking "Heading 1" for
+// the new selection silently did nothing until you first picked something
+// else. document-level because selectionchange doesn't bubble from a
+// specific element; the visualArea.contains() check scopes it to only fire
+// while the caret is actually inside the editor.
+const FORMAT_BLOCK_TAGS = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "PRE"]);
+
+document.addEventListener("selectionchange", () => {
+  if (currentView !== "visual") return;
+  const visualArea = document.getElementById("visualArea");
+  const selection = document.getSelection();
+  if (!selection.rangeCount) return;
+  let node = selection.getRangeAt(0).startContainer;
+  if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+  if (!node || !visualArea.contains(node)) return;
+
+  let tag = "P";
+  for (let el = node; el && el !== visualArea; el = el.parentElement) {
+    if (FORMAT_BLOCK_TAGS.has(el.tagName)) {
+      tag = el.tagName;
+      break;
+    }
+  }
+  document.getElementById("formatBlockSelect").value = tag;
 });
 
 document.getElementById("formatBlockSelect").addEventListener("change", (e) => {
@@ -2161,6 +2318,36 @@ function scheduleSave() {
   saveTimer = setTimeout(flushPendingSave, 400);
 }
 
+// Cross-user/cross-tab conflict guard for shared-drive projects (Dropbox,
+// Google Drive, a network share): tracks the size/lastModified this client
+// last saw for each open file — from its own read in openFile() or its own
+// write in flushPendingSave() — so a write can tell "unchanged since I last
+// touched it" apart from "someone else wrote a newer version I haven't seen
+// yet." Same cheap metadata-only comparison previewDataUrlCache already
+// uses instead of reading full file contents.
+const knownFileMeta = new Map(); // name -> { lastModified, size }
+
+function recordFileMeta(name, file) {
+  knownFileMeta.set(name, { lastModified: file.lastModified, size: file.size });
+}
+
+function fileMetaChanged(name, file) {
+  const known = knownFileMeta.get(name);
+  if (!known) return false;
+  return known.lastModified !== file.lastModified || known.size !== file.size;
+}
+
+// Names with a live .webhaste/backups/ copy from openFile()'s outgoing-file
+// conflict check — checked here so the (rare) cleanup call only happens for
+// files that actually have a backup to remove, not on every ordinary save.
+const filesWithBackup = new Set();
+
+async function clearBackupIfAny(name) {
+  if (!filesWithBackup.has(name)) return;
+  await removeConflictBackup(name);
+  filesWithBackup.delete(name);
+}
+
 // pendingSave is only cleared on a *successful* write — if createWritable/
 // write/close throws (permission lapsed, disk full, file locked by another
 // program), the previous version of this silently ate the rejection and the
@@ -2175,10 +2362,47 @@ async function flushPendingSave() {
   if (!pendingSave) return;
   const { handle, name } = pendingSave;
   try {
+    const diskFile = await handle.getFile();
+    if (fileMetaChanged(name, diskFile)) {
+      // Someone else's write landed on disk since we last read/wrote this
+      // file — writing straight over it would silently discard their
+      // change. confirm() blocks here on purpose: this can't be resolved
+      // silently either way, and a plain OK/Cancel is the simplest UI that
+      // still lets the user choose which side wins.
+      const keepMine = confirm(
+        `"${name}" was changed elsewhere (another device or tab) since you last saved it here.\n\n` +
+        `Click OK to overwrite that version with your changes.\n` +
+        `Click Cancel to discard your changes here and load the newer version instead.`
+      );
+      if (!keepMine) {
+        pendingSave = null;
+        const text = await diskFile.text();
+        fileCache.set(name, text);
+        recordFileMeta(name, diskFile);
+        if (currentFileName === name) {
+          cm.setValue(text);
+          document.getElementById("visualArea").innerHTML = text;
+          decorateVisualArea();
+          hideLinkBubble();
+          renderPreview();
+        }
+        // The user explicitly chose to discard their edit in favor of the
+        // newer version — any backup made while it sat deferred no longer
+        // has anything worth keeping.
+        await clearBackupIfAny(name);
+        setStatus(`Loaded the newer version of ${name} from disk — your local changes here were discarded.`);
+        return;
+      }
+    }
     const writable = await handle.createWritable();
     await writable.write(fileCache.get(name));
     await writable.close();
     pendingSave = null;
+    recordFileMeta(name, await handle.getFile());
+    // Covers both the "OK, overwrite theirs" choice above and the plain
+    // clean-save case — either way this edit just made it to disk, so a
+    // backup from an earlier deferred attempt is now redundant.
+    await clearBackupIfAny(name);
     setStatus(`Saved ${name}`);
   } catch (err) {
     setStatus(`Couldn't save ${name}: ${err.message} — your edits are still here and will be retried.`);
