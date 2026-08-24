@@ -4,19 +4,19 @@ WebHaste is a browser-based website management tool (CMS) for small- to medium-s
 
 WebHaste is also built from the ground-up to be easy for AI agents to work with. Point your preferred coding agent to your site folder to get help building templates and blocks, as well as generating content directly.
 
-WebHaste does not natively handle dynamic elements or server-side processing, such as database-driven features. There are ways to include some of these features using embeds and iframes, but if your site needs those, you probably will want to look at other site management tools.
+WebHaste does offer a search tool, but otherwise it does not natively handle dynamic elements or server-side processing, such as database-driven features. There are ways to include some of these features using embeds and iframes, but if your site needs advanced features, you probably will want to look at other site management tools.
 
 User-facing help docs and developer docs live at **chromecms.com** (built, naturally, using this extension), not in this README.
 
 ## How to install
 
-The preferred installation option for most users is to visit the Chrome Web Store and install directly from there.
+The preferred installation option for most users is to visit the [Chrome Web Store](https://chromewebstore.google.com/detail/webhaste/ofblooflocfdegjjpgjfbefnjmjmbapa) and install directly from there.
 
 If you are an experienced Chrome developer, you can download/clone/fork the source code from this repo and run it directly in your browser in developer mode.
 
 ## How to use WebHaste
 
-Launch the extension in your browser, and then navigate to the folder you have set up for your site files. This directory will be used to store your site content partials, design template and any related settings and metadata.
+Launch the extension in your browser, and then click "Open Project Folder" and then create a new folder or navigate to the directory you have set up for your site files. This directory will be used to store your site content partials, design template and any related settings and metadata.
 
 There is a [Bootstrap 5.x Starter Template](https://github.com/desttools/webhaste-starter-bootstrap) on Github that you can use to accelerate your template and block development.
 
@@ -44,7 +44,7 @@ If your site is set to "Render to Local Folder" mode, you can specify a sub-fold
 
 If you open rendered files directly in a browser, they likely will not appear with the correct styling. You typically will need to move the files to a remote server or view your site locally through an HTTP server instance (Node, Homebrew, etc).
 
-Note: Do not serve a website directly from your project's root folder. Doing this will display page stubs without the proper HTML template and structure. 
+Note: Do not serve a website directly from your project's root folder. Doing this will display page stubs without the proper HTML template and structure. Use the "dist" or "www" folder. That contains the fully rendered site files.
 
 ### Cloudflare Pages and Netlify Pages Integration
 
@@ -54,15 +54,9 @@ In the case of both services, you will need to set up an account with the provid
 
 ## Site search
 
-Every Publish / Render to Local Folder pass generates `search-index.json` at
-your site's root — a plain-text extract of every non-draft, non-excluded
-page's title, meta description, and body content. It isn't turned into a
-visible search box automatically (WebHaste doesn't inject markup into your
-template on your behalf, same as CSS framework tags), but the client-side
-pieces are scaffolded into every project's `scripts/` folder for you:
+Every Publish / Render to Local Folder pass generates `search-index.json` at your site's root — a plain-text extract of every published, non-excluded page's title, meta description, and body content. It isn't turned into a visible search box automatically (WebHaste doesn't inject markup into your template on your behalf, same as CSS framework tags), but the client-side pieces are scaffolded into every project's `scripts/` folder for you:
 `scripts/lunr.min.js` (the vendored [Lunr.js](https://lunrjs.com) search
-library) and `scripts/search.js` (a small vanilla-JS wrapper that builds an
-in-memory index from `search-index.json` and renders results).
+library) and `scripts/search.js` (a small vanilla-JS wrapper that builds an in-memory index from `search-index.json` and renders results).
 
 To turn search on, add this to your template's `<head>` (after `main.js`):
 
@@ -78,15 +72,9 @@ and place a search box wherever you want one to appear:
 <div id="cs-search-results"></div>
 ```
 
-`search.js` looks for those two element IDs and wires itself up automatically
-— a template that doesn't include them simply never loads the index, at no
-cost. Results render as `<ul class="cs-search-list"><li class="cs-search-item">`
-entries (or a `<p class="cs-search-empty">` when there are none) — unstyled
-by default, so style those classes the same way you would any other `cs-*`
-class from a block or menu.
+`search.js` looks for those two element IDs and wires itself up automatically — a template that doesn't include them simply never loads the index, at no cost. Results render as `<ul class="cs-search-list"><li class="cs-search-item">` entries (or a `<p class="cs-search-empty">` when there are none) — unstyled by default, so style those classes the same way you would any other `cs-*` class from a block or menu.
 
-Page Properties has three checkboxes for keeping individual pages out of
-these generated files — none of them affect whether the page itself
+Page Properties has three checkboxes for keeping individual pages out of these generated files — none of them affect whether the page itself
 publishes:
 
 - **Exclude from sitemap.xml** — leaves the page out of `sitemap.xml`.
