@@ -231,7 +231,11 @@ function main() {
     const dest = path.join(distDir, relPath);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.writeFileSync(dest, composed);
-    pageEntries.push({ relPath, lastmod: fs.statSync(srcPath).mtime.toISOString().slice(0, 10) });
+    pageEntries.push({
+      relPath,
+      lastmod: fs.statSync(srcPath).mtime.toISOString().slice(0, 10),
+      rawContent,
+    });
   }
 
   const assetCount = copyDirRecursive(path.join(root, "assets"), path.join(distDir, "assets"));
@@ -241,12 +245,21 @@ function main() {
   // sitemap.xml — regenerated every run from the current page list, same as
   // a real Publish/Render would. buildSitemap() returns null when no domain
   // is configured, since a sitemap of host-less URLs is meaningless.
-  const sitemap = WebhasteCompose.buildSitemap({
-    pageEntries: pageEntries.map(({ relPath, lastmod }) => ({ path: relPath, lastmod })),
-    pagesData,
-    config,
-  });
+  const sitemapEntries = pageEntries.map(({ relPath, lastmod }) => ({ path: relPath, lastmod }));
+  const sitemap = WebhasteCompose.buildSitemap({ pageEntries: sitemapEntries, pagesData, config });
   if (sitemap) fs.writeFileSync(path.join(distDir, "sitemap.xml"), sitemap);
+
+  // search-index.json — same page list, but keyed off each page's raw
+  // pre-composition content (see buildSearchIndex()'s comment in
+  // compose-core.js for why: composed output would duplicate nav/footer
+  // chrome into every page's indexed text).
+  const searchEntries = pageEntries.map(({ relPath, lastmod, rawContent }) => ({
+    path: relPath,
+    lastmod,
+    rawContent,
+  }));
+  const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries: searchEntries, pagesData });
+  if (searchIndex) fs.writeFileSync(path.join(distDir, "search-index.json"), searchIndex);
 
   // robots.txt — a real, hand-editable project-root file (see ensureScaffold()
   // in editor.js), copied through untouched rather than regenerated.
@@ -254,7 +267,9 @@ function main() {
   const hasRobots = fs.existsSync(robotsPath);
   if (hasRobots) fs.copyFileSync(robotsPath, path.join(distDir, "robots.txt"));
 
-  const extras = [sitemap && "sitemap.xml", hasRobots && "robots.txt"].filter(Boolean).join(", ");
+  const extras = [sitemap && "sitemap.xml", searchIndex && "search-index.json", hasRobots && "robots.txt"]
+    .filter(Boolean)
+    .join(", ");
   console.log(
     `Rendered ${pageFiles.length} page(s), ${assetCount} asset(s), ${scriptCount} script(s), and ${elementCount} element(s)${extras ? `, plus ${extras},` : ""} to ${path.join(path.relative(root, distDir) || ".", "/")}`
   );

@@ -174,6 +174,13 @@
       .replace(/{{SITE_NAME}}/g, config.siteName || "")
       .replace(/{{LANG}}/g, pageLang)
       .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
+    // Page Properties' "Hide from search engines" checkbox — a real noindex
+    // signal (unlike sitemap/search-index exclusion below, which are just
+    // omissions from our own generated files and don't stop a crawler that
+    // finds the page another way).
+    if (pageMeta.noindex) {
+      out = out.replace(/<\/head>/i, '  <meta name="robots" content="noindex" />\n</head>');
+    }
     return out;
   }
 
@@ -183,6 +190,20 @@
   // cli/compose.js filters identically to what Publish/Render would ship.
   function isDraftPage(pageMeta) {
     return !!(pageMeta && pageMeta.status === "draft");
+  }
+
+  // Page Properties' "Exclude from sitemap" / "Exclude from search" checkboxes
+  // — unlike draft, the page still publishes normally; it's just left out of
+  // these two generated discovery files. Independent of each other and of
+  // noindex (see composePage() above) since they answer different questions:
+  // a page can be fine for Google but noisy in on-site search, or meant only
+  // for direct/linked traffic but still findable if a visitor searches for it.
+  function isSitemapExcluded(pageMeta) {
+    return !!(pageMeta && pageMeta.excludeFromSitemap);
+  }
+
+  function isSearchExcluded(pageMeta) {
+    return !!(pageMeta && pageMeta.excludeFromSearch);
   }
 
   function escapeXml(str) {
@@ -210,7 +231,9 @@
     if (!/^https?:\/\//i.test(domain)) domain = `https://${domain}`;
     const data = pagesData || {};
     const urls = pageEntries
-      .filter(({ path }) => path.toLowerCase() !== "404.html" && !isDraftPage(data[path]))
+      .filter(
+        ({ path }) => path.toLowerCase() !== "404.html" && !isDraftPage(data[path]) && !isSitemapExcluded(data[path])
+      )
       .map(({ path, lastmod }) => {
         const loc = path === "index.html" ? domain : `${domain}/${path}`;
         return `  <url>\n    <loc>${escapeXml(loc)}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`;
@@ -219,5 +242,92 @@
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
   }
 
-  return { renderMenu, composePage, isFullDocument, isDraftPage, buildSitemap };
+  // Common named entities beyond the 5 XML ones — real page copy (curly
+  // quotes, em dashes, ellipses) uses these constantly, and leaving them
+  // un-decoded means literal "&mdash;"/"&rsquo;" text leaking into search
+  // results. Not exhaustive (that's what numeric entities are for below),
+  // just the ones plain prose actually produces.
+  const NAMED_ENTITIES = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+    mdash: "—",
+    ndash: "–",
+    hellip: "…",
+    lsquo: "‘",
+    rsquo: "’",
+    ldquo: "“",
+    rdquo: "”",
+    copy: "©",
+    reg: "®",
+    trade: "™",
+  };
+
+  function decodeEntities(str) {
+    return str.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (match, ent) => {
+      if (ent[0] === "#") {
+        const isHex = ent[1] === "x" || ent[1] === "X";
+        const code = parseInt(isHex ? ent.slice(2) : ent.slice(1), isHex ? 16 : 10);
+        return Number.isNaN(code) ? match : String.fromCodePoint(code);
+      }
+      return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, ent) ? NAMED_ENTITIES[ent] : match;
+    });
+  }
+
+  // Strips a page's raw HTML down to plain text for the search index — regex
+  // based rather than DOMParser so it behaves identically in the browser
+  // extension and under plain Node (compose-core.js has zero dependencies by
+  // design, see header comment). <script>/<style> contents are dropped
+  // entirely rather than left as unreadable text.
+  function stripHtmlToText(html) {
+    return decodeEntities(
+      String(html || "")
+        .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+        .replace(/<!--[\s\S]*?-->/g, " ")
+        .replace(/<[^>]+>/g, " ")
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  // Builds search-index.json from the same page list a publish/render pass
+  // ships — pageEntries is [{ path, lastmod, rawContent }], rawContent being
+  // each page's *pre-composition* source (not composePage()'s output), so
+  // the nav/header/footer chrome a template injects is never duplicated into
+  // every page's indexed text. Title/description come from pages.json, the
+  // same store Page Properties already writes. Drafts, 404.html, and pages
+  // marked "Exclude from search" are left out; returns null when nothing's
+  // left to index so callers can skip writing the file, same as buildSitemap.
+  function buildSearchIndex({ pageEntries, pagesData }) {
+    const data = pagesData || {};
+    const entries = pageEntries
+      .filter(
+        ({ path }) => path.toLowerCase() !== "404.html" && !isDraftPage(data[path]) && !isSearchExcluded(data[path])
+      )
+      .map(({ path, rawContent }) => {
+        const meta = data[path] || {};
+        return {
+          url: path === "index.html" ? "/" : `/${path}`,
+          title: meta.title || "",
+          description: meta.description || "",
+          content: stripHtmlToText(rawContent),
+        };
+      });
+    if (!entries.length) return null;
+    return JSON.stringify(entries);
+  }
+
+  return {
+    renderMenu,
+    composePage,
+    isFullDocument,
+    isDraftPage,
+    isSitemapExcluded,
+    isSearchExcluded,
+    buildSitemap,
+    buildSearchIndex,
+  };
 });

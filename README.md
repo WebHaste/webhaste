@@ -52,6 +52,48 @@ WebHaste has tools to deploy rendered sites directly to Cloudflare Pages and Net
 
 In the case of both services, you will need to set up an account with the provider first, set up your hosting, retrieve a connection key, and enter that information in your WebHaste project.
 
+## Site search
+
+Every Publish / Render to Local Folder pass generates `search-index.json` at
+your site's root — a plain-text extract of every non-draft, non-excluded
+page's title, meta description, and body content. It isn't turned into a
+visible search box automatically (WebHaste doesn't inject markup into your
+template on your behalf, same as CSS framework tags), but the client-side
+pieces are scaffolded into every project's `scripts/` folder for you:
+`scripts/lunr.min.js` (the vendored [Lunr.js](https://lunrjs.com) search
+library) and `scripts/search.js` (a small vanilla-JS wrapper that builds an
+in-memory index from `search-index.json` and renders results).
+
+To turn search on, add this to your template's `<head>` (after `main.js`):
+
+```html
+<script src="/scripts/lunr.min.js"></script>
+<script src="/scripts/search.js"></script>
+```
+
+and place a search box wherever you want one to appear:
+
+```html
+<input type="search" id="cs-search-input" placeholder="Search...">
+<div id="cs-search-results"></div>
+```
+
+`search.js` looks for those two element IDs and wires itself up automatically
+— a template that doesn't include them simply never loads the index, at no
+cost. Results render as `<ul class="cs-search-list"><li class="cs-search-item">`
+entries (or a `<p class="cs-search-empty">` when there are none) — unstyled
+by default, so style those classes the same way you would any other `cs-*`
+class from a block or menu.
+
+Page Properties has three checkboxes for keeping individual pages out of
+these generated files — none of them affect whether the page itself
+publishes:
+
+- **Exclude from sitemap.xml** — leaves the page out of `sitemap.xml`.
+- **Exclude from site search** — leaves the page out of `search-index.json`.
+- **Hide from search engines (noindex)** — adds a real
+  `<meta name="robots" content="noindex">` tag to the page.
+
 ## How a WebHaste project is put together
 
 ```
@@ -76,7 +118,10 @@ In the case of both services, you will need to set up an account with the provid
 │   │                              hand-written CSS/classes that aren't run
 │   │                              through the Tailwind build
 │   ├── bootstrap.bundle.min.js ← JS for CSS library if stored locally (if needed)
-│   └── scripts.js              ← site-wide custom JS
+│   ├── scripts.js              ← site-wide custom JS
+│   ├── lunr.min.js             ← scaffolded automatically — search library, see below
+│   └── search.js               ← scaffolded automatically — search UI logic, see below
+├── search-index.json           ← generated at publish/render time, alongside sitemap.xml
 ├── dist/                       ← generated build output — deploy this, don't hand-edit
 └── .webhaste/
     ├── site.config.json        ← framework, paragraph mode, deploy target

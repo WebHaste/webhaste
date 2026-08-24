@@ -208,6 +208,13 @@
       </select>
     </label>
     <p class="hint">Draft pages are excluded from Publish, Render to Local Folder, and sitemap.xml.</p>
+    <label><input type="checkbox" id="pagePropsExcludeSitemap" /> Exclude from sitemap.xml</label>
+    <label><input type="checkbox" id="pagePropsExcludeSearch" /> Exclude from site search</label>
+    <label><input type="checkbox" id="pagePropsNoindex" /> Hide from search engines (noindex)</label>
+    <p class="hint">
+      The page still publishes normally either way — these only control whether it's listed in sitemap.xml, included
+      in the site search index, or flagged for search engines to skip indexing.
+    </p>
     <div class="dialog-actions">
       <button id="pagePropsCancel">Cancel</button>
       <button id="pagePropsSave" class="primary">Save</button>

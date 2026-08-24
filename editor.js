@@ -680,6 +680,32 @@ async function ensureScaffold() {
     }
   }
 
+  // Site search — scripts/search.js (this repo's own vanilla-JS search UI,
+  // consuming search-index.json) plus scripts/lunr.min.js (the vendored
+  // third-party search library it depends on — see vendor/lunr/, bundled
+  // locally rather than referenced by CDN, for the same Manifest V3
+  // no-remotely-hosted-code reason CodeMirror is vendored below scripts/
+  // isn't; unlike CodeMirror, neither of these ever runs inside the
+  // extension itself — only in a published site's own visitor's browser).
+  // Copied in once, same never-overwritten pattern as the files above — a
+  // site owner who customizes either file, or never adds the <script> tags
+  // to their template at all, won't have it silently reappear/get clobbered.
+  for (const [src, destName] of [
+    ["templates/search.js", "search.js"],
+    ["vendor/lunr/lunr.min.js", "lunr.min.js"],
+  ]) {
+    try {
+      await projectDirs.scripts.getFileHandle(destName);
+    } catch {
+      const res = await fetch(chrome.runtime.getURL(src));
+      const text = await res.text();
+      const handle = await projectDirs.scripts.getFileHandle(destName, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+    }
+  }
+
   // 404.html — Cloudflare Pages and Netlify both auto-serve a root-level
   // 404.html for any unmatched path (otherwise they fall back to serving
   // the homepage, which is confusing). Copied in once from the extension's
@@ -1118,6 +1144,9 @@ async function openPagePropertiesDialog(name) {
   pagePropsLanguageSelect.innerHTML = languageOptionsHTML(true);
   setLanguageSelectValue(pagePropsLanguageSelect, document.getElementById("pagePropsLanguageOther"), meta.language || "");
   document.getElementById("pagePropsStatus").value = WebhasteCompose.isDraftPage(meta) ? "draft" : "active";
+  document.getElementById("pagePropsExcludeSitemap").checked = WebhasteCompose.isSitemapExcluded(meta);
+  document.getElementById("pagePropsExcludeSearch").checked = WebhasteCompose.isSearchExcluded(meta);
+  document.getElementById("pagePropsNoindex").checked = !!meta.noindex;
   pagePropertiesDialog.showModal();
 }
 
@@ -1132,9 +1161,12 @@ document.getElementById("pagePropsSave").addEventListener("click", async () => {
   const description = document.getElementById("pagePropsDescription").value.trim();
   const language = getLanguageSelectValue(document.getElementById("pagePropsLanguage"), document.getElementById("pagePropsLanguageOther"));
   const isDraft = document.getElementById("pagePropsStatus").value === "draft";
+  const excludeFromSitemap = document.getElementById("pagePropsExcludeSitemap").checked;
+  const excludeFromSearch = document.getElementById("pagePropsExcludeSearch").checked;
+  const noindex = document.getElementById("pagePropsNoindex").checked;
   const pagesData = await getPagesData();
 
-  if (!title && !description && !language && !isDraft) {
+  if (!title && !description && !language && !isDraft && !excludeFromSitemap && !excludeFromSearch && !noindex) {
     delete pagesData[pagePropsFileName];
   } else {
     pagesData[pagePropsFileName] = {
@@ -1142,6 +1174,9 @@ document.getElementById("pagePropsSave").addEventListener("click", async () => {
       description,
       ...(language ? { language } : {}),
       ...(isDraft ? { status: "draft" } : {}),
+      ...(excludeFromSitemap ? { excludeFromSitemap: true } : {}),
+      ...(excludeFromSearch ? { excludeFromSearch: true } : {}),
+      ...(noindex ? { noindex: true } : {}),
     };
   }
 
@@ -3553,7 +3588,7 @@ async function collectPublishPages() {
     const file = await handle.getFile();
     const raw = await file.text();
     pages[path] = await composePage(raw, path);
-    pageEntries.push({ path, lastmod: new Date(file.lastModified).toISOString().slice(0, 10) });
+    pageEntries.push({ path, lastmod: new Date(file.lastModified).toISOString().slice(0, 10), rawContent: raw });
   }
   return { pages, pageEntries, pagesData };
 }
@@ -3816,6 +3851,14 @@ async function publishSite(account, project, token) {
         contentType: withCharset("application/xml"),
       });
     }
+    const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
+    if (searchIndex) {
+      files.push({
+        path: "/search-index.json",
+        arrayBuffer: new TextEncoder().encode(searchIndex).buffer,
+        contentType: withCharset("application/json"),
+      });
+    }
     const robots = await getRobotsTxtContent();
     if (robots) {
       files.push({
@@ -3914,6 +3957,8 @@ async function publishToNetlify(siteId, token) {
   }
   const sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
   if (sitemap) fileEntries.push({ path: "/sitemap.xml", content: sitemap });
+  const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
+  if (searchIndex) fileEntries.push({ path: "/search-index.json", content: searchIndex });
   const robots = await getRobotsTxtContent();
   if (robots) fileEntries.push({ path: "/robots.txt", content: robots });
   const digests = {};
@@ -3996,6 +4041,13 @@ async function renderToLocalFolder() {
     const handle = await getNestedFileHandle(distDir, "sitemap.xml", { create: true });
     const writable = await handle.createWritable();
     await writable.write(sitemap);
+    await writable.close();
+  }
+  const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
+  if (searchIndex) {
+    const handle = await getNestedFileHandle(distDir, "search-index.json", { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(searchIndex);
     await writable.close();
   }
   const robots = await getRobotsTxtContent();

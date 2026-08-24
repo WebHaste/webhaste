@@ -305,3 +305,60 @@ than generated output, publish just reads it and passes it through
 untouched — same treatment as `assets/` — rather than regenerating it. It's
 `.txt`, not `.html`, so `walkPages()` never discovers it as a content page
 (no sidebar entry, no templating).
+
+### 9. Site search — `search-index.json` + `scripts/search.js`
+
+Every Publish/Render to Local Folder pass also generates `search-index.json`
+at the site root via `buildSearchIndex()` in `compose-core.js` — the same
+`collectPublishPages()`-gathered page list `buildSitemap()` uses, so the two
+files can never drift on which pages are eligible. Each entry is `{ url,
+title, description, content }`, with `content` built from a page's *raw
+pre-composition* source rather than `composePage()`'s output — deliberately,
+so a template's nav/header/footer markup never gets duplicated into every
+single page's indexed text. `title`/`description` come from `pages.json`,
+the same store Page Properties already writes. `stripHtmlToText()` does the
+HTML→text conversion with a regex-based tag stripper and entity decoder
+(named + numeric), not `DOMParser` — `compose-core.js` has to behave
+identically under plain Node (`cli/compose.js`) and in the browser.
+
+Three independent Page Properties checkboxes, all unchecked by default, all
+orthogonal to Draft status — a page with any of them checked still publishes
+normally:
+- **Exclude from sitemap.xml** (`excludeFromSitemap`) — checked by
+  `isSitemapExcluded()` inside `buildSitemap()`.
+- **Exclude from site search** (`excludeFromSearch`) — checked by
+  `isSearchExcluded()` inside `buildSearchIndex()`.
+- **Hide from search engines** (`noindex`) — unlike the two above, which only
+  control WebHaste's own generated files (not what a crawler that finds the
+  page some other way can still do), this is a real signal:
+  `composePage()` injects `<meta name="robots" content="noindex">` before
+  `</head>` when set. Deliberately not a `robots.txt` `Disallow` rule instead
+  — `robots.txt` is the one hand-authored, copy-once, never-regenerated file
+  above, and `Disallow` blocks crawling rather than indexing, which actually
+  works against a `noindex` tag Google can't see on a page it's blocked from
+  fetching in the first place.
+
+The search *UI* is a separate, opt-in layer on top of the index — WebHaste
+generates the data file for every site automatically, but (consistent with
+never injecting markup into a template on the author's behalf — see
+`{{FRAMEWORK_ASSETS}}` above) doesn't wire up a visible search box itself.
+Two files get scaffolded into every project's `scripts/` by
+`ensureScaffold()`, same copy-once pattern as `robots.txt`/`CLAUDE.md`:
+`scripts/search.js` (from this repo's `templates/search.js` — vanilla JS,
+looks for `#cs-search-input`/`#cs-search-results` in the page and no-ops if
+either is missing, fetches `search-index.json` lazily on first focus) and
+`scripts/lunr.min.js` (from `vendor/lunr/`, an unmodified build of
+[Lunr.js](https://lunrjs.com)). Lunr is vendored as a local file rather than
+referenced via CDN for the same Manifest V3 no-remotely-hosted-code reason
+`vendor/codemirror/` is — see `{{FRAMEWORK_ASSETS}}` above — except the copy
+that matters here never executes inside the extension's own runtime at all,
+only inside a site visitor's browser on the published page.
+
+`search.js` builds queries with Lunr's structured query API rather than its
+string syntax (`"term*"`) — Lunr's stemmer runs on the literal query text
+before wildcard expansion, and a wildcard character embedded in that text
+breaks stemming (`"hasty*"` doesn't stem to the same root as `"hasty"` does,
+so it never matches the index's stemmed `"hasti"` entries). Multi-word
+queries use `presence: REQUIRED` (AND, not OR) — for the page counts a
+WebHaste site is likely to have, an OR query against common words returns
+most of the site.
