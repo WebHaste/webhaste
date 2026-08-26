@@ -58,9 +58,23 @@ button.primary:hover { background: #1d4ed8; }
 .workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: 200px 1fr 1fr;
+  /* Overwritten inline by applyColumnState() in editor.js on load (from
+     localStorage, if the user has dragged these before) and live during a
+     drag — this is just the first-run default. */
+  grid-template-columns: 200px 6px 1fr 6px 1fr;
   min-height: 0;
 }
+/* Thin drag handles between the three panes — see initColumnResizers() in
+   editor.js. Transparent at rest so they don't read as a visible divider
+   until you're actually pointing at one. */
+.col-resizer {
+  cursor: col-resize;
+  background: transparent;
+}
+.col-resizer:hover, .col-resizer.resizing { background: #2563eb; }
+/* Applied to body only while a drag is in progress, so text elsewhere on
+   the page doesn't get selected as the mouse crosses over it mid-drag. */
+body.resizing-columns { cursor: col-resize; user-select: none; }
 .file-list {
   background: #262d2d;
   border-right: 1px solid #3d3d3d;
@@ -111,6 +125,11 @@ button.primary:hover { background: #1d4ed8; }
   align-items: center;
 }
 .file-item-home { font-size: 12px; }
+/* Same idea as VS Code's SCM file-tree coloring, but diffed against
+   publish-state.json instead of git — see writePublishStateSnapshot() in
+   editor.js. Green = never published, gold = changed since it last was. */
+.file-item-name--new { color: #73c991; }
+.file-item-name--modified { color: #e2c08d; }
 .file-item-draft-badge {
   font-size: 10px;
   font-weight: 600;

@@ -1,0 +1,4 @@
+# WebHaste — local-only files that shouldn't travel with the project.
+# Safe to edit/extend; WebHaste only ever creates this once and never
+# overwrites it after that (same as CLAUDE.md, robots.txt, etc).
+.webhaste/publish-state.json

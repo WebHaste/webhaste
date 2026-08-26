@@ -739,6 +739,25 @@ async function ensureScaffold() {
     await writable.close();
   }
 
+  // .gitignore — scaffolded from templates/gitignore (stored there without
+  // the leading dot so it doesn't act as a real ignore file inside *this*
+  // repo's own templates/ folder — only at a project's root once copied).
+  // Currently just excludes publish-state.json (see
+  // writePublishStateSnapshot()) — a per-machine "what did I last ship"
+  // cache, not project state a clone should inherit. Copy-once, same as
+  // robots.txt above: a site owner's own .gitignore (pre-existing or
+  // hand-edited afterward) is never touched.
+  try {
+    await dirHandle.getFileHandle(".gitignore");
+  } catch {
+    const res = await fetch(chrome.runtime.getURL("templates/gitignore"));
+    const text = await res.text();
+    const handle = await dirHandle.getFileHandle(".gitignore", { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
+  }
+
   // templates/ + a starter layout, copied in from the extension's own bundled copy
   const templatesDir = await cfgDir.getDirectoryHandle("templates", { create: true });
   try {
@@ -994,9 +1013,15 @@ async function refreshFileList() {
 
   const exclude = await getPageExcludeSet();
   const pagesData = await getPagesData();
+  const publishState = await getPublishState();
   const entries = [];
   for await (const entry of walkPages(dirHandle, exclude)) entries.push(entry);
   entries.sort((a, b) => a.path.localeCompare(b.path));
+
+  for (const entry of entries) {
+    const file = await entry.handle.getFile();
+    entry.publishStatus = classifyPublishStatus(entry.path, file.lastModified, publishState);
+  }
 
   // 404.html is a full standalone HTML document (see compose-core.js's
   // isFullDocument()), not a body fragment like every other page — loading
@@ -1034,7 +1059,9 @@ async function refreshFileList() {
 
   for (const row of rows) {
     if (row.type === "file") {
-      listEl.appendChild(buildFileItem(row.entry.path, row.entry.handle, pagesData, row.entry.path));
+      listEl.appendChild(
+        buildFileItem(row.entry.path, row.entry.handle, pagesData, row.entry.path, row.entry.publishStatus)
+      );
       continue;
     }
 
@@ -1051,8 +1078,10 @@ async function refreshFileList() {
 
     const itemsWrap = document.createElement("div");
     itemsWrap.className = "file-folder-items";
-    for (const { path: name, handle } of row.entries) {
-      itemsWrap.appendChild(buildFileItem(name, handle, pagesData, name.slice(row.name.length + 1)));
+    for (const { path: name, handle, publishStatus } of row.entries) {
+      itemsWrap.appendChild(
+        buildFileItem(name, handle, pagesData, name.slice(row.name.length + 1), publishStatus)
+      );
     }
     details.appendChild(itemsWrap);
 
@@ -1060,13 +1089,56 @@ async function refreshFileList() {
   }
 }
 
-function buildFileItem(name, handle, pagesData, displayName) {
+// "New" (never published) vs "modified since publish" mirrors VS Code's
+// git-status coloring, but diffed against publish-state.json instead of git
+// — see writePublishStateSnapshot()'s comment for why. A page absent from
+// that snapshot has never gone out in a Publish/Render; one present but with
+// a newer mtime has changed since it last did.
+function classifyPublishStatus(path, mtime, publishState) {
+  const snapshotMtime = publishState[path];
+  return snapshotMtime === undefined ? "new" : mtime > snapshotMtime ? "modified" : null;
+}
+
+function applyPublishStatusClass(nameEl, publishStatus) {
+  nameEl.classList.remove("file-item-name--new", "file-item-name--modified");
+  if (publishStatus === "new") {
+    nameEl.classList.add("file-item-name--new");
+    nameEl.title = "Never published";
+  } else if (publishStatus === "modified") {
+    nameEl.classList.add("file-item-name--modified");
+    nameEl.title = "Modified since last publish";
+  } else {
+    nameEl.removeAttribute("title");
+  }
+}
+
+// Updates one sidebar row's color in place after a debounced keystroke-save
+// — refreshFileList() itself deliberately never runs on every keystroke (see
+// collapsedFolders' comment above), since it rebuilds the whole sidebar and
+// clears fileCache. Finding the row by matching dataset.name (rather than an
+// attribute-selector string) sidesteps ever having to escape a filename for
+// use in a CSS selector.
+async function refreshFileItemPublishStatus(name, mtime) {
+  let item = null;
+  for (const el of document.querySelectorAll("#fileList .file-item")) {
+    if (el.dataset.name === name) {
+      item = el;
+      break;
+    }
+  }
+  if (!item) return;
+  const publishState = await getPublishState();
+  applyPublishStatusClass(item.querySelector(".file-item-name"), classifyPublishStatus(name, mtime, publishState));
+}
+
+function buildFileItem(name, handle, pagesData, displayName, publishStatus) {
   const item = document.createElement("div");
   item.className = "file-item";
   item.dataset.name = name;
 
   const nameEl = document.createElement("span");
   nameEl.className = "file-item-name";
+  applyPublishStatusClass(nameEl, publishStatus);
   nameEl.textContent = displayName;
   if (name === "index.html") {
     const homeIcon = document.createElement("span");
@@ -2433,12 +2505,14 @@ async function flushPendingSave() {
     await writable.write(fileCache.get(name));
     await writable.close();
     pendingSave = null;
-    recordFileMeta(name, await handle.getFile());
+    const savedFile = await handle.getFile();
+    recordFileMeta(name, savedFile);
     // Covers both the "OK, overwrite theirs" choice above and the plain
     // clean-save case — either way this edit just made it to disk, so a
     // backup from an earlier deferred attempt is now redundant.
     await clearBackupIfAny(name);
     setStatus(`Saved ${name}`);
+    await refreshFileItemPublishStatus(name, savedFile.lastModified);
   } catch (err) {
     setStatus(`Couldn't save ${name}: ${err.message} — your edits are still here and will be retried.`);
   }
@@ -2772,6 +2846,30 @@ async function getSiteConfig() {
 async function getNavData() {
   const cfgDir = await getConfigDir(true);
   return readJSONFile(cfgDir, "nav.json", DEFAULT_NAV);
+}
+
+// publish-state.json — a per-page mtime snapshot taken after every
+// successful Publish (Cloudflare/Netlify) or Render to Local Folder, so the
+// sidebar can flag which files have changed since. Deliberately not
+// committed to git (see ensureScaffold()'s .gitignore scaffolding) — it's a
+// local cache of "what this machine last shipped," not project state
+// anyone else's clone should inherit. Failure to write it should never
+// undo an otherwise-successful publish, so callers treat this as
+// best-effort, same as upsertHashes() above.
+async function writePublishStateSnapshot(pageEntries) {
+  try {
+    const cfgDir = await getConfigDir(true);
+    const state = {};
+    for (const { path, mtime } of pageEntries) state[path] = mtime;
+    await writeJSONFile(cfgDir, "publish-state.json", state);
+  } catch (err) {
+    console.warn("Could not write publish-state.json (non-fatal):", err);
+  }
+}
+
+async function getPublishState() {
+  const cfgDir = await getConfigDir(true);
+  return readJSONFile(cfgDir, "publish-state.json", {});
 }
 
 // Per-page <title>/meta-description overrides, keyed by filename. Pages with
@@ -3588,7 +3686,12 @@ async function collectPublishPages() {
     const file = await handle.getFile();
     const raw = await file.text();
     pages[path] = await composePage(raw, path);
-    pageEntries.push({ path, lastmod: new Date(file.lastModified).toISOString().slice(0, 10), rawContent: raw });
+    pageEntries.push({
+      path,
+      lastmod: new Date(file.lastModified).toISOString().slice(0, 10),
+      mtime: file.lastModified,
+      rawContent: raw,
+    });
   }
   return { pages, pageEntries, pagesData };
 }
@@ -3895,6 +3998,8 @@ async function publishSite(account, project, token) {
     const data = await createPagesDeployment(account, project, token, manifest);
 
     if (data.success) {
+      await writePublishStateSnapshot(pageEntries);
+      await refreshFileList();
       setStatus(`Published! Live at: ${data.result.url}`);
     } else {
       setStatus("Publish failed: " + JSON.stringify(data.errors));
@@ -3998,6 +4103,8 @@ async function publishToNetlify(siteId, token) {
       );
     }
 
+    await writePublishStateSnapshot(pageEntries);
+    await refreshFileList();
     setStatus(`Published! Live at: ${deploy.ssl_url || deploy.url}`);
   } catch (err) {
     setStatus("Netlify publish failed: " + err.message);
@@ -4089,13 +4196,28 @@ async function renderToLocalFolder() {
   }
 
   const extras = [sitemap && "sitemap.xml", robots && "robots.txt"].filter(Boolean).join(", ");
+  await writePublishStateSnapshot(pageEntries);
+  await refreshFileList();
   setStatus(
     `Rendered ${Object.keys(pages).length} page(s), ${Object.keys(assets).length} asset(s), ${Object.keys(scripts).length} script(s), and ${Object.keys(elements).length} element(s)${extras ? `, plus ${extras},` : ""} to the ${folderName}/ folder.`
   );
 }
 
+// Session-only (like collapsedFolders/fileCache) — the status bar only ever
+// shows the latest message, which is easy to miss if you looked away at the
+// wrong moment. Keeping a short scrollback in the element's native `title`
+// means hovering reveals what happened recently, without building a custom
+// popover just for this.
+const STATUS_HISTORY_LIMIT = 10;
+const statusHistory = [];
+
 function setStatus(msg) {
-  document.getElementById("statusBar").textContent = '🔔 ' + msg;
+  statusHistory.unshift(`${new Date().toLocaleTimeString()}  ${msg}`);
+  statusHistory.length = Math.min(statusHistory.length, STATUS_HISTORY_LIMIT);
+
+  const statusBar = document.getElementById("statusBar");
+  statusBar.textContent = '🔔 ' + msg;
+  statusBar.title = statusHistory.join("\n");
 }
 
 // Surfaces the PREVIEW_LINK_GUARD_SCRIPT's blocked-link notices in the
@@ -4124,6 +4246,100 @@ window.addEventListener("message", (e) => {
   if (!isKnownPreviewFrameWindow(e.source)) return;
   setStatus(`Preview: links aren't navigable here (would have opened "${e.data.href}") — open that file directly to preview it.`);
 });
+
+// ---- Resizable file-list/editor-pane/preview-pane columns ----
+// .workspace is a 5-track grid: file-list, a drag handle, editor-pane,
+// another drag handle, preview-pane (see editor.html/editor.css). file-list
+// is tracked as a fixed px width (like a VS Code sidebar); editor-pane and
+// preview-pane are tracked as fr weights, same unit the CSS default (1fr
+// 1fr) already used — dragging their handle just changes the weights, so
+// they keep splitting whatever space is left proportionally on window
+// resize, exactly like the un-dragged default did. Persisted across
+// sessions in localStorage (a UI preference, not project content, so it's
+// deliberately not per-project the way collapsedFolders/publish-state are).
+const COLUMN_WIDTHS_KEY = "webhaste.columnWidths";
+const COLUMN_MIN_PX = 160;
+const FILE_LIST_MAX_PX = 500;
+
+let columnState = loadColumnWidths() || { fileList: 200, editor: 1, preview: 1 };
+
+function loadColumnWidths() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLUMN_WIDTHS_KEY));
+    if (saved && typeof saved.fileList === "number" && typeof saved.editor === "number" && typeof saved.preview === "number") {
+      return saved;
+    }
+  } catch {
+    // fall through to default
+  }
+  return null;
+}
+
+function saveColumnWidths() {
+  try {
+    localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(columnState));
+  } catch (err) {
+    console.warn("Could not persist column widths (non-fatal):", err);
+  }
+}
+
+function applyColumnState() {
+  document.querySelector(".workspace").style.gridTemplateColumns =
+    `${columnState.fileList}px 6px ${columnState.editor}fr 6px ${columnState.preview}fr`;
+}
+
+function startColumnResizerDrag(startEvent, resizer) {
+  startEvent.preventDefault();
+  const idx = Number(resizer.dataset.idx);
+  const startX = startEvent.clientX;
+  let onMove;
+
+  if (idx === 0) {
+    const startFileList = columnState.fileList;
+    onMove = (moveEvent) => {
+      columnState.fileList = Math.max(
+        COLUMN_MIN_PX,
+        Math.min(FILE_LIST_MAX_PX, startFileList + (moveEvent.clientX - startX))
+      );
+      applyColumnState();
+    };
+  } else {
+    // editor-pane/preview-pane are fr-weighted, not px, so a plain "add the
+    // mouse delta" doesn't mean anything on its own — measuring their
+    // current rendered widths here and using those (adjusted by the drag)
+    // directly as the new fr weights keeps the same visual ratio the user
+    // just dragged to, since fr values are only ever compared to each other.
+    const startEditorPx = document.querySelector(".editor-pane").getBoundingClientRect().width;
+    const startPreviewPx = document.querySelector(".preview-pane").getBoundingClientRect().width;
+    onMove = (moveEvent) => {
+      const delta = moveEvent.clientX - startX;
+      columnState.editor = Math.max(COLUMN_MIN_PX, startEditorPx + delta);
+      columnState.preview = Math.max(COLUMN_MIN_PX, startPreviewPx - delta);
+      applyColumnState();
+    };
+  }
+
+  resizer.classList.add("resizing");
+  document.body.classList.add("resizing-columns");
+
+  function onUp() {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    resizer.classList.remove("resizing");
+    document.body.classList.remove("resizing-columns");
+    saveColumnWidths();
+  }
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+
+function initColumnResizers() {
+  applyColumnState();
+  document.querySelectorAll(".col-resizer").forEach((resizer) => {
+    resizer.addEventListener("mousedown", (e) => startColumnResizerDrag(e, resizer));
+  });
+}
+initColumnResizers();
 
 // Kick things off
 tryRestoreFolder();
