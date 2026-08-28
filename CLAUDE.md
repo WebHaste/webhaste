@@ -362,3 +362,30 @@ so it never matches the index's stemmed `"hasti"` entries). Multi-word
 queries use `presence: REQUIRED` (AND, not OR) — for the page counts a
 WebHaste site is likely to have, an OR query against common words returns
 most of the site.
+
+### 10. Per-page template override
+
+Every page uses `site.config.json` → `activeTemplate` by default, but a page
+can override that individually — e.g. posts under `blog/` wrapped in a
+`blog-layout.html` that adds a byline/date block the rest of the site
+doesn't have — via a `"template"` key in that page's `pages.json` entry (set
+from the Page Properties dialog's Template dropdown, populated by
+`listTemplateFiles()` — every `*.html` file under `.webhaste/templates/`,
+the same set `site.config.json` → `activeTemplate` already picks from). An
+omitted key means "inherit the site default," same pattern `status`/
+`language` already use in that file.
+
+`compose-core.js`'s `composePage()` needed no changes for this — it already
+took `templateText` as a plain parameter rather than reading
+`config.activeTemplate` itself, so the only work was in the two callers that
+resolve *which* template file to read before calling it:
+`composePage()` in `editor.js` (`(pagesData[title] && pagesData[title].template)
+|| config.activeTemplate`, checked before the raw-HTML/full-document early
+return, since even that depends on knowing whether a template applies) and
+`cli/compose.js`'s `main()` (same resolution per page, with a
+`Map`-based `loadTemplateText()` cache since many pages typically share one
+override). A page whose override points at a template file that's since
+been deleted/renamed behaves the same as a stale `activeTemplate` always
+has — it throws rather than silently falling back, matching existing
+behavior rather than adding new error-handling for a failure mode that was
+already possible before this feature.

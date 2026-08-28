@@ -192,14 +192,23 @@ function main() {
   const navData = readJSON(path.join(cfgDir, "nav.json"), DEFAULT_NAV);
   const pagesData = readJSON(path.join(cfgDir, "pages.json"), {});
 
-  let templateText = null;
-  if (config.activeTemplate) {
-    const templatePath = path.join(cfgDir, "templates", config.activeTemplate);
+  // A page's own pages.json "template" field (set via the extension's Page
+  // Properties dialog) overrides config.activeTemplate for just that page —
+  // see getTemplateText()'s comment in editor.js. Cached by filename since
+  // multiple pages commonly share the same override (e.g. every post under
+  // blog/ using a "blog-layout.html").
+  const templateCache = new Map();
+  function loadTemplateText(templateName, forPage) {
+    if (!templateName) return null;
+    if (templateCache.has(templateName)) return templateCache.get(templateName);
+    const templatePath = path.join(cfgDir, "templates", templateName);
     if (!fs.existsSync(templatePath)) {
-      console.error(`activeTemplate "${config.activeTemplate}" not found at ${templatePath}`);
+      console.error(`Template "${templateName}" (used by ${forPage}) not found at ${templatePath}`);
       process.exit(1);
     }
-    templateText = fs.readFileSync(templatePath, "utf8");
+    const text = fs.readFileSync(templatePath, "utf8");
+    templateCache.set(templateName, text);
+    return text;
   }
 
   const distName = sanitizeDeployDirectory(outDir || config.deployDirectory);
@@ -220,8 +229,9 @@ function main() {
   for (const relPath of pageFiles) {
     const srcPath = path.join(root, relPath);
     const rawContent = fs.readFileSync(srcPath, "utf8");
+    const templateName = (pagesData[relPath] && pagesData[relPath].template) || config.activeTemplate;
     const composed = WebhasteCompose.composePage({
-      templateText,
+      templateText: loadTemplateText(templateName, relPath),
       rawContent,
       title: relPath,
       config,

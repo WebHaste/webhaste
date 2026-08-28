@@ -94,6 +94,15 @@ links to it. Two more files, both in `.webhaste/`:
   single Spanish-language page on an otherwise English site). Omitted key
   means "inherit the site default," same pattern as `status`.
 
+  A page entry can also carry `"template"` — a filename under
+  `.webhaste/templates/` overriding `site.config.json`'s `activeTemplate`
+  for just that page (e.g. every page under `blog/` using a
+  `blog-layout.html` that adds a byline/date block the rest of the site
+  doesn't have). Same "omitted key means inherit the site default" pattern
+  as `status`/`language` above; set from the Page Properties dialog's
+  Template dropdown, not something to hand-author unless you're also adding
+  the template file itself under `.webhaste/templates/`.
+
 ## Multi-language content
 
 `{{LANG}}` in the layout template resolves per page as: this page's
