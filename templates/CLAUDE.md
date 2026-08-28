@@ -5,6 +5,13 @@ published through the WebHaste Chrome extension, not built with a
 bundler/framework of its own. A few things about the format aren't obvious
 from the files alone — read this before creating or editing pages.
 
+The same conventions are also available as the `building-webhaste-site`
+skill under `.claude/skills/` — a shorter workflow index plus topic-scoped
+reference files, for tooling that can load just the part it needs instead
+of this whole document. Both describe the same project; if they ever
+disagree, this file is the one more likely to have been hand-edited for
+this specific site.
+
 ## Page files are content fragments, not full HTML documents
 
 Every `*.html` file at the project root (e.g. `index.html`, `docs.html`) is

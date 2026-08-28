@@ -38,6 +38,12 @@ my-site/
                               fragment pages, template placeholders, nav/
                               pages.json wiring, block format. Scaffolded once;
                               never overwritten if it already exists.
+  .claude/
+    skills/
+      building-webhaste-site/  ← same conventions as CLAUDE.md, reorganized
+        SKILL.md                 as a skill (short workflow index + topic-
+        references/*.md          scoped reference files). Scaffolded once,
+                                  same never-overwritten pattern as CLAUDE.md.
   assets/                   ← published; images/PDFs inserted into page content
     photo.jpg                 via the Assets dialog (Insert Image)
   scripts/                  ← published; template-level styles.css/main.js —
@@ -60,6 +66,20 @@ so agent tooling that auto-discovers a root-level `CLAUDE.md`/`AGENTS.md`
 picks it up without being told where to look. Its content is copied in from
 this repo's own `templates/CLAUDE.md` — same mechanism as the starter
 `simple-layout.html`, see `ensureScaffold()` in `editor.js`.
+
+`.claude/skills/building-webhaste-site/` is scaffolded the same way, from
+`templates/skills/building-webhaste-site/` in this repo, and for the same
+reason `CLAUDE.md` lives at the project root instead of `.webhaste/` — it's
+where Claude Code's own skill discovery looks. It exists alongside
+`CLAUDE.md` rather than replacing it: `CLAUDE.md` stays the single
+self-contained document (useful to any agent, skill-aware or not), while
+the skill's `SKILL.md` is a short workflow index fanning out to
+topic-scoped `references/*.md` files (pages/templates, nav/pages.json,
+blocks, SEO/search, site config/testing) — the same content, reorganized
+for a tool that can load just the section it needs. Both are copied in
+once and never overwritten, same as `CLAUDE.md`/`simple-layout.html`, and
+deliberately not kept byte-identical — a site owner editing one isn't
+expected to mirror the change into the other.
 
 Both `assets/` and `scripts/` are lazy — created on first use, not scaffolded
 up front like `.webhaste/`. A template references its own scripts directly

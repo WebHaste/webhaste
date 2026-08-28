@@ -816,6 +816,46 @@ async function ensureScaffold() {
     await writable.close();
   }
 
+  // .claude/skills/building-webhaste-site/ — the same conventions CLAUDE.md
+  // covers in full prose, reorganized as a Claude Code skill (a short
+  // SKILL.md workflow index plus topic-scoped references/*.md) so an agent
+  // that supports skills can load just the section it needs instead of all
+  // of CLAUDE.md at once. Lives at the project root under .claude/, not
+  // .webhaste/, for the same reason CLAUDE.md does — that's where Claude
+  // Code's own skill discovery looks, without being told where to find it.
+  // Same copied-in-once-then-left-alone pattern as CLAUDE.md above — never
+  // overwritten once it exists, so a site owner's edits (or a deliberate
+  // deletion) stick.
+  const skillFiles = [
+    "SKILL.md",
+    "references/pages-and-templates.md",
+    "references/navigation-and-metadata.md",
+    "references/blocks.md",
+    "references/seo-and-search.md",
+    "references/site-config-and-testing.md",
+  ];
+  const claudeDir = await dirHandle.getDirectoryHandle(".claude", { create: true });
+  const skillsDir = await claudeDir.getDirectoryHandle("skills", { create: true });
+  const skillDir = await skillsDir.getDirectoryHandle("building-webhaste-site", { create: true });
+  for (const relPath of skillFiles) {
+    const parts = relPath.split("/");
+    const fileName = parts.pop();
+    let targetDir = skillDir;
+    for (const part of parts) {
+      targetDir = await targetDir.getDirectoryHandle(part, { create: true });
+    }
+    try {
+      await targetDir.getFileHandle(fileName);
+    } catch {
+      const res = await fetch(chrome.runtime.getURL(`templates/skills/building-webhaste-site/${relPath}`));
+      const text = await res.text();
+      const handle = await targetDir.getFileHandle(fileName, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+    }
+  }
+
   // compose-core.js + compose.js — a self-contained, dependency-free Node
   // CLI for headlessly rendering this site (see cli/compose.js's own header
   // comment for the full story). Copied into .webhaste/ so the site is
