@@ -1542,14 +1542,45 @@ function setHoveredBox(box) {
   hoveredBox = box;
   if (hoveredBox) hoveredBox.classList.add("cs-hovered");
 }
+// A locked block's toolbar (with its Locked checkbox) should still be
+// reachable, but nested divs inside it shouldn't surface their own cogs —
+// there's no per-child lock, so a nested div's toolbar would otherwise let
+// its id/class be edited (and its own move-after cursor placed) right
+// through the parent's lock. Rather than masking those toolbars with CSS
+// (they're only ever painted while cs-hovered, at different z-indices per
+// tier), redirect the hover target itself: walk up from whatever's under
+// the pointer and if any ancestor is .wh-locked, highlight the outermost
+// one instead. That ancestor's toolbar is still the one cs-hovered shows.
+function outermostLockAncestor(box) {
+  const visualEl = document.getElementById("visualArea");
+  let found = null;
+  for (let el = box; el && el !== visualEl; el = el.parentElement) {
+    if (el.classList.contains("wh-locked")) found = el;
+  }
+  return found;
+}
 document.getElementById("visualArea").addEventListener("mouseover", (e) => {
-  setHoveredBox(e.target.closest("#visualArea .cs-block, #visualArea div:not(.cs-block-toolbar):not(.cs-div-toolbar)"));
+  const box = e.target.closest("#visualArea .cs-block, #visualArea div:not(.cs-block-toolbar):not(.cs-div-toolbar)");
+  setHoveredBox(box && (outermostLockAncestor(box) || box));
 });
 document.getElementById("visualArea").addEventListener("mouseleave", () => setHoveredBox(null));
+
+// Defensive re-application of contenteditable="false" to any .wh-locked
+// element that's missing it — normally redundant, since the Div Attrs
+// dialog sets both together (see divAttrsSave above), but this also has to
+// hold for markup loaded straight from disk (hand-edited in Code view, or
+// authored outside WebHaste entirely) where the class made it in without
+// the attribute.
+function enforceLocks() {
+  document.querySelectorAll("#visualArea .wh-locked").forEach((el) => {
+    if (el.getAttribute("contenteditable") !== "false") el.setAttribute("contenteditable", "false");
+  });
+}
 
 function decorateVisualArea() {
   decorateBlocks();
   decorateDivs();
+  enforceLocks();
 }
 
 // Shared by both toolbars' "edit id/class" cog — the block toolbar's ⚙
@@ -1570,6 +1601,7 @@ function openDivAttrsDialog(el) {
   // as one of "its" classes in the field, or get saved as a real class if
   // the user hits Save without touching this field.
   document.getElementById("divAttrsClass").value = el.className.replace(/\bcs-hovered\b/g, "").replace(/\s+/g, " ").trim();
+  document.getElementById("divAttrsLocked").checked = el.classList.contains("wh-locked");
   divAttrsDialog.showModal();
 }
 
@@ -1645,10 +1677,25 @@ document.getElementById("divAttrsSave").addEventListener("click", () => {
   if (editingDivEl) {
     const id = document.getElementById("divAttrsId").value.trim();
     const className = document.getElementById("divAttrsClass").value.trim();
+    const locked = document.getElementById("divAttrsLocked").checked;
+    // The Locked checkbox is authoritative over whatever's typed in the
+    // class field, so a stray "wh-locked" left in/out of that text doesn't
+    // fight the checkbox — reconcile after splitting on whitespace rather
+    // than string-matching.
+    const classes = new Set(className.split(/\s+/).filter(Boolean));
+    if (locked) classes.add("wh-locked");
+    else classes.delete("wh-locked");
     if (id) editingDivEl.id = id;
     else editingDivEl.removeAttribute("id");
-    if (className) editingDivEl.className = className;
+    if (classes.size) editingDivEl.className = Array.from(classes).join(" ");
     else editingDivEl.removeAttribute("class");
+    // contenteditable="false" is what actually blocks stray typing (see
+    // enforceLocks() below) — saved as a literal attribute alongside the
+    // class rather than toggled only in-memory, since it's inert on a
+    // published page (never contenteditable to begin with) and this way
+    // there's nothing to strip back out at save time.
+    if (locked) editingDivEl.setAttribute("contenteditable", "false");
+    else editingDivEl.removeAttribute("contenteditable");
     // Overwriting className above just wiped cs-hovered along with it (this
     // div's own cog is only clickable while it's the hovered box) — restore
     // it so the outline doesn't look "un-hovered" until the mouse re-enters.
@@ -2372,6 +2419,90 @@ document.getElementById("blockGrid").addEventListener("click", (e) => {
   blocksDialog.close();
   insertBlock(tile.dataset.id, html);
   setStatus("Inserted block.");
+});
+
+// ---- Symbols dialog — common punctuation + a small curated emoji set,
+// same insert-at-cursor pattern as the Assets/Blocks grids above
+// (captureSelection() before showModal() steals focus, insertSnippet()
+// restores the saved range). Not the full TinyMCE-style character map —
+// just what's actually common on a website (typographic dashes/quotes,
+// copyright/trademark, fractions, currency, arrows) plus a fixed emoji set,
+// per James's ask rather than an exhaustive Unicode picker. ----
+const SPECIAL_CHARACTERS = [
+  { char: "–", name: "En dash" },
+  { char: "—", name: "Em dash" },
+  { char: "…", name: "Ellipsis" },
+  { char: "•", name: "Bullet" },
+  { char: "§", name: "Section" },
+  { char: "©", name: "Copyright" },
+  { char: "®", name: "Registered trademark" },
+  { char: "™", name: "Trademark" },
+  { char: "°", name: "Degree" },
+  { char: "±", name: "Plus-minus" },
+  { char: "×", name: "Multiplication" },
+  { char: "÷", name: "Division" },
+  { char: "¼", name: "One quarter" },
+  { char: "½", name: "One half" },
+  { char: "¾", name: "Three quarters" },
+  { char: "€", name: "Euro" },
+  { char: "£", name: "Pound" },
+  { char: "¥", name: "Yen" },
+  { char: "¢", name: "Cent" },
+  { char: "‘", name: "Left single quote" },
+  { char: "’", name: "Right single quote" },
+  { char: "“", name: "Left double quote" },
+  { char: "”", name: "Right double quote" },
+  { char: "→", name: "Right arrow" },
+  { char: "←", name: "Left arrow" },
+  { char: "✓", name: "Check mark" },
+];
+
+const COMMON_EMOJI = [
+  { char: "\u{1F600}", name: "Grinning face" },
+  { char: "\u{1F44D}", name: "Thumbs up" },
+  { char: "☹️", name: "Frowning face" },
+  { char: "\u{1F642}", name: "Slightly smiling face" },
+  { char: "\u{1F4A9}", name: "Pile of poo" },
+  { char: "\u{1F354}", name: "Hamburger" },
+  { char: "\u{1F964}", name: "Cup with straw" },
+  { char: "\u{1F3B8}", name: "Guitar" },
+  { char: "\u{1F3AC}", name: "Clapper board" },
+  { char: "\u{1F3B9}", name: "Musical keyboard" },
+  { char: "\u{1F697}", name: "Car" },
+  { char: "\u{1F4EB}", name: "Mailbox" },
+  { char: "✒️", name: "Fountain pen" },
+  { char: "\u{1F4BB}", name: "Laptop" },
+];
+
+function renderSymbolGrid(gridId, entries) {
+  const grid = document.getElementById(gridId);
+  entries.forEach(({ char, name }) => {
+    const tile = document.createElement("div");
+    tile.className = "symbol-tile";
+    tile.title = name;
+    tile.dataset.char = char;
+    tile.textContent = char;
+    grid.appendChild(tile);
+  });
+}
+renderSymbolGrid("symbolGrid", SPECIAL_CHARACTERS);
+renderSymbolGrid("emojiGrid", COMMON_EMOJI);
+
+const symbolsDialog = document.getElementById("symbolsDialog");
+document.getElementById("openSymbolsBtn").addEventListener("click", () => {
+  captureSelection();
+  symbolsDialog.showModal();
+});
+document.getElementById("symbolsDialogClose").addEventListener("click", () => symbolsDialog.close());
+document.querySelectorAll("#symbolsDialog .symbol-grid").forEach((grid) => {
+  grid.addEventListener("click", (e) => {
+    const tile = e.target.closest(".symbol-tile");
+    if (!tile) return;
+    // Close BEFORE inserting — see the identical comment on the assets grid
+    // click handler above for why.
+    symbolsDialog.close();
+    insertSnippet(tile.dataset.char);
+  });
 });
 
 // ---- Image properties dialog — alt text + framework class presets ----

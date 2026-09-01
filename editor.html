@@ -71,6 +71,7 @@
           <button id="insertImageBtn">🖼️ Image</button>
           <button id="openAssetsBtn">📎 Assets</button>
           <button id="openBlocksBtn">🧩 Blocks</button>
+          <button id="openSymbolsBtn">Ω Symbols</button>
         </div>
         <input type="file" id="imageFastPathInput" accept="image/*" class="hidden" />
       </div>
@@ -259,6 +260,7 @@
     <h3>Edit Div Attributes</h3>
     <label>ID <input type="text" id="divAttrsId" placeholder="(none)" /></label>
     <label>Class <input type="text" id="divAttrsClass" placeholder="e.g. mt-4 text-center" /></label>
+    <label class="checkbox-label"><input type="checkbox" id="divAttrsLocked" /> Locked (prevent content edits; still movable)</label>
     <div class="dialog-actions">
       <button id="divAttrsCancel">Cancel</button>
       <button id="divAttrsSave" class="primary">Save</button>
@@ -271,6 +273,18 @@
     <div id="blockGrid" class="block-grid"></div>
     <div class="dialog-actions">
       <button id="blocksDialogClose">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="symbolsDialog">
+    <h3>Insert Special Character</h3>
+    <p class="hint">Click a character to insert it at the cursor.</p>
+    <div class="symbol-section-label">Punctuation &amp; Symbols</div>
+    <div id="symbolGrid" class="symbol-grid"></div>
+    <div class="symbol-section-label">Emoji</div>
+    <div id="emojiGrid" class="symbol-grid"></div>
+    <div class="dialog-actions">
+      <button id="symbolsDialogClose">Close</button>
     </div>
   </dialog>
 

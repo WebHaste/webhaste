@@ -298,6 +298,30 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .cs-div-toolbar button:hover { background: #3a3a3a; }
+
+/* .wh-locked (see divAttrsSave() in editor.js) — outline stays amber
+   whether hovered or not, unlike the blue cs-hovered-only outline above,
+   since the whole point is a mask that reads as locked at a glance without
+   having to hover it first. The 🔒 badge sits top-left specifically to
+   avoid the block/div toolbars' top-right corner (z-index 5/4) — it never
+   needs to out-stack them because nested toolbars are kept from appearing
+   at all via the hover redirect in the mouseover listener, not by masking. */
+.visual-area .wh-locked { outline-color: rgba(217, 119, 6, 0.6) !important; }
+.visual-area .wh-locked.cs-hovered { outline-color: #d97706 !important; }
+.wh-locked::before {
+  content: "🔒";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 3px;
+  background: rgba(30, 30, 30, 0.85);
+  border: 1px solid rgba(217, 119, 6, 0.6);
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
 .visual-area h1 { font-size: 1.8em; }
 .visual-area h2 { font-size: 1.4em; }
 .visual-area a { color: #2563eb; }
@@ -619,6 +643,39 @@ dialog label.checkbox-label input[type="checkbox"] { width: auto; }
   cursor: not-allowed;
 }
 .block-tile-disabled:hover { border-color: #3d3d3d; }
+
+/* ---- Symbols dialog ---- */
+#symbolsDialog { width: 420px; max-width: 90vw; }
+.symbol-section-label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 12px 0 4px;
+}
+.symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+  background: #1e1e1e;
+}
+.symbol-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  font-size: 18px;
+  background: #292929;
+  border: 1px solid #3d3d3d;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.symbol-tile:hover { border-color: #2563eb; }
 
 /* ---- Image properties dialog ---- */
 #imagePropsDialog { width: 420px; max-width: 90vw; }
