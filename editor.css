@@ -72,6 +72,10 @@ button.primary:hover { background: #1d4ed8; }
   background: transparent;
 }
 .col-resizer:hover, .col-resizer.resizing { background: #2563eb; }
+/* Preview pane hidden via the "Hide Preview" toggle — see setPreviewHidden()
+   in editor.js. Its resizer hides alongside it since there's nothing left
+   to drag against. */
+.pane-hidden { display: none !important; }
 /* Applied to body only while a drag is in progress, so text elsewhere on
    the page doesn't get selected as the mouse crosses over it mid-drag. */
 body.resizing-columns { cursor: col-resize; user-select: none; }

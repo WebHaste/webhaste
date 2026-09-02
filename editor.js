@@ -4531,13 +4531,13 @@ const COLUMN_WIDTHS_KEY = "webhaste.columnWidths";
 const COLUMN_MIN_PX = 160;
 const FILE_LIST_MAX_PX = 500;
 
-let columnState = loadColumnWidths() || { fileList: 200, editor: 1, preview: 1 };
+let columnState = loadColumnWidths() || { fileList: 200, editor: 1, preview: 1, previewHidden: false };
 
 function loadColumnWidths() {
   try {
     const saved = JSON.parse(localStorage.getItem(COLUMN_WIDTHS_KEY));
     if (saved && typeof saved.fileList === "number" && typeof saved.editor === "number" && typeof saved.preview === "number") {
-      return saved;
+      return { previewHidden: false, ...saved };
     }
   } catch {
     // fall through to default
@@ -4554,8 +4554,36 @@ function saveColumnWidths() {
 }
 
 function applyColumnState() {
-  document.querySelector(".workspace").style.gridTemplateColumns =
-    `${columnState.fileList}px 6px ${columnState.editor}fr 6px ${columnState.preview}fr`;
+  // Preview resizer is data-idx="1", the second .col-resizer — hidden
+  // alongside .preview-pane itself so there's no dead drag handle left
+  // floating in the grid when there's nothing next to it to resize.
+  const previewResizer = document.querySelectorAll(".col-resizer")[1];
+  const previewPane = document.querySelector(".preview-pane");
+  previewPane.classList.toggle("pane-hidden", columnState.previewHidden);
+  previewResizer.classList.toggle("pane-hidden", columnState.previewHidden);
+  document.querySelector(".workspace").style.gridTemplateColumns = columnState.previewHidden
+    ? `${columnState.fileList}px 6px 1fr`
+    : `${columnState.fileList}px 6px ${columnState.editor}fr 6px ${columnState.preview}fr`;
+}
+
+// Small-screen escape hatch (ChromeOS devices are a large share of installs
+// and many run tiny display widths) — resizing the preview down still leaves
+// it eating width the editor could use, so let it be hidden outright instead.
+// Shown by default; state persists alongside the column widths above since
+// it's the same "workspace layout preference" bucket.
+function setPreviewHidden(hidden) {
+  columnState.previewHidden = hidden;
+  applyColumnState();
+  saveColumnWidths();
+  const btn = document.getElementById("togglePreviewBtn");
+  btn.textContent = hidden ? "👁️ Show Preview" : "👁️ Hide Preview";
+  btn.title = hidden
+    ? "Show the live preview pane"
+    : "Hide the live preview pane to give the editor more room — handy on small/ChromeOS screens";
+  // Editor pane's width just changed without a window resize event, and
+  // CodeMirror only measures layout on those — same fix switchView() uses
+  // when un-hiding the CodeMirror element itself.
+  if (currentView === "code") cm.refresh();
 }
 
 function startColumnResizerDrag(startEvent, resizer) {
@@ -4605,9 +4633,15 @@ function startColumnResizerDrag(startEvent, resizer) {
 
 function initColumnResizers() {
   applyColumnState();
+  if (columnState.previewHidden) {
+    const btn = document.getElementById("togglePreviewBtn");
+    btn.textContent = "👁️ Show Preview";
+    btn.title = "Show the live preview pane";
+  }
   document.querySelectorAll(".col-resizer").forEach((resizer) => {
     resizer.addEventListener("mousedown", (e) => startColumnResizerDrag(e, resizer));
   });
+  document.getElementById("togglePreviewBtn").addEventListener("click", () => setPreviewHidden(!columnState.previewHidden));
 }
 initColumnResizers();
 
