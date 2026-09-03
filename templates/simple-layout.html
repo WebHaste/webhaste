@@ -3,26 +3,41 @@
 <head>
   <meta charset="UTF-8" />
   <title>{{TITLE}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="{{META_DESCRIPTION}}" />
+
   <!-- WebHaste doesn't inject a CSS framework automatically. If you want
        one (Bootstrap, Tailwind, or anything else), add its <link>/<script>
        tags here yourself, or reference a local copy from scripts/. -->
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 0; }
-    .site-footer { text-align: center; padding: 20px; color: #888; font-size: 13px; }
-    main { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
-  </style>
+
+  <!-- Local CSS styles -->
+  <link rel="stylesheet" href="/scripts/styles.css" />
+
+  <!-- site search — see docs/search.html or README's "Site search" section -->
+  <script src="/scripts/lunr.min.js"></script>
+  <script src="/scripts/search.js"></script>
+
 </head>
 <body>
+
   <header class="site-header">
     {{NAV:header}}
+
+    <!-- UI for search input/results -->
+    <div class="cs-search-wrap">
+      <input type="search" id="cs-search-input" placeholder="Search..." autocomplete="off">
+      <div id="cs-search-results"></div>
+    </div>
   </header>
+
   <main>
     {{CONTENT}}
   </main>
+
   <footer class="site-footer">
     {{NAV:footer}}
     <p>&copy; {{YEAR}} {{SITE_NAME}} — built locally, published globally.</p>
   </footer>
+
 </body>
 </html>

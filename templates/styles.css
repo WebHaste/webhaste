@@ -1,0 +1,89 @@
+/* Site-wide CSS for the default WebHaste layout (simple-layout.html).
+   Add your own rules here — this file is scaffolded once and never
+   overwritten, so it's yours to edit freely. */
+
+body { font-family: system-ui, sans-serif; margin: 0; }
+main { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 24px;
+}
+
+.site-footer { text-align: center; padding: 20px; color: #888; font-size: 13px; }
+
+
+/* SITE SEARCH — see docs/search.html or README's "Site search" section.
+   #cs-search-input/#cs-search-results are the two elements search.js looks
+   for; the cs-search-* classes below are what it renders results into. */
+
+.cs-search-wrap {
+  position: relative;
+  min-width: 200px;
+}
+
+#cs-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+#cs-search-results:empty {
+  display: none;
+}
+
+#cs-search-results {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  width: 200%;
+  max-width: calc(100vw - 2rem);
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 1050;
+}
+
+.cs-search-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.cs-search-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid #eee;
+}
+
+.cs-search-item:last-child {
+  border-bottom: none;
+}
+
+.cs-search-item a {
+  font-weight: 600;
+  color: inherit;
+}
+
+.cs-search-item p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.2;
+  color: #555;
+}
+
+.cs-search-empty {
+  padding: 10px 14px;
+  margin: 0;
+  color: #555;
+}

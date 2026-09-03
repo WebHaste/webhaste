@@ -717,10 +717,20 @@ async function ensureScaffold() {
   // Copied in once, same never-overwritten pattern as the files above — a
   // site owner who customizes either file, or never adds the <script> tags
   // to their template at all, won't have it silently reappear/get clobbered.
-  for (const [src, destName] of [
+  const searchScaffoldFiles = [
     ["templates/search.js", "search.js"],
     ["vendor/lunr/lunr.min.js", "lunr.min.js"],
-  ]) {
+  ];
+  // scripts/styles.css too, but not for Tailwind — that path's own build
+  // (npm run build:css) generates scripts/styles.css itself from
+  // tailwind-input.css, so seeding a different file there would just get
+  // silently overwritten on the first real build. A Tailwind site's search
+  // CSS belongs in scripts/custom.css instead, which the block above already
+  // scaffolds as this site's hand-written-CSS destination.
+  if (config.cssFramework !== "tailwind") {
+    searchScaffoldFiles.push(["templates/styles.css", "styles.css"]);
+  }
+  for (const [src, destName] of searchScaffoldFiles) {
     try {
       await projectDirs.scripts.getFileHandle(destName);
     } catch {
