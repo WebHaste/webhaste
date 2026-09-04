@@ -42,9 +42,20 @@ Or you can do a one-time CSS generation by running:
 
 If your site is set to "Render to Local Folder" mode, you can specify a sub-folder in your site folder (typically "dist" or "www") that will contain your full, stand-alone site. You can serve directly from this folder, or use an SFTP or WebDAV solution to manually move the locally rendered files to a remote server. 
 
-If you open rendered files directly in a browser, they likely will not appear with the correct styling. You typically will need to move the files to a remote server or view your site locally through an HTTP server instance (Node, Homebrew, etc).
+If you open rendered files directly in a browser, they likely will not appear with the correct styling. You typically will need to move the files to a remote server or view your site locally through an HTTP server instance (Node, Homebrew, etc) — unless you use the **Packaged** deployment target described below, which is built specifically to work without one.
 
 Note: Do not serve a website directly from your project's root folder. Doing this will display page stubs without the proper HTML template and structure. Use the "dist" or "www" folder. That contains the fully rendered site files.
+
+### Packaged deployment (open directly in a browser)
+
+If you need a copy of your site that works when opened straight from disk — no server, no upload — set your Deployment Target to **Packaged** in Site Settings. It composes your site the same way as "Render to Local Folder," except every internal link, image, and script reference is rewritten to a relative path instead of the usual root-relative one, so double-clicking `index.html` (or any other page) inside the rendered folder just works in any browser.
+
+This is a good fit anywhere the person opening the site shouldn't need to install or run anything — a student handing in a class project as a zip file, a quick demo shared by email, a portable copy for a USB drive or shared drive.
+
+A couple of things work differently in a Packaged build:
+
+- **Site search still works** (see below), but instead of a separate `search-index.json` fetched at runtime — which browsers block for local files — the search data is embedded directly into each page.
+- **`sitemap.xml`, `robots.txt`, and `404.html` are not included.** All three only make sense for a site with a real domain and a server routing requests to it, neither of which applies to a folder opened directly on your computer.
 
 ### Cloudflare Pages and Netlify Pages Integration
 
@@ -82,11 +93,14 @@ publishes:
 - **Hide from search engines (noindex)** — adds a real
   `<meta name="robots" content="noindex">` tag to the page.
 
+If your site uses the **Packaged** deployment target, search still works with no extra setup — it just draws on data embedded in each page instead of fetching `search-index.json`. See "Packaged deployment" above.
+
 ## How a WebHaste project is put together
 
 ```
 ├── index.html ...              ← page content (fragments — see below)
 ├── 404.html (don't edit)       ← default 404 page needed for Cloudflare and Netlify
+│                                  (not included in Packaged output — see below)
 ├── package.json                ← Tailwind only — scaffolded automatically when
 │                                  cssFramework is "tailwind"; run npm install once
 ├── tailwind-input.css          ← Tailwind only — real source for scripts/styles.css;

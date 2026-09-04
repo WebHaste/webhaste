@@ -15,6 +15,10 @@ once with a permissive default (`User-agent: *` / `Allow: /`) and never
 regenerated — safe to hand-edit (e.g. adding `Disallow:` rules) same as
 any other file here.
 
+Neither is produced by the **Packaged** deployment target — a site
+rendered for opening straight from disk has no real domain or server, so
+a sitemap/robots file would serve no purpose there.
+
 ## Site search
 
 `search-index.json` is generated automatically alongside `sitemap.xml` at
@@ -47,6 +51,15 @@ adds them just doesn't load the index. Results render as
 `<p class="cs-search-empty">` when there are none) — unstyled by default,
 so add CSS for those classes the same way you would for any other `cs-*`
 class from a block or menu.
+
+Search still works when the site is rendered with the **Packaged**
+deployment target (for handing off a site that has to open straight from
+disk, no server) — it just works differently under the hood. Chrome blocks
+`fetch()` of a local file under `file://` regardless of path, so instead of
+a separate `search-index.json` fetched at runtime, each page gets its own
+copy of the index embedded inline, with every result link already pointing
+at the right relative path for that page. Nothing about writing pages or
+using the search box changes — this is purely a render-time difference.
 
 ## Per-page SEO/search checkboxes
 

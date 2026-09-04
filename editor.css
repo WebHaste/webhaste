@@ -272,15 +272,20 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
    padding so a nested div's outline sits visibly inside its parent's
    instead of the two lines coinciding exactly — that gap also gives the
    parent div its own hoverable sliver, separate from its child's box (see
-   setHoveredBox() in editor.js). */
-.visual-area div:not(.cs-block):not(.cs-block-toolbar):not(.cs-div-toolbar) {
+   setHoveredBox() in editor.js). Also excludes .cs-table-toolbar/
+   .cs-row-toolbar: without those two exclusions this selector's three
+   :not()s still out-specificity those toolbars' own single-class rules
+   further down, so its position:relative would silently win over their
+   position:absolute — which is exactly what made the row toolbar render
+   in-flow (growing the row) instead of overlaid, in real-browser testing. */
+.visual-area div:not(.cs-block):not(.cs-block-toolbar):not(.cs-div-toolbar):not(.cs-table-toolbar):not(.cs-row-toolbar) {
   position: relative;
   outline: 1px dashed rgba(37, 99, 235, 0.25);
   outline-offset: -1px;
   padding: 12px 2px 0 2px;
   margin: 10px auto;
 }
-.visual-area div:not(.cs-block):not(.cs-block-toolbar):not(.cs-div-toolbar).cs-hovered {
+.visual-area div:not(.cs-block):not(.cs-block-toolbar):not(.cs-div-toolbar):not(.cs-table-toolbar):not(.cs-row-toolbar).cs-hovered {
   outline-color: rgba(37, 99, 235, 0.8);
 }
 .cs-div-toolbar {
@@ -326,6 +331,100 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   pointer-events: none;
   z-index: 2;
 }
+/* ---- Tables (see decorateTables()/decorateTableRows() in editor.js) ----
+   The table itself gets the same top-right ⚙ cog as a div/block (shares
+   divAttrsDialog). Top padding is reserved specifically for that cog, the
+   same "real space, not overlaid on content" idiom .cs-block's own padding
+   uses — needed here because a table (unlike a div) has no natural empty
+   gutter to hover/paint into once border-collapse is set. */
+.visual-area table {
+  position: relative;
+  outline: 1px dashed rgba(37, 99, 235, 0.25);
+  outline-offset: 2px;
+  padding: 16px 4px 4px 4px;
+  margin: 10px auto;
+  /* Editor-only sizing (not carried into published output — nothing here
+     is written to the actual <table> element, just how this pane renders
+     it). table-layout:fixed locks column widths to the first row once laid
+     out, so the row toolbar's display:none->flex toggle on hover (further
+     down) can never feed back into column widths — that reflow was the
+     "jumpy on hover" bug. width:100% instead of the default shrink-to-fit
+     auto width was the other half of it: a 2-3 cell table with near-empty
+     cells was sizing itself to barely more than its own reserved padding,
+     reading as an oddly narrow/twitchy "minimum width" box. */
+  width: 100%;
+  table-layout: fixed;
+  /* border-spacing:0 with separate (not collapse) — collapse ignores a
+     table's own padding entirely per spec, which would silently break the
+     reserved gutter above that the table's own ⚙ cog depends on. Adjacent
+     cell borders sitting flush with 0 spacing read as a normal grid line
+     regardless. */
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.visual-area table.cs-hovered { outline-color: rgba(37, 99, 235, 0.8); }
+.cs-table-toolbar {
+  display: none;
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  gap: 2px;
+  background: #1e1e1e;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 2px;
+  z-index: 5;
+}
+.visual-area table.cs-hovered > .cs-table-toolbar { display: flex; }
+.cs-table-toolbar button {
+  background: transparent;
+  border: none;
+  color: #eee;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2px 5px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.cs-table-toolbar button:hover { background: #3a3a3a; }
+
+/* Row toolbar lives inside the row's first cell (see decorateTableRows()'s
+   comment for why), top-left — the opposite corner from the table's own
+   cog above, so a hovered first row's two toolbars never overlap. Left
+   padding on every row's first cell reserves room for it, same idiom as
+   the table's own top padding above. */
+.visual-area table td, .visual-area table th {
+  position: relative;
+  /* Always-on grid lines — previously cells were only outlined by the
+     generic plain-<div> hover rule further up, so an unhovered table read
+     as a wall of text with no visible structure at all. Editor-only, same
+     as everything else in this block; doesn't touch the saved/published
+     table's own (lack of) styling. */
+  border: 1px solid rgba(140, 140, 140, 0.5);
+  padding: 4px 6px;
+}
+.visual-area table tr > :first-child { padding-left: 30px; }
+.cs-row-toolbar {
+  display: none;
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  gap: 2px;
+  z-index: 4;
+}
+.visual-area tr.cs-hovered .cs-row-toolbar { display: flex; }
+.cs-row-toolbar button {
+  background: #1e1e1e;
+  color: #eee;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 1px 3px;
+  cursor: pointer;
+}
+.cs-row-toolbar button:hover { background: #3a3a3a; }
+
 .visual-area h1 { font-size: 1.8em; }
 .visual-area h2 { font-size: 1.4em; }
 .visual-area a { color: #2563eb; }
@@ -370,6 +469,16 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .link-bubble button:hover { background: #3a3a3a; }
+
+/* Baseline for every image, preset class or not — a freshly inserted image
+   (before Image Properties has ever been opened, or with no width preset
+   picked) has none of the classes below, so without this it renders at its
+   full native pixel size and can spill out the right edge of the pane.
+   max-width, not width:100% — a bare/small image (an icon, a logo) should
+   keep its natural size; this only ever caps an image from overflowing,
+   never stretches one up to fill the pane. height:auto keeps aspect ratio
+   once width is constrained. */
+.visual-area img { max-width: 100%; height: auto; }
 
 /* Approximates the visual effect of the Image Properties dialog's preset
    classes (see IMAGE_CLASS_PRESETS in editor.js — keep these two lists in

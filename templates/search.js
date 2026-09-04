@@ -40,33 +40,46 @@
     var indexPromise = null;
     var pagesByUrl = null;
 
+    function buildLunrIndex(pages) {
+      pagesByUrl = {};
+      pages.forEach(function (page) {
+        pagesByUrl[page.url] = page;
+      });
+      return lunr(function () {
+        this.ref("url");
+        this.field("title", { boost: 10 });
+        this.field("description", { boost: 5 });
+        this.field("content");
+        pages.forEach(function (page) {
+          this.add(page);
+        }, this);
+      });
+    }
+
     function loadIndex() {
       if (indexPromise) return indexPromise;
-      indexPromise = fetch("/search-index.json")
-        .then(function (res) {
-          if (!res.ok) throw new Error("search-index.json: " + res.status);
-          return res.json();
-        })
-        .then(function (pages) {
-          pagesByUrl = {};
-          pages.forEach(function (page) {
-            pagesByUrl[page.url] = page;
+      if (window.CS_SEARCH_INDEX) {
+        // Packaged/offline build: the index is embedded per-page at render
+        // time (see compose-core.js's rewriteRootRelativePaths() callers) —
+        // fetch() of a local file is blocked by CORS under file://
+        // regardless of path form, so this is the only way search works
+        // when the site is opened by double-clicking a file instead of
+        // being served over HTTP. Each entry's `url` is already relative to
+        // this specific page, so render() below needs no special-casing.
+        indexPromise = Promise.resolve(buildLunrIndex(window.CS_SEARCH_INDEX));
+      } else {
+        indexPromise = fetch("/search-index.json")
+          .then(function (res) {
+            if (!res.ok) throw new Error("search-index.json: " + res.status);
+            return res.json();
+          })
+          .then(buildLunrIndex)
+          .catch(function (err) {
+            console.warn("WebHaste search: couldn't load /search-index.json", err);
+            pagesByUrl = {};
+            return null;
           });
-          return lunr(function () {
-            this.ref("url");
-            this.field("title", { boost: 10 });
-            this.field("description", { boost: 5 });
-            this.field("content");
-            pages.forEach(function (page) {
-              this.add(page);
-            }, this);
-          });
-        })
-        .catch(function (err) {
-          console.warn("WebHaste search: couldn't load /search-index.json", err);
-          pagesByUrl = {};
-          return null;
-        });
+      }
       return indexPromise;
     }
 

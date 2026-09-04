@@ -57,8 +57,12 @@ This writes fully-composed pages (plus `assets/`/`scripts/`) into
 this rather than the real `dist/` (or whatever `deployDirectory` is set
 to) so you don't clobber the site owner's actual build output. Delete the
 scratch folder once you're done checking it; it's not meant to be
-committed. Run `node .webhaste/compose.js --help` for the full option
-list.
+committed. Add `--packaged` to match what the **Packaged** deployment
+target produces instead (root-relative paths rewritten to `../`-relative
+ones, search data embedded per page, `sitemap.xml`/`robots.txt`/
+`404.html` omitted) — useful for checking a page opens correctly via
+`file://` without installing the extension. Run
+`node .webhaste/compose.js --help` for the full option list.
 
 If Node isn't available in this environment, fall back to reasoning from
 the template's placeholders and this skill's conventions — there's no

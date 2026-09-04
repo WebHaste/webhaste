@@ -1523,6 +1523,10 @@ function decorateDivs() {
   document.querySelectorAll("#visualArea div").forEach((div) => {
     if (div.classList.contains("cs-block")) return;
     if (div.classList.contains("cs-block-toolbar") || div.classList.contains("cs-div-toolbar")) return;
+    // The table/row toolbars are plain <div>s too (see decorateTables()/
+    // decorateTableRows() below) — without this they'd match here as well
+    // and get a nonsensical nested edit-attrs cog of their own.
+    if (div.classList.contains("cs-table-toolbar") || div.classList.contains("cs-row-toolbar")) return;
     if (div.querySelector(":scope > .cs-div-toolbar")) return;
     const toolbar = document.createElement("div");
     toolbar.className = "cs-div-toolbar";
@@ -1570,7 +1574,17 @@ function outermostLockAncestor(box) {
   return found;
 }
 document.getElementById("visualArea").addEventListener("mouseover", (e) => {
-  const box = e.target.closest("#visualArea .cs-block, #visualArea div:not(.cs-block-toolbar):not(.cs-div-toolbar)");
+  // The div exclusions matter for more than styling here: without them,
+  // moving the mouse onto the row/table toolbar's own buttons would match
+  // that toolbar <div> itself (nearest ancestor) instead of bubbling to its
+  // tr/table, stealing .cs-hovered away from the row/table — which is what
+  // actually shows the toolbar in the first place (tr.cs-hovered
+  // .cs-row-toolbar), so hovering the buttons would instantly hide them.
+  const box = e.target.closest(
+    "#visualArea .cs-block, " +
+    "#visualArea div:not(.cs-block-toolbar):not(.cs-div-toolbar):not(.cs-table-toolbar):not(.cs-row-toolbar), " +
+    "#visualArea table, #visualArea tr"
+  );
   setHoveredBox(box && (outermostLockAncestor(box) || box));
 });
 document.getElementById("visualArea").addEventListener("mouseleave", () => setHoveredBox(null));
@@ -1587,9 +1601,53 @@ function enforceLocks() {
   });
 }
 
+// Same top-right ⚙ cog as a div (shares divAttrsDialog — see
+// openDivAttrsDialog()) plus a "+col" action. Appending one cell to the end
+// of every row needs no per-row index bookkeeping the way an
+// arbitrary-position column insert/delete would (see addTableColumn()
+// below), which is why only "add at the right" is offered.
+function decorateTables() {
+  document.querySelectorAll("#visualArea table").forEach((table) => {
+    if (table.querySelector(":scope > .cs-table-toolbar")) return;
+    const toolbar = document.createElement("div");
+    toolbar.className = "cs-table-toolbar";
+    toolbar.contentEditable = "false";
+    toolbar.innerHTML =
+      '<button type="button" data-action="edit-attrs" title="Edit ID / classes">⚙</button>' +
+      '<button type="button" data-action="add-column" title="Add column at right">+col</button>';
+    table.appendChild(toolbar);
+  });
+}
+
+// Row controls live inside the row's own first cell, top-left, rather than
+// as a direct child of the <tr> — a <tr>'s only valid children per the HTML
+// parser are cells (a stray child would get "foster parented" out on the
+// next innerHTML reparse, e.g. loading a file), and while that never
+// actually happens here (this toolbar is always stripped before content is
+// serialized to a string — see serializeVisualArea()), anchoring to a real
+// cell sidesteps the question entirely. The first cell specifically (not
+// last) so addTableColumn() below never has to relocate it — the first
+// cell's identity never changes when a column is appended at the right.
+function decorateTableRows() {
+  document.querySelectorAll("#visualArea table tr").forEach((row) => {
+    const firstCell = row.firstElementChild;
+    if (!firstCell || (firstCell.tagName !== "TD" && firstCell.tagName !== "TH")) return;
+    if (firstCell.querySelector(":scope > .cs-row-toolbar")) return;
+    const toolbar = document.createElement("div");
+    toolbar.className = "cs-row-toolbar";
+    toolbar.contentEditable = "false";
+    toolbar.innerHTML =
+      '<button type="button" data-action="add-row-below" title="Add row below">+row</button>' +
+      '<button type="button" data-action="delete-row" title="Delete row">🗑</button>';
+    firstCell.insertBefore(toolbar, firstCell.firstChild);
+  });
+}
+
 function decorateVisualArea() {
   decorateBlocks();
   decorateDivs();
+  decorateTables();
+  decorateTableRows();
   enforceLocks();
 }
 
@@ -1605,6 +1663,8 @@ const divAttrsDialog = document.getElementById("divAttrsDialog");
 
 function openDivAttrsDialog(el) {
   editingDivEl = el;
+  const isTable = el.tagName === "TABLE";
+  document.getElementById("divAttrsTitle").textContent = isTable ? "Edit Table Attributes" : "Edit Div Attributes";
   document.getElementById("divAttrsId").value = el.id || "";
   // el may be the currently cs-hovered box (that's why its cog is visible
   // to click) — strip that editor-only class back out so it doesn't show up
@@ -1612,6 +1672,11 @@ function openDivAttrsDialog(el) {
   // the user hits Save without touching this field.
   document.getElementById("divAttrsClass").value = el.className.replace(/\bcs-hovered\b/g, "").replace(/\s+/g, " ").trim();
   document.getElementById("divAttrsLocked").checked = el.classList.contains("wh-locked");
+  // Presentation-table field only makes sense for a <table> — hidden for
+  // any div, and not asserted true just because a table has some other
+  // hand-authored role, only "presentation" specifically.
+  document.getElementById("divAttrsPresentationRow").classList.toggle("hidden", !isTable);
+  document.getElementById("divAttrsPresentation").checked = isTable && el.getAttribute("role") === "presentation";
   divAttrsDialog.showModal();
 }
 
@@ -1706,6 +1771,15 @@ document.getElementById("divAttrsSave").addEventListener("click", () => {
     // there's nothing to strip back out at save time.
     if (locked) editingDivEl.setAttribute("contenteditable", "false");
     else editingDivEl.removeAttribute("contenteditable");
+    if (editingDivEl.tagName === "TABLE") {
+      const presentation = document.getElementById("divAttrsPresentation").checked;
+      if (presentation) editingDivEl.setAttribute("role", "presentation");
+      // Only clear a role this dialog could have set — a hand-authored
+      // role="region" or similar left unchecked here (the checkbox only
+      // ever reflects "presentation" specifically) is left alone rather
+      // than silently removed.
+      else if (editingDivEl.getAttribute("role") === "presentation") editingDivEl.removeAttribute("role");
+    }
     // Overwriting className above just wiped cs-hovered along with it (this
     // div's own cog is only clickable while it's the hovered box) — restore
     // it so the outline doesn't look "un-hovered" until the mouse re-enters.
@@ -1713,6 +1787,177 @@ document.getElementById("divAttrsSave").addEventListener("click", () => {
     scheduleSave();
   }
   divAttrsDialog.close();
+});
+
+// ---- Table structural editing (rows/columns) ----
+// Deliberately asymmetric with what div/block toolbars offer: rows can be
+// added and deleted (a <tr> is one element, no different from a div in
+// kind), but columns can only be *added*, always at the right edge. A
+// column has no single DOM node — it's the Nth cell across every <tr> — so
+// deleting or inserting one at an arbitrary position means recomputing that
+// index per row, which gets genuinely fiddly the moment colspan/rowspan are
+// in play. Appending at the end sidesteps that: "last cell of every row"
+// needs no index math regardless of how many cells a row already has, and
+// column deletion was explicitly out of scope (James: "not very common").
+
+function buildTableRow(cellTag, cols) {
+  const tr = document.createElement("tr");
+  for (let c = 0; c < cols; c++) {
+    const cell = document.createElement(cellTag);
+    // A completely empty <td></td> isn't reliably clickable-into as
+    // contenteditable content — same "real empty content, not just an
+    // empty tag" idiom as the <p><br></p> blank-line case elsewhere in this
+    // file (see placeCursorAfter()'s comment).
+    cell.appendChild(document.createElement("br"));
+    tr.appendChild(cell);
+  }
+  return tr;
+}
+
+function addTableRowAfter(row) {
+  const newRow = buildTableRow("td", row.children.length);
+  row.after(newRow);
+  decorateVisualArea();
+  scheduleSave();
+}
+
+function deleteTableRow(row) {
+  const table = row.closest("table");
+  if (table.querySelectorAll("tr").length <= 1) {
+    alert("Can't delete the last row in a table.");
+    return;
+  }
+  if (!confirm("Delete this row? This can't be undone.")) return;
+  row.remove();
+  scheduleSave();
+}
+
+function addTableColumn(table) {
+  table.querySelectorAll("tr").forEach((row) => {
+    const isHeaderRow = row.children.length > 0 && Array.from(row.children).every((cell) => cell.tagName === "TH");
+    const cell = document.createElement(isHeaderRow ? "th" : "td");
+    cell.appendChild(document.createElement("br"));
+    row.appendChild(cell);
+  });
+  decorateVisualArea();
+  scheduleSave();
+}
+
+document.getElementById("visualArea").addEventListener("click", (e) => {
+  const btn = e.target.closest(".cs-table-toolbar button");
+  if (!btn) return;
+  e.preventDefault();
+  const table = btn.closest("table");
+  if (btn.dataset.action === "edit-attrs") openDivAttrsDialog(table);
+  else if (btn.dataset.action === "add-column") addTableColumn(table);
+});
+
+document.getElementById("visualArea").addEventListener("click", (e) => {
+  const btn = e.target.closest(".cs-row-toolbar button");
+  if (!btn) return;
+  e.preventDefault();
+  const row = btn.closest("tr");
+  if (btn.dataset.action === "add-row-below") addTableRowAfter(row);
+  else if (btn.dataset.action === "delete-row") deleteTableRow(row);
+});
+
+// Builds a fresh table and inserts it via Range.insertNode() rather than
+// execCommand("insertHTML", ...) — same reasoning as insertBlock() above:
+// Blink's insertHTML re-parses and "cleans up" the inserted markup, which
+// for a structurally repetitive multi-cell tree risks mangling it, exactly
+// the failure insertBlock() was written to avoid for multi-column blocks.
+function insertTable(bodyRows, cols, headerRow) {
+  const table = document.createElement("table");
+  if (headerRow) {
+    const thead = document.createElement("thead");
+    thead.appendChild(buildTableRow("th", cols));
+    table.appendChild(thead);
+  }
+  const tbody = document.createElement("tbody");
+  for (let r = 0; r < bodyRows; r++) tbody.appendChild(buildTableRow("td", cols));
+  table.appendChild(tbody);
+
+  if (currentView === "visual") {
+    const visualEl = document.getElementById("visualArea");
+    visualEl.focus();
+    const sel = window.getSelection();
+    if (savedVisualRange && savedVisualRange.startContainer.isConnected) {
+      sel.removeAllRanges();
+      sel.addRange(savedVisualRange);
+    }
+    let range;
+    if (sel && sel.rangeCount > 0 && visualEl.contains(sel.getRangeAt(0).startContainer)) {
+      range = sel.getRangeAt(0);
+      range.deleteContents();
+    } else {
+      range = document.createRange();
+      range.selectNodeContents(visualEl);
+      range.collapse(false);
+    }
+    range.insertNode(table);
+    range.setStartAfter(table);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    decorateVisualArea();
+  } else {
+    cm.replaceSelection(table.outerHTML);
+    cm.focus();
+  }
+  scheduleSave();
+}
+
+const insertTableDialog = document.getElementById("insertTableDialog");
+
+document.getElementById("insertTableBtn").addEventListener("click", () => {
+  captureSelection();
+  insertTableDialog.showModal();
+});
+
+document.getElementById("insertTableCancel").addEventListener("click", () => insertTableDialog.close());
+
+document.getElementById("insertTableConfirm").addEventListener("click", () => {
+  const rows = Math.max(1, parseInt(document.getElementById("insertTableRows").value, 10) || 1);
+  const cols = Math.max(1, parseInt(document.getElementById("insertTableCols").value, 10) || 1);
+  const headerRow = document.getElementById("insertTableHeaderRow").checked;
+  insertTableDialog.close();
+  insertTable(rows, cols, headerRow);
+  setStatus("Inserted table.");
+});
+
+// Tab inside a table cell moves to the next cell (Shift+Tab to the
+// previous) instead of doing what Tab does everywhere else in
+// #visualArea — leaving the contenteditable region for the next focusable
+// element on the page. querySelectorAll("td, th") walks in document order
+// (thead before tbody, left-to-right within a row), so the cell after the
+// last one in a row is simply the first cell of the next <tr> with no
+// separate "end of row" case to write. At either edge of the table (Tab on
+// the last cell, Shift+Tab on the first) this deliberately falls through
+// to the browser's normal Tab handling rather than wrapping around or
+// adding a new row — simplest behavior for what was asked, not
+// spreadsheet-style auto-grow.
+document.getElementById("visualArea").addEventListener("keydown", (e) => {
+  if (e.key !== "Tab") return;
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const node = sel.getRangeAt(0).commonAncestorContainer;
+  const cellEl = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  const cell = cellEl ? cellEl.closest("#visualArea td, #visualArea th") : null;
+  if (!cell) return;
+
+  const cells = Array.from(cell.closest("table").querySelectorAll("td, th"));
+  const targetIdx = cells.indexOf(cell) + (e.shiftKey ? -1 : 1);
+  if (targetIdx < 0 || targetIdx >= cells.length) return;
+
+  e.preventDefault();
+  // Select the whole destination cell's contents (not just a caret at its
+  // start) — matches Tab's behavior in Word/Google Docs tables, so typing
+  // immediately after Tab replaces whatever was already in that cell
+  // instead of inserting alongside it.
+  const range = document.createRange();
+  range.selectNodeContents(cells[targetIdx]);
+  sel.removeAllRanges();
+  sel.addRange(range);
 });
 
 // Tags that always get their own line when serializing out of the visual
@@ -1797,7 +2042,7 @@ function serializeVisualArea() {
     img.setAttribute("src", img.dataset.assetSrc);
     img.removeAttribute("data-asset-src");
   });
-  clone.querySelectorAll(".cs-block-toolbar, .cs-div-toolbar").forEach((el) => el.remove());
+  clone.querySelectorAll(".cs-block-toolbar, .cs-div-toolbar, .cs-table-toolbar, .cs-row-toolbar").forEach((el) => el.remove());
   clone.querySelectorAll(".cs-hovered").forEach((el) => {
     el.classList.remove("cs-hovered");
     if (!el.className) el.removeAttribute("class");
@@ -2127,6 +2372,119 @@ document.querySelectorAll("select.action-select").forEach((select) => {
 });
 
 document.getElementById("visualArea").addEventListener("input", scheduleSave);
+
+// ---- Paste sanitizing ----
+// Word/LibreOffice/Google Docs paste HTML that's deeply nested <span>/
+// <font> wrappers carrying mso-*/explicit font-family/font-size/line-height
+// on every run. Scrubbing that markup down to "no inline styles" by
+// stripping style=/class= off the original elements is fragile — instead
+// this rebuilds the pasted content from scratch from a tag whitelist, so
+// only tags explicitly allowed here can ever appear, regardless of what
+// the source app emitted.
+const PASTE_ALLOWED_TAGS = new Set([
+  "p", "br", "hr",
+  "h1", "h2", "h3", "h4", "h5", "h6",
+  "ul", "ol", "li",
+  "a", "strong", "em", "b", "i", "u", "s", "code", "pre", "blockquote",
+  "img",
+  "table", "thead", "tbody", "tr", "td", "th",
+]);
+// Unlike every other disallowed tag (which gets unwrapped — its children
+// kept, just the wrapper dropped), these carry content that's never
+// meaningful as plain text once the wrapper's gone.
+const PASTE_DROP_TAGS = new Set(["script", "style", "head", "meta", "link", "title"]);
+// Everything not listed here (style, class, id, lang, valign, and every
+// mso-* attribute Word litters its markup with) is stripped — inline
+// styles carried over from a paste are exactly what this sanitizer exists
+// to remove.
+const PASTE_ALLOWED_ATTRS = { a: ["href"], img: ["src", "alt"] };
+
+// Used for both <a href> and <img src> — rejects javascript:/vbscript:/etc,
+// passes through http(s), mailto, tel, relative paths, and data: (small
+// inline images some paste sources embed directly rather than as a file
+// path).
+function sanitizePasteUrl(url) {
+  const trimmed = (url || "").trim();
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^(https?|mailto|tel|data):/i.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function sanitizePastedHtml(html) {
+  const sourceDoc = new DOMParser().parseFromString(html, "text/html");
+  const wrapper = document.createElement("div");
+
+  function walk(node, parent) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parent.appendChild(document.createTextNode(node.textContent));
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return; // drop comments, etc.
+
+    const tag = node.tagName.toLowerCase();
+    if (PASTE_DROP_TAGS.has(tag)) return;
+
+    // Google Docs wraps its entire body in <b style="font-weight:normal">
+    // (its way of overriding a browser default), so a plain whitelist that
+    // keeps the tag but drops the style would turn every Docs paste bold.
+    // Treat that specific combination as not-bold — unwrap it like any
+    // other disallowed tag — rather than taking the tag at face value.
+    // Declaration-by-declaration, not a substring regex: Word's own
+    // "mso-bidi-font-weight:normal" would otherwise false-positive since
+    // it contains "font-weight:normal" as a literal substring.
+    const isFakeBold = (tag === "b" || tag === "strong") && (node.getAttribute("style") || "")
+      .split(";")
+      .some((decl) => {
+        const [prop, value] = decl.split(":");
+        return prop && value && prop.trim().toLowerCase() === "font-weight" && /^(normal|400)$/i.test(value.trim());
+      });
+
+    if (!PASTE_ALLOWED_TAGS.has(tag) || isFakeBold) {
+      for (const child of node.childNodes) walk(child, parent);
+      return;
+    }
+
+    const el = document.createElement(tag);
+    for (const attr of PASTE_ALLOWED_ATTRS[tag] || []) {
+      if (!node.hasAttribute(attr)) continue;
+      const safe = sanitizePasteUrl(node.getAttribute(attr));
+      if (safe) el.setAttribute(attr, safe);
+    }
+    for (const child of node.childNodes) walk(child, el);
+    parent.appendChild(el);
+  }
+
+  for (const child of sourceDoc.body.childNodes) walk(child, wrapper);
+  return wrapper.innerHTML;
+}
+
+// Plain-text fallback (Notepad, terminal output, or any source with no
+// "text/html" clipboard flavor at all) — blank-line-separated chunks
+// become paragraphs, single newlines become <br>. Built via DOM nodes
+// rather than string concatenation so there's no separate HTML-escaping
+// step to get wrong.
+function plainTextToHtml(text) {
+  const wrapper = document.createElement("div");
+  text.split(/\r?\n\r?\n+/).forEach((para) => {
+    const p = document.createElement("p");
+    para.split(/\r?\n/).forEach((line, i) => {
+      if (i > 0) p.appendChild(document.createElement("br"));
+      p.appendChild(document.createTextNode(line));
+    });
+    wrapper.appendChild(p);
+  });
+  return wrapper.innerHTML;
+}
+
+document.getElementById("visualArea").addEventListener("paste", (e) => {
+  if (currentView !== "visual") return;
+  e.preventDefault();
+  const html = e.clipboardData.getData("text/html");
+  const clean = html ? sanitizePastedHtml(html) : plainTextToHtml(e.clipboardData.getData("text/plain"));
+  document.execCommand("insertHTML", false, clean);
+  scheduleSave();
+});
 
 // ---- Asset insertion (Image button + Assets dialog share this) ----
 // The rich-text toolbar above gets away with focus()-then-execCommand()
@@ -3923,6 +4281,11 @@ document.getElementById("publishBtn").addEventListener("click", async () => {
     return;
   }
 
+  if (target === "packaged") {
+    document.getElementById("packagedBuildDialog").showModal();
+    return;
+  }
+
   const accountKey = projectStorageKey(config, "cfAccount");
   const projectKey = projectStorageKey(config, "cfProject");
   const tokenKey = projectStorageKey(config, "cfToken");
@@ -4401,10 +4764,24 @@ document.getElementById("localBuildCancel").addEventListener("click", () =>
 );
 document.getElementById("localBuildConfirm").addEventListener("click", async () => {
   document.getElementById("localBuildDialog").close();
-  await renderToLocalFolder();
+  await renderToLocalFolder(false);
 });
 
-async function renderToLocalFolder() {
+// ---- Packaged render (works when opened straight from disk, no server) ----
+// Same composition pipeline as Local Folder, but renderToLocalFolder(true)
+// rewrites root-relative paths to "../"-relative ones and embeds search data
+// per page instead of writing search-index.json — see compose-core.js's
+// rewriteRootRelativePaths() for why plain root-relative paths break under
+// file://.
+document.getElementById("packagedBuildCancel").addEventListener("click", () =>
+  document.getElementById("packagedBuildDialog").close()
+);
+document.getElementById("packagedBuildConfirm").addEventListener("click", async () => {
+  document.getElementById("packagedBuildDialog").close();
+  await renderToLocalFolder(true);
+});
+
+async function renderToLocalFolder(packaged = false) {
   const config = await getSiteConfig();
   const folderName = sanitizeDeployDirectory(config.deployDirectory);
 
@@ -4414,35 +4791,65 @@ async function renderToLocalFolder() {
   const scripts = await getProjectScripts();
   const elements = await getProjectElements();
 
+  // Computed up front either way — packaged mode embeds it per page below,
+  // non-packaged mode writes it as search-index.json further down.
+  const searchIndexJson = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
+  const searchEntries = searchIndexJson ? JSON.parse(searchIndexJson) : null;
+
   setStatus(`Writing ${folderName}/ folder...`);
   const distDir = await dirHandle.getDirectoryHandle(folderName, { create: true });
   for (const [name, content] of Object.entries(pages)) {
+    // 404.html is a "full document" (isFullDocument()) that Cloudflare/
+    // Netlify serve directly for unmatched paths — meaningless (and
+    // unreachable) for a copy opened straight from disk.
+    if (packaged && name.toLowerCase() === "404.html") continue;
+    let out = content;
+    if (packaged) {
+      const depth = name.split("/").length - 1;
+      out = WebhasteCompose.rewriteRootRelativePaths(out, depth);
+      if (searchEntries && out.includes("search.js")) {
+        const pageIndex = searchEntries.map((entry) => ({
+          ...entry,
+          url: WebhasteCompose.relativizeRootPath(entry.url, depth),
+        }));
+        out = out.replace(
+          /<head[^>]*>/i,
+          (match) => `${match}\n<script>window.CS_SEARCH_INDEX = ${JSON.stringify(pageIndex)};</script>`
+        );
+      }
+    }
     const handle = await getNestedFileHandle(distDir, name, { create: true });
     const writable = await handle.createWritable();
-    await writable.write(content);
+    await writable.write(out);
     await writable.close();
   }
 
-  const sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
-  if (sitemap) {
-    const handle = await getNestedFileHandle(distDir, "sitemap.xml", { create: true });
-    const writable = await handle.createWritable();
-    await writable.write(sitemap);
-    await writable.close();
-  }
-  const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
-  if (searchIndex) {
-    const handle = await getNestedFileHandle(distDir, "search-index.json", { create: true });
-    const writable = await handle.createWritable();
-    await writable.write(searchIndex);
-    await writable.close();
-  }
-  const robots = await getRobotsTxtContent();
-  if (robots) {
-    const handle = await getNestedFileHandle(distDir, "robots.txt", { create: true });
-    const writable = await handle.createWritable();
-    await writable.write(robots);
-    await writable.close();
+  // sitemap.xml/robots.txt need a real domain/server to mean anything, and
+  // search-index.json is superseded by the per-page embed above — none of
+  // the three are written for a packaged (file://) copy.
+  let sitemap = null;
+  let robots = null;
+  if (!packaged) {
+    sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
+    if (sitemap) {
+      const handle = await getNestedFileHandle(distDir, "sitemap.xml", { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(sitemap);
+      await writable.close();
+    }
+    if (searchIndexJson) {
+      const handle = await getNestedFileHandle(distDir, "search-index.json", { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(searchIndexJson);
+      await writable.close();
+    }
+    robots = await getRobotsTxtContent();
+    if (robots) {
+      const handle = await getNestedFileHandle(distDir, "robots.txt", { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(robots);
+      await writable.close();
+    }
   }
 
   if (Object.keys(assets).length) {
@@ -4475,11 +4882,12 @@ async function renderToLocalFolder() {
     }
   }
 
+  const pageCount = Object.keys(pages).filter((name) => !(packaged && name.toLowerCase() === "404.html")).length;
   const extras = [sitemap && "sitemap.xml", robots && "robots.txt"].filter(Boolean).join(", ");
   await writePublishStateSnapshot(pageEntries);
   await refreshFileList();
   setStatus(
-    `Rendered ${Object.keys(pages).length} page(s), ${Object.keys(assets).length} asset(s), ${Object.keys(scripts).length} script(s), and ${Object.keys(elements).length} element(s)${extras ? `, plus ${extras},` : ""} to the ${folderName}/ folder.`
+    `Rendered ${pageCount} page(s), ${Object.keys(assets).length} asset(s), ${Object.keys(scripts).length} script(s), and ${Object.keys(elements).length} element(s)${extras ? `, plus ${extras},` : ""} to the ${folderName}/ folder.`
   );
 }
 

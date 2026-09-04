@@ -72,6 +72,7 @@
         </div>
         <div class="asset-controls" id="assetControls">
           <button id="insertImageBtn">🖼️ Image</button>
+          <button id="insertTableBtn">▦ Table</button>
           <button id="openAssetsBtn">📎 Assets</button>
           <button id="openBlocksBtn">🧩 Blocks</button>
           <button id="openSymbolsBtn">Ω Symbols</button>
@@ -148,6 +149,7 @@
         <option value="cloudflare">Cloudflare Pages</option>
         <option value="netlify">Netlify</option>
         <option value="local">Render to local folder (for SFTP, etc.)</option>
+        <option value="packaged">Packaged (double-click index.html — no server needed)</option>
       </select>
     </label>
     <label>Local Render Folder <input id="cfgDeployDirectory" type="text" placeholder="dist" /></label>
@@ -190,6 +192,15 @@
     <div class="dialog-actions">
       <button id="localBuildCancel">Cancel</button>
       <button id="localBuildConfirm" class="primary">Render Now</button>
+    </div>
+  </dialog>
+
+  <dialog id="packagedBuildDialog">
+    <h3>Render Packaged Copy</h3>
+    <p class="hint">Composes every page into a portable copy that works when opened directly from disk — no server, no upload. Good for handing off as a homework submission or a portable demo. Sitemap/robots.txt aren't included (they need a real domain), and search data is embedded in each page instead of a separate file.</p>
+    <div class="dialog-actions">
+      <button id="packagedBuildCancel">Cancel</button>
+      <button id="packagedBuildConfirm" class="primary">Render Now</button>
     </div>
   </dialog>
 
@@ -260,13 +271,25 @@
   </dialog>
 
   <dialog id="divAttrsDialog">
-    <h3>Edit Div Attributes</h3>
+    <h3 id="divAttrsTitle">Edit Div Attributes</h3>
     <label>ID <input type="text" id="divAttrsId" placeholder="(none)" /></label>
     <label>Class <input type="text" id="divAttrsClass" placeholder="e.g. mt-4 text-center" /></label>
     <label class="checkbox-label"><input type="checkbox" id="divAttrsLocked" /> Locked (prevent content edits; still movable)</label>
+    <label class="checkbox-label hidden" id="divAttrsPresentationRow"><input type="checkbox" id="divAttrsPresentation" /> Layout table (not tabular data) — adds role="presentation"</label>
     <div class="dialog-actions">
       <button id="divAttrsCancel">Cancel</button>
       <button id="divAttrsSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="insertTableDialog">
+    <h3>Insert Table</h3>
+    <label>Rows <input type="number" id="insertTableRows" min="1" max="50" value="3" /></label>
+    <label>Columns <input type="number" id="insertTableCols" min="1" max="20" value="3" /></label>
+    <label class="checkbox-label"><input type="checkbox" id="insertTableHeaderRow" checked /> Header row</label>
+    <div class="dialog-actions">
+      <button id="insertTableCancel">Cancel</button>
+      <button id="insertTableConfirm" class="primary">Insert</button>
     </div>
   </dialog>
 

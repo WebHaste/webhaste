@@ -26,15 +26,22 @@
  * the extension would produce.
  *
  * Usage:
- *   node compose.js [siteDir] [--out outDir]
+ *   node compose.js [siteDir] [--out outDir] [--packaged]
  *
- *   siteDir  Project folder to compose. Must contain a .webhaste/ folder.
- *            Default: this site's own root when run from a scaffolded
- *            .webhaste/compose.js, otherwise the current directory.
- *   --out    Output folder, relative to siteDir (default: deployDirectory
- *            from .webhaste/site.config.json, or "dist"). Use this to
- *            render to a scratch folder instead of overwriting the site's
- *            real dist/ output.
+ *   siteDir     Project folder to compose. Must contain a .webhaste/ folder.
+ *               Default: this site's own root when run from a scaffolded
+ *               .webhaste/compose.js, otherwise the current directory.
+ *   --out       Output folder, relative to siteDir (default: deployDirectory
+ *               from .webhaste/site.config.json, or "dist"). Use this to
+ *               render to a scratch folder instead of overwriting the site's
+ *               real dist/ output.
+ *   --packaged  Headless equivalent of the extension's "Packaged" deployment
+ *               target: rewrites root-relative paths ("/about.html") to
+ *               "../"-relative ones so the output works when opened straight
+ *               from disk (file://), and embeds search data per page instead
+ *               of writing search-index.json. sitemap.xml/robots.txt/
+ *               404.html are omitted, since none are meaningful without a
+ *               real domain/server.
  *
  * Exits non-zero with an error if site.config.json/nav.json/pages.json
  * exist but fail to parse — unlike the browser extension, which silently
@@ -158,28 +165,34 @@ function collectHtmlFiles(dir, exclude, prefix = "") {
 function parseArgs(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(
-      "Usage: node compose.js [siteDir] [--out outDir]\n\n" +
-        "  siteDir  Project folder to compose (default: this site's own root if\n" +
-        "           run from a scaffolded .webhaste/compose.js, else cwd)\n" +
-        "  --out    Output folder, relative to siteDir (default: deployDirectory\n" +
-        "           from .webhaste/site.config.json, or \"dist\")"
+      "Usage: node compose.js [siteDir] [--out outDir] [--packaged]\n\n" +
+        "  siteDir     Project folder to compose (default: this site's own root if\n" +
+        "              run from a scaffolded .webhaste/compose.js, else cwd)\n" +
+        "  --out       Output folder, relative to siteDir (default: deployDirectory\n" +
+        "              from .webhaste/site.config.json, or \"dist\")\n" +
+        "  --packaged  Render for opening straight from disk (file://) instead of a\n" +
+        "              server — rewrites root-relative paths, embeds search data per\n" +
+        "              page, and omits sitemap.xml/robots.txt/404.html"
     );
     process.exit(0);
   }
   let siteDir = null;
   let outDir = null;
+  let packaged = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") {
       outDir = argv[++i];
+    } else if (argv[i] === "--packaged") {
+      packaged = true;
     } else if (!siteDir) {
       siteDir = argv[i];
     }
   }
-  return { siteDir: siteDir || scaffoldedSiteRoot || process.cwd(), outDir };
+  return { siteDir: siteDir || scaffoldedSiteRoot || process.cwd(), outDir, packaged };
 }
 
 function main() {
-  const { siteDir, outDir } = parseArgs(process.argv.slice(2));
+  const { siteDir, outDir, packaged } = parseArgs(process.argv.slice(2));
   const root = path.resolve(siteDir);
   const cfgDir = path.join(root, ".webhaste");
 
@@ -225,6 +238,9 @@ function main() {
     (relPath) => !WebhasteCompose.isDraftPage(pagesData[relPath])
   );
 
+  // Pass 1: read + compose every page, but don't write yet — search-index.json
+  // (and, for --packaged, the per-page embedded index) needs every page's raw
+  // content before any page can be written.
   const pageEntries = [];
   for (const relPath of pageFiles) {
     const srcPath = path.join(root, relPath);
@@ -238,50 +254,82 @@ function main() {
       navData,
       pagesData,
     });
-    const dest = path.join(distDir, relPath);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.writeFileSync(dest, composed);
     pageEntries.push({
       relPath,
       lastmod: fs.statSync(srcPath).mtime.toISOString().slice(0, 10),
       rawContent,
+      composed,
     });
+  }
+
+  // sitemap.xml — regenerated every run from the current page list, same as
+  // a real Publish/Render would. buildSitemap() returns null when no domain
+  // is configured, since a sitemap of host-less URLs is meaningless. Skipped
+  // entirely for --packaged: a sitemap only makes sense for a real
+  // domain/server, neither of which a file:// copy has.
+  const sitemapEntries = pageEntries.map(({ relPath, lastmod }) => ({ path: relPath, lastmod }));
+  const sitemap = !packaged && WebhasteCompose.buildSitemap({ pageEntries: sitemapEntries, pagesData, config });
+  if (sitemap) fs.writeFileSync(path.join(distDir, "sitemap.xml"), sitemap);
+
+  // search-index.json content — keyed off each page's raw pre-composition
+  // content (see buildSearchIndex()'s comment in compose-core.js for why:
+  // composed output would duplicate nav/footer chrome into every page's
+  // indexed text). For --packaged this is embedded per page below instead of
+  // written as a separate file (fetch() of a local file is blocked by CORS
+  // under file://, regardless of path form).
+  const searchIndexEntries = pageEntries.map(({ relPath, lastmod, rawContent }) => ({
+    path: relPath,
+    lastmod,
+    rawContent,
+  }));
+  const searchIndexJson = WebhasteCompose.buildSearchIndex({ pageEntries: searchIndexEntries, pagesData });
+  const searchEntries = searchIndexJson ? JSON.parse(searchIndexJson) : null;
+  if (!packaged && searchIndexJson) fs.writeFileSync(path.join(distDir, "search-index.json"), searchIndexJson);
+
+  // robots.txt — a real, hand-editable project-root file (see ensureScaffold()
+  // in editor.js), copied through untouched rather than regenerated. Skipped
+  // for --packaged, same reasoning as sitemap.xml above.
+  const robotsPath = path.join(root, "robots.txt");
+  const hasRobots = !packaged && fs.existsSync(robotsPath);
+  if (hasRobots) fs.copyFileSync(robotsPath, path.join(distDir, "robots.txt"));
+
+  // Pass 2: write each page, applying the packaged rewrite/embed if requested.
+  let writtenPageCount = 0;
+  for (const { relPath, composed } of pageEntries) {
+    // 404.html is a "full document" (isFullDocument()) that Cloudflare/
+    // Netlify serve directly for unmatched paths — meaningless (and
+    // unreachable) for a copy opened straight from disk.
+    if (packaged && relPath.toLowerCase() === "404.html") continue;
+    let out = composed;
+    if (packaged) {
+      const depth = relPath.split("/").length - 1;
+      out = WebhasteCompose.rewriteRootRelativePaths(out, depth);
+      if (searchEntries && out.includes("search.js")) {
+        const pageIndex = searchEntries.map((entry) => ({
+          ...entry,
+          url: WebhasteCompose.relativizeRootPath(entry.url, depth),
+        }));
+        out = out.replace(
+          /<head[^>]*>/i,
+          (match) => `${match}\n<script>window.CS_SEARCH_INDEX = ${JSON.stringify(pageIndex)};</script>`
+        );
+      }
+    }
+    const dest = path.join(distDir, relPath);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, out);
+    writtenPageCount++;
   }
 
   const assetCount = copyDirRecursive(path.join(root, "assets"), path.join(distDir, "assets"));
   const scriptCount = copyDirRecursive(path.join(root, "scripts"), path.join(distDir, "scripts"));
   const elementCount = copyDirRecursive(path.join(root, "elements"), path.join(distDir, "elements"));
 
-  // sitemap.xml — regenerated every run from the current page list, same as
-  // a real Publish/Render would. buildSitemap() returns null when no domain
-  // is configured, since a sitemap of host-less URLs is meaningless.
-  const sitemapEntries = pageEntries.map(({ relPath, lastmod }) => ({ path: relPath, lastmod }));
-  const sitemap = WebhasteCompose.buildSitemap({ pageEntries: sitemapEntries, pagesData, config });
-  if (sitemap) fs.writeFileSync(path.join(distDir, "sitemap.xml"), sitemap);
-
-  // search-index.json — same page list, but keyed off each page's raw
-  // pre-composition content (see buildSearchIndex()'s comment in
-  // compose-core.js for why: composed output would duplicate nav/footer
-  // chrome into every page's indexed text).
-  const searchEntries = pageEntries.map(({ relPath, lastmod, rawContent }) => ({
-    path: relPath,
-    lastmod,
-    rawContent,
-  }));
-  const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries: searchEntries, pagesData });
-  if (searchIndex) fs.writeFileSync(path.join(distDir, "search-index.json"), searchIndex);
-
-  // robots.txt — a real, hand-editable project-root file (see ensureScaffold()
-  // in editor.js), copied through untouched rather than regenerated.
-  const robotsPath = path.join(root, "robots.txt");
-  const hasRobots = fs.existsSync(robotsPath);
-  if (hasRobots) fs.copyFileSync(robotsPath, path.join(distDir, "robots.txt"));
-
-  const extras = [sitemap && "sitemap.xml", searchIndex && "search-index.json", hasRobots && "robots.txt"]
+  const extras = [sitemap && "sitemap.xml", !packaged && searchIndexJson && "search-index.json", hasRobots && "robots.txt"]
     .filter(Boolean)
     .join(", ");
   console.log(
-    `Rendered ${pageFiles.length} page(s), ${assetCount} asset(s), ${scriptCount} script(s), and ${elementCount} element(s)${extras ? `, plus ${extras},` : ""} to ${path.join(path.relative(root, distDir) || ".", "/")}`
+    `Rendered ${writtenPageCount} page(s), ${assetCount} asset(s), ${scriptCount} script(s), and ${elementCount} element(s)${extras ? `, plus ${extras},` : ""} to ${path.join(path.relative(root, distDir) || ".", "/")}`
   );
 }
 

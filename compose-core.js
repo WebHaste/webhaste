@@ -206,6 +206,37 @@
     return !!(pageMeta && pageMeta.excludeFromSearch);
   }
 
+  // Turns a root-relative path ("/about.html", "/", "/assets/x.jpg") into one
+  // relative to a page sitting `depth` folders deep (depth = number of "/" in
+  // its own output path). depth 0 → "about.html" unprefixed; depth 2 (e.g.
+  // "blog/2024/post.html") → "../../about.html". Used both for rewriting HTML
+  // attributes (rewriteRootRelativePaths below) and for relativizing each
+  // search-result URL when the index is embedded per page (see
+  // buildSearchIndex()'s callers for the packaged deployment target).
+  function relativizeRootPath(rootRelativePath, depth) {
+    const prefix = "../".repeat(depth);
+    const rest = rootRelativePath === "/" ? "index.html" : rootRelativePath.replace(/^\//, "");
+    return prefix + rest;
+  }
+
+  // Rewrites every href="/..."/src="/..." in composed HTML to a path relative
+  // to a page `depth` folders deep — covers nav links (from nav.json), image/
+  // file srcs (assetSnippet() in editor.js), and anything an author hand-typed
+  // (e.g. a favicon <link> under elements/), since by the time composePage()
+  // returns they're all just attribute strings in one HTML blob. Used by the
+  // "Packaged" deployment target, which composes a site that has to work when
+  // opened straight from disk (file://) rather than served over HTTP, where a
+  // leading "/" would resolve against the filesystem root instead of the
+  // project folder. Deliberately does NOT touch "//host" (protocol-relative
+  // external URLs — the negative lookahead) or paths without a leading slash
+  // (already page-relative, left alone). Out of scope: inline CSS url(/...) —
+  // nothing WebHaste generates produces that today.
+  function rewriteRootRelativePaths(html, depth) {
+    return html.replace(/\b(href|src)=(["'])\/(?!\/)([^"']*)\2/gi, (match, attr, quote, rest) => {
+      return `${attr}=${quote}${relativizeRootPath("/" + rest, depth)}${quote}`;
+    });
+  }
+
   function escapeXml(str) {
     return String(str).replace(/[&<>"']/g, (c) => ({
       "&": "&amp;",
@@ -329,5 +360,7 @@
     isSearchExcluded,
     buildSitemap,
     buildSearchIndex,
+    relativizeRootPath,
+    rewriteRootRelativePaths,
   };
 });

@@ -138,6 +138,10 @@ once with a permissive default (`User-agent: *` / `Allow: /`) and never
 regenerated — safe to hand-edit (e.g. adding `Disallow:` rules) same as any
 other file here.
 
+Neither is produced by the **Packaged** deployment target (Site Settings →
+Deployment Target) — a site rendered for opening straight from disk has no
+real domain or server, so a sitemap/robots file would serve no purpose there.
+
 ## Site search
 
 `search-index.json` is generated automatically alongside `sitemap.xml` at
@@ -181,6 +185,15 @@ file(s) named:
   `<meta name="robots" content="noindex">` tag to the page. Unlike the two
   checkboxes above, which only control WebHaste's own generated files, this
   is a genuine signal to crawlers.
+
+Search still works when the site is rendered with the **Packaged**
+deployment target (for handing off a site that has to open straight from
+disk, no server) — it just works differently under the hood. Chrome blocks
+`fetch()` of a local file under `file://` regardless of path, so instead of
+a separate `search-index.json` fetched at runtime, each page gets its own
+copy of the index embedded inline, with every result link already pointing
+at the right relative path for that page. Nothing about writing pages or
+using the search box changes — this is purely a render-time difference.
 
 ## Content blocks
 
@@ -236,7 +249,11 @@ This writes fully-composed pages (plus `assets/`/`scripts/`) into
 this rather than the real `dist/` (or whatever `deployDirectory` is set to)
 so you don't clobber the site owner's actual build output. Delete the
 scratch folder once you're done checking it; it's not meant to be committed.
-Run `node .webhaste/compose.js --help` for the full option list.
+Add `--packaged` to match what the **Packaged** deployment target produces
+instead (root-relative paths rewritten to `../`-relative ones, search data
+embedded per page, `sitemap.xml`/`robots.txt`/`404.html` omitted) — useful
+for checking a page opens correctly via `file://` without installing the
+extension. Run `node .webhaste/compose.js --help` for the full option list.
 
 If Node isn't available in this environment, fall back to reasoning from
 the template's placeholders and this file's conventions — there's no other

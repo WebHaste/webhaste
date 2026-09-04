@@ -215,7 +215,7 @@ real `assets/`-relative path.
 The code view runs on the vendored CodeMirror build (`vendor/codemirror/`)
 for syntax highlighting and lint.
 
-### 6. Publishing — three deployment targets
+### 6. Publishing — four deployment targets
 
 Set under Site Settings → Deployment Target (`site.config.json` →
 `deploymentTarget`). The Publish button routes to whichever is active:
@@ -235,6 +235,30 @@ Set under Site Settings → Deployment Target (`site.config.json` →
   "serve from /docs" option. Note this only writes the folder; it doesn't
   run git itself (no git integration exists in the extension), so pushing
   is still on you.
+- **Packaged** — same composition as "Render to local folder", but for a
+  site that has to work when opened straight from disk (`file://`) instead
+  of served over HTTP — e.g. a student handing in a `dist/` folder as
+  homework, where the grader shouldn't need to install or run anything.
+  `renderToLocalFolder(true)` (the shared function behind both targets)
+  runs each composed page through
+  `WebhasteCompose.rewriteRootRelativePaths()`, which rewrites every
+  `href="/…"`/`src="/…"` to a `../`-relative path based on that page's own
+  folder depth — a plain leading `/` resolves against the filesystem root
+  under `file://`, not the project folder, which is exactly what breaks
+  today's root-relative output (nav hrefs from `nav.json`, asset/image
+  paths from `assetSnippet()`, template `<head>` references) the moment
+  it's opened without a server. Site search still works fully offline:
+  `fetch()` of a local file is blocked by CORS under `file://` regardless
+  of path form, so instead of writing `search-index.json` and letting
+  `scripts/search.js` fetch it, each page gets its own
+  `<script>window.CS_SEARCH_INDEX = [...]</script>` injected right after
+  `<head>`, with every result's `url` pre-relativized for that specific
+  page (`search.js`'s `loadIndex()` uses this global instead of fetching
+  when present). `sitemap.xml`, `robots.txt`, and `404.html` are all
+  omitted for this target — none are meaningful without a real
+  domain/server (a 404 page can never be triggered without one routing to
+  it). `cli/compose.js --packaged` is the headless equivalent, for testing
+  or CI without the extension installed.
 
 `publishSite()` reads every `.html` file, runs it through the same
 composition step used for preview (so what you see really is what ships),
