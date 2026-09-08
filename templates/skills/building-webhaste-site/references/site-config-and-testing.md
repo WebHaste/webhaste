@@ -28,6 +28,15 @@ site and change over time. Check this file first:
   `{{LANG}}` placeholder for every page site-wide. Individual pages can
   override this — see references/navigation-and-metadata.md.
 
+The same "no CDN `<script>` in preview" limitation applies to icon
+libraries (Bootstrap Icons, Font Awesome, etc.) added to the template's
+`<head>`: prefer the **CSS + webfont** `<link>` they offer over a JS
+"kit"/SVG-injection snippet (e.g. Font Awesome's
+`kit.fontawesome.com/....js`) — the CSS form is just a stylesheet and
+renders fine in WebHaste's preview, while the JS form silently shows no
+icons while editing (it would still work once published, but there's no
+way to tell that from preview alone).
+
 ## No package manager or build step
 
 There's no `package.json`, no `node_modules`, and nothing to `npm install`

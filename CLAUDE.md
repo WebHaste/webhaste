@@ -166,6 +166,19 @@ markup. Copied in once and never overwritten, same pattern as
 `cssFramework` to `tailwind` scaffolds these too, not just a brand-new
 folder.
 
+The same CDN-`<script>`-blocked-in-preview problem comes up unprompted for
+icon libraries (Bootstrap Icons, Font Awesome) — their default embed
+snippet on most sites' own docs is a JS "kit"/SVG-injection loader (e.g.
+Font Awesome's `kit.fontawesome.com/....js`), which hits the identical
+`script-src 'self'` wall as Tailwind's CDN script. Unlike Tailwind, this
+doesn't get build-tooling scaffolding — there's no per-site build step to
+hook it into, and the fix is simpler: these libraries also ship a plain
+CSS + webfont `<link>` alternative that isn't JS at all, so it isn't
+blocked and needs no vendoring. Documented as author-facing guidance
+(`templates/CLAUDE.md`, the skill's `site-config-and-testing.md`,
+`README.md`) rather than anything scaffolded, since it's just "pick the
+other snippet the library already offers."
+
 Editing `nav.json` right now is a raw-JSON textarea in the "Edit Menus"
 dialog — a drag-and-drop nested tree editor (SortableJS-based) is planned
 for later, but hand-editing in VS Code works fine in the meantime since
@@ -433,3 +446,67 @@ been deleted/renamed behaves the same as a stale `activeTemplate` always
 has — it throws rather than silently falling back, matching existing
 behavior rather than adding new error-handling for a failure mode that was
 already possible before this feature.
+
+### 11. Per-page header code
+
+A `"headCode"` string key in a page's `pages.json` entry (Page Properties'
+"Header code" textarea) gets inserted verbatim before `</head>` for just
+that page — the escape hatch for things a sitewide tracking pixel in the
+template can't cover, e.g. a Google Ads/Analytics *conversion* snippet that
+only belongs on one specific page. Google Tag Manager remains the better
+answer when a site needs several/changing tags (one GTM container snippet
+in the template, tags managed in GTM's own UI, no further code edits per
+page) — this field exists alongside that for the simpler one-off case, and
+for site authors who'd rather not stand up a GTM account at all.
+
+Handled in `compose-core.js`'s `composePage()` right after the existing
+`noindex` substitution, same `<\/head>` insertion point, same "omitted key
+means nothing gets inserted" pattern as every other optional `pages.json`
+field — so both `editor.js`'s Publish/Render-to-Local-Folder path and
+`cli/compose.js` pick it up for free with no changes of their own, same as
+"per-page template override" above. Unlike `noindex` (a WebHaste-generated
+tag built from a checkbox), this is trusted verbatim, so it's *not*
+duplicated into the manual preview-composition branch in `editor.js`
+(`composePage()`'s `isPreview` path, which already skips `noindex` for the
+same reason) — neither has any visible effect inside the preview iframe,
+and a `<script src>` in it would be blocked by the same preview CSP
+(`script-src 'self'`) that already blocks a site's own `scripts/main.js`
+there (see `rewriteScriptsForPreview()`'s comment), so there'd be nothing
+real to preview even if it were wired up.
+
+### 12. Automatic Open Graph / Twitter Card tags
+
+`compose-core.js`'s `buildSocialMetaTags()`, called from `composePage()`
+right after the `{{...}}` placeholder substitutions, injects `og:title`,
+`og:type`, `twitter:card`, `twitter:title` unconditionally, plus
+`og:site_name` when `config.siteName` is set, `og:description`/
+`twitter:description` when the page has a `pages.json` description, and
+`og:url` when `config.domain` is set — each one omitted entirely rather
+than emitted with blank `content=""` when its source data is missing, same
+rule every other optional `pages.json`-derived field in this file follows.
+No per-page opt-in or Page Properties checkbox: unlike `noindex`/header
+code above, there's no reason a site author would want this *off*, so it
+just always runs.
+
+`og:title` deliberately uses `pageMeta.title || title` alone, not the same
+string `{{TITLE}}` renders (`pageTitle | siteName`) — `og:site_name` already
+carries the site name separately, and a consuming platform (Slack, Twitter,
+Facebook) composes the two itself, so duplicating it into `og:title` too
+would show it twice in most unfurl UIs. `og:url` reuses `buildSitemap()`'s
+domain-normalization and `index.html` special-case (bare domain, no
+`/index.html` suffix) rather than calling into it, since sitemap building
+needs a list of pages and this needs one page's own path — small enough
+duplication that factoring out a shared helper wasn't worth it. Twitter's
+three tags use `name=`, not `property=` — a real spec difference from Open
+Graph's RDFa-based `property=`, not a copy-paste slip.
+
+No `og:image`: there's no per-page "this is the social image" concept
+today (Assets just inserts images into page content, nothing tags one as
+canonical for link previews), so there's nothing to point the tag at.
+Adding that would mean a new Page Properties field backed by the Assets
+picker — bigger scope than this feature, left for if/when it's actually
+needed. Like "per-page header code" above, both `editor.js`'s Publish/
+Render-to-Local-Folder path and `cli/compose.js` get this for free with no
+changes of their own, and it's *not* duplicated into `editor.js`'s preview
+branch — an invisible `<meta>` tag has no observable effect inside the
+preview iframe either way.

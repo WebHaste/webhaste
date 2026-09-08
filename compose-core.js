@@ -149,6 +149,48 @@
     return /^\s*(<!DOCTYPE\s+html|<html[\s>])/i.test(rawContent);
   }
 
+  // Auto-generated per-page Open Graph + Twitter Card tags for social link
+  // previews (Slack/Facebook/LinkedIn/Twitter unfurls) — reuses the exact
+  // title/description pages.json already carries for {{TITLE}}/
+  // {{META_DESCRIPTION}}, so there's no separate field to fill in. og:title
+  // is the page's own title alone (not the " | siteName" suffix {{TITLE}}
+  // gets) since og:site_name already carries the site name — a consuming
+  // platform combines the two itself. og:description/twitter:description
+  // are omitted entirely (not emitted empty) when a page has no meta
+  // description, same "omit rather than emit blank" rule as every other
+  // optional pages.json field. og:url is likewise omitted when
+  // config.domain is unset — same reasoning buildSitemap() uses for
+  // skipping the whole file rather than publishing host-less URLs.
+  // Deliberately no og:image: there's no per-page "this is the social
+  // image" field today (Assets just inserts images into content), so
+  // there's no reliable source to point at — left for platforms to guess
+  // from page content, same as a page with no OG tags at all. Twitter's
+  // tags use the name="" attribute, not property="" — a real HTML
+  // attribute distinction from Open Graph's RDFa-based property="", not a
+  // typo.
+  function buildSocialMetaTags(pageMeta, pageTitle, path, config) {
+    const tags = [
+      `<meta property="og:title" content="${escapeXml(pageTitle)}" />`,
+      `<meta property="og:type" content="website" />`,
+      `<meta name="twitter:card" content="summary" />`,
+      `<meta name="twitter:title" content="${escapeXml(pageTitle)}" />`,
+    ];
+    if (config.siteName) {
+      tags.push(`<meta property="og:site_name" content="${escapeXml(config.siteName)}" />`);
+    }
+    if (pageMeta.description) {
+      tags.push(`<meta property="og:description" content="${escapeXml(pageMeta.description)}" />`);
+      tags.push(`<meta name="twitter:description" content="${escapeXml(pageMeta.description)}" />`);
+    }
+    let domain = ((config && config.domain) || "").trim().replace(/\/+$/, "");
+    if (domain) {
+      if (!/^https?:\/\//i.test(domain)) domain = `https://${domain}`;
+      const loc = path === "index.html" ? domain : `${domain}/${path}`;
+      tags.push(`<meta property="og:url" content="${escapeXml(loc)}" />`);
+    }
+    return tags.join("\n");
+  }
+
   // templateText === null/"" means "No layout (raw HTML)" — rawContent
   // ships as-is, same as composePage()'s isPreview=false, no-template branch.
   function composePage({ templateText, rawContent, title, config, navData, pagesData }) {
@@ -174,12 +216,21 @@
       .replace(/{{SITE_NAME}}/g, config.siteName || "")
       .replace(/{{LANG}}/g, pageLang)
       .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
+    out = out.replace(/<\/head>/i, `${buildSocialMetaTags(pageMeta, pageTitle, title, config)}\n</head>`);
     // Page Properties' "Hide from search engines" checkbox — a real noindex
     // signal (unlike sitemap/search-index exclusion below, which are just
     // omissions from our own generated files and don't stop a crawler that
     // finds the page another way).
     if (pageMeta.noindex) {
       out = out.replace(/<\/head>/i, '  <meta name="robots" content="noindex" />\n</head>');
+    }
+    // Page Properties' "Header code" field — raw HTML/JS pasted in as-is
+    // (e.g. a Google Ads/Analytics per-page conversion snippet that can't
+    // live in the shared template, since it only applies to this one page).
+    // Unlike noindex above this isn't a WebHaste-generated tag, so it's
+    // trusted verbatim rather than built from a checkbox.
+    if (pageMeta.headCode && pageMeta.headCode.trim()) {
+      out = out.replace(/<\/head>/i, `${pageMeta.headCode}\n</head>`);
     }
     return out;
   }

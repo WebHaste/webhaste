@@ -76,3 +76,17 @@ the file(s) named:
   `robots.txt` `Disallow` rule instead, since `Disallow` blocks crawling
   rather than indexing, which works against a `noindex` tag a crawler
   can't see on a page it's blocked from fetching in the first place.
+
+## Open Graph / Twitter Card tags are automatic
+
+Every page gets `og:title`, `og:description`, `og:type`, `og:site_name`,
+`og:url`, `twitter:card`, `twitter:title`, and `twitter:description`
+injected automatically at publish/render time, built from that same
+page's `pages.json` title/description — nothing to opt into, no
+placeholder to add to the template. `og:description`/
+`twitter:description` are simply omitted for a page with no meta
+description, and `og:url` is omitted entirely when `site.config.json` →
+`domain` is unset. There's no `og:image` — no per-page "social image"
+field exists yet. Don't hand-write your own `og:*`/`twitter:*` tags in a
+page's Header code field (references/pages-and-templates.md) — they'd
+duplicate the auto-generated ones.

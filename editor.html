@@ -214,8 +214,7 @@
   </dialog>
 
   <dialog id="pagePropertiesDialog">
-    <h3>Page Properties</h3>
-    <p class="hint" id="pagePropsFileName"></p>
+    <h3>Page Properties: <span class="hint" id="pagePropsFileName"></span></h3>
     <label>Title <input type="text" id="pagePropsTitle" placeholder="Leave blank to use the default title" /></label>
     <label>Meta Description <textarea id="pagePropsDescription" rows="3"></textarea></label>
     <label>Language <select id="pagePropsLanguage"></select></label>
@@ -228,13 +227,13 @@
     </label>
     <p class="hint">Draft pages are excluded from Publish, Render to Local Folder, and sitemap.xml.</p>
     <label>Template <select id="pagePropsTemplate"></select></label>
-    <p class="hint">Overrides the site's Layout Template (Site Settings) for just this page — handy for e.g. a blog post layout that differs from the rest of the site.</p>
     <label class="checkbox-label"><input type="checkbox" id="pagePropsExcludeSitemap" /> Exclude from sitemap.xml</label>
     <label class="checkbox-label"><input type="checkbox" id="pagePropsExcludeSearch" /> Exclude from site search</label>
     <label class="checkbox-label"><input type="checkbox" id="pagePropsNoindex" /> Hide from search engines (noindex)</label>
+    <label>Header code <textarea id="pagePropsHeadCode" rows="4" style="font-family: monospace; font-size: 12px;" placeholder="&lt;script&gt;...&lt;/script&gt;"></textarea></label>
     <p class="hint">
-      The page still publishes normally either way — these only control whether it's listed in sitemap.xml, included
-      in the site search index, or flagged for search engines to skip indexing.
+      Raw HTML/JS inserted before &lt;/head&gt; on just this page — e.g. a per-page Google Ads/Analytics conversion
+      snippet. Pasted in as-is, unescaped; leave blank for none.
     </p>
     <div class="dialog-actions">
       <button id="pagePropsCancel">Cancel</button>

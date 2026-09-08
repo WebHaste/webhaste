@@ -1329,6 +1329,7 @@ async function openPagePropertiesDialog(name) {
   document.getElementById("pagePropsExcludeSitemap").checked = WebhasteCompose.isSitemapExcluded(meta);
   document.getElementById("pagePropsExcludeSearch").checked = WebhasteCompose.isSearchExcluded(meta);
   document.getElementById("pagePropsNoindex").checked = !!meta.noindex;
+  document.getElementById("pagePropsHeadCode").value = meta.headCode || "";
   pagePropertiesDialog.showModal();
 }
 
@@ -1347,9 +1348,10 @@ document.getElementById("pagePropsSave").addEventListener("click", async () => {
   const excludeFromSitemap = document.getElementById("pagePropsExcludeSitemap").checked;
   const excludeFromSearch = document.getElementById("pagePropsExcludeSearch").checked;
   const noindex = document.getElementById("pagePropsNoindex").checked;
+  const headCode = document.getElementById("pagePropsHeadCode").value.trim();
   const pagesData = await getPagesData();
 
-  if (!title && !description && !language && !isDraft && !template && !excludeFromSitemap && !excludeFromSearch && !noindex) {
+  if (!title && !description && !language && !isDraft && !template && !excludeFromSitemap && !excludeFromSearch && !noindex && !headCode) {
     delete pagesData[pagePropsFileName];
   } else {
     pagesData[pagePropsFileName] = {
@@ -1361,6 +1363,7 @@ document.getElementById("pagePropsSave").addEventListener("click", async () => {
       ...(excludeFromSitemap ? { excludeFromSitemap: true } : {}),
       ...(excludeFromSearch ? { excludeFromSearch: true } : {}),
       ...(noindex ? { noindex: true } : {}),
+      ...(headCode ? { headCode } : {}),
     };
   }
 

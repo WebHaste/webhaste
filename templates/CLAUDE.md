@@ -45,6 +45,14 @@ site and change over time. Check this file first:
   in the template's `<head>` (or absent, if `cssFramework` and the template
   markup have drifted apart — check the template itself, not just this
   file, before assuming a framework is actually loaded).
+
+  The same "no CDN `<script>` in preview" limitation applies to icon
+  libraries (Bootstrap Icons, Font Awesome, etc.): prefer the **CSS +
+  webfont** `<link>` they offer over a JS "kit"/SVG-injection snippet
+  (e.g. Font Awesome's `kit.fontawesome.com/....js`) — the CSS form is
+  just a stylesheet and renders fine in WebHaste's preview, while the JS
+  form silently shows no icons while editing (it would still work once
+  published, but there's no way to tell that from preview alone).
 - `paragraphMode` — `p` or `div`. Matches how the visual editor's Enter key
   behaves; hand-written content should follow the same convention so it's
   consistent with what a human editing the same page would produce.
@@ -109,6 +117,14 @@ links to it. Two more files, both in `.webhaste/`:
   as `status`/`language` above; set from the Page Properties dialog's
   Template dropdown, not something to hand-author unless you're also adding
   the template file itself under `.webhaste/templates/`.
+
+  A page entry can also carry `"headCode"` — raw HTML/JS inserted verbatim
+  before `</head>` for just that page (set from the Page Properties
+  dialog's "Header code" field), for things a sitewide snippet in the
+  template can't cover — e.g. a Google Ads/Analytics *conversion* tag that
+  only applies to one page. For several/changing tags, prefer putting a
+  Google Tag Manager container snippet in the template instead and managing
+  tags in GTM's own UI, rather than hand-editing this field per page.
 
 ## Multi-language content
 
@@ -194,6 +210,19 @@ a separate `search-index.json` fetched at runtime, each page gets its own
 copy of the index embedded inline, with every result link already pointing
 at the right relative path for that page. Nothing about writing pages or
 using the search box changes — this is purely a render-time difference.
+
+## Open Graph / Twitter Card tags are automatic
+
+Every page gets `og:title`, `og:description`, `og:type`, `og:site_name`,
+`og:url`, `twitter:card`, `twitter:title`, and `twitter:description`
+injected automatically at publish/render time, built from that same page's
+`pages.json` title/description — no placeholder to add to the template,
+nothing to opt into. `og:description`/`twitter:description` are simply
+omitted for a page with no meta description, and `og:url` is omitted
+entirely when `site.config.json` → `domain` is unset. There's no
+`og:image` — no per-page "social image" field exists yet. Don't hand-write
+your own `og:*`/`twitter:*` tags in a page's Header code field (see
+above) — they'd duplicate the auto-generated ones.
 
 ## Content blocks
 

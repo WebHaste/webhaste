@@ -33,6 +33,22 @@ A page whose override points at a template file that's since been
 deleted/renamed throws rather than silently falling back — same as a
 stale `activeTemplate` always has.
 
+## Per-page header code
+
+A `"headCode"` key in a page's `pages.json` entry (set from the Page
+Properties dialog's "Header code" field) is raw HTML/JS inserted verbatim
+before `</head>` for just that page — for things a sitewide snippet in the
+template can't cover, e.g. a Google Ads/Analytics *conversion* tag that
+only applies to one page. If a site needs several tags, or they change
+often, prefer a Google Tag Manager container snippet in the template
+instead (tags then managed in GTM's own UI, no further per-page edits) —
+this field is for the simpler one-off case.
+
+Don't use this field for `og:*`/`twitter:*` social meta tags — those are
+generated automatically from title/description already, see
+references/seo-and-search.md. Hand-adding your own here would duplicate
+them.
+
 ## Multi-language content
 
 `{{LANG}}` in the layout template resolves per page as: this page's

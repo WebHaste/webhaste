@@ -95,6 +95,10 @@ publishes:
 
 If your site uses the **Packaged** deployment target, search still works with no extra setup — it just draws on data embedded in each page instead of fetching `search-index.json`. See "Packaged deployment" above.
 
+Page Properties also has a **Header code** field for raw HTML/JS you want inserted before `</head>` on just that one page — e.g. a Google Ads/Analytics conversion tag that only applies there. If you're tracking several tags or they change often, a Google Tag Manager snippet in your template (with tags managed in GTM itself) scales better than editing this per page.
+
+Every page also gets Open Graph and Twitter Card meta tags (`og:title`, `og:description`, `og:url`, `twitter:card`, etc.) generated automatically at publish/render time, straight from that page's title/description — no extra setup, and no `{{...}}` placeholder to add to your template. `og:description`/`twitter:description` are simply left out for a page with no meta description, and `og:url` is left out entirely when `domain` isn't set. There's no `og:image` — don't add your own social meta tags in the Header code field above, or you'll end up with duplicates.
+
 ## How a WebHaste project is put together
 
 ```
@@ -168,6 +172,15 @@ can compile Tailwind locally with `npm install` then `npm run build:css` /
 `npm run watch:css`. You still add the resulting `<link
 href="/scripts/styles.css">` to your template yourself, same as any other
 framework choice.
+
+The same preview limitation applies to icon libraries like Bootstrap Icons
+or Font Awesome: use the **CSS + webfont** `<link>` they offer (e.g. Font
+Awesome's "Free CSS" download, not its `kit.fontawesome.com/....js`
+snippet) and icons render fine in preview, since that's just a stylesheet
+like any other CDN CSS. The JS "kit"/SVG-injection embed some of these
+libraries push as their default snippet is a `<script>` tag, which never
+runs inside WebHaste's preview — it would still work once published, but
+you'd see no icons while editing, with no way to tell why.
 
 To build your own template, copy one of the existing files in
 `.webhaste/templates/`, adjust markup, and point `activeTemplate` at it.
