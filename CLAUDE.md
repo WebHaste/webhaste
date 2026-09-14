@@ -225,6 +225,53 @@ reach the real file bytes behind the File System Access handle, so preview
 rewrites `<img>` srcs to `data:` URLs on the fly; published output keeps the
 real `assets/`-relative path.
 
+Neither deploy target is checked client-side for file size — a too-large
+file only fails at publish time via whatever error Cloudflare/Netlify's API
+returns (Cloudflare Pages' real ceiling is 25MB/file; WebHaste's own
+Cloudflare batching already stays under its 40MB/batch limit, see
+`UPLOAD_BATCH_MAX_BYTES` in `editor.js`, but that's a batch limit, not a
+per-file one). Both upload entry points — the toolbar's Image fast-path and
+the Assets dialog — warn via `confirm()` above `LARGE_FILE_WARN_BYTES`
+(10MB) rather than blocking, since WebHaste has no authority to enforce a
+host's actual limit, only to flag it early. For raster images
+(png/jpg/jpeg/webp — not gif, since canvas resizing flattens animation to
+one frame, and not svg, already vector) there's also an optional resize:
+`resizeImageFile()` downscales via `createImageBitmap()` + canvas so the
+longer edge is at most `imageResizeMaxDimension` (a `site.config.json` field,
+Site Settings' "Image Resize Max Dimension" number input, default 1920 —
+per-site rather than a fixed constant, since a photography/gallery-heavy
+site and a mostly-text one want different caps), re-encoding at
+`IMAGE_RESIZE_QUALITY`. `getImageResizeMaxDimension()` reads it fresh from
+config on every resize rather than caching it, same reasoning as every
+other `getSiteConfig()` call site in this file — it's a fast local-file
+read, not worth staleness risk to save.
+
+`maybeResizeImage(file, mode)` decides whether/how to offer the resize, and
+is deliberately keyed off the image's actual decoded pixel dimensions, not
+its byte size — an earlier version gated the toolbar fast-path's resize
+offer on `file.size >= LARGE_FILE_WARN_BYTES`, which missed a
+well-compressed-but-huge-dimension image entirely (a 4500x4500 PNG can
+easily be well under 10MB). `mode: true` (Assets dialog, checkbox already
+checked — an explicit ahead-of-time opt-in) resizes immediately with no
+further prompt whenever `resizeImageFile()` reports the image was actually
+oversized (its return value is `===` the input file when nothing needed to
+change — cheap way to tell "no-op" from "resized" without a second decode).
+`mode: "ask"` (toolbar fast-path, no checkbox to opt in ahead of time)
+decodes first and only prompts via `confirm()` if the image turns out to be
+oversized, regardless of how small the file already is in bytes. Both modes
+then fall through to `warnIfLarge()` for the plain byte-size warning
+(`LARGE_FILE_WARN_BYTES`, 10MB) — that one's still legitimately byte-size
+gated, since it exists to flag anything a deploy target's API might reject,
+not to decide whether resizing would help.
+
+The Assets dialog exposes the resize option as an "assetResizeImages"
+checkbox next to its upload input (its label's max-px figure filled in from
+config each time the dialog opens), unchecked by default and reset to
+unchecked every time the dialog opens (same "never let a one-time state
+silently stick" reasoning as `cfRemember`/`ntlRemember` in "Publishing"
+below, just defaulting the other direction since resizing re-encodes/loses
+quality and shouldn't happen without the author opting in each time).
+
 The code view runs on the vendored CodeMirror build (`vendor/codemirror/`)
 for syntax highlighting and lint.
 

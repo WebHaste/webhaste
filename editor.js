@@ -305,7 +305,8 @@ const DEFAULT_CONFIG = {
   cssFramework: "bootstrap5",
   language: "en",
   deploymentTarget: "cloudflare",
-  deployDirectory: "dist"
+  deployDirectory: "dist",
+  imageResizeMaxDimension: 1920
 };
 
 // Curated BCP 47 tags covering the common case for both Site Settings'
@@ -522,6 +523,113 @@ function isImageAsset(name) {
   return ASSET_IMAGE_EXTENSIONS.has(assetExtension(name));
 }
 
+// ---- Large-file handling for asset uploads ----
+// Neither deploy target is checked client-side today, so a too-large file
+// only fails at publish time via whatever error Cloudflare/Netlify's API
+// happens to return. This is a heads-up before that point, not a hard
+// block — the actual platform ceiling (Cloudflare Pages: 25MB/file) is
+// none of WebHaste's business to enforce, just to warn well ahead of.
+const LARGE_FILE_WARN_BYTES = 10 * 1024 * 1024;
+// gif is excluded because canvas resizing flattens animation to one frame;
+// svg is excluded because it's already vector/tiny and resizing it makes
+// no sense.
+const IMAGE_RESIZE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
+const IMAGE_RESIZE_QUALITY = 0.85;
+
+function formatFileSize(bytes) {
+  return (bytes / (1024 * 1024)).toFixed(1) + "MB";
+}
+
+function canResizeImage(name) {
+  return IMAGE_RESIZE_EXTENSIONS.has(assetExtension(name));
+}
+
+// site.config.json -> imageResizeMaxDimension (Site Settings' "Image Resize
+// Max Dimension" field) lets a site author raise this for a photography/
+// gallery-heavy site or lower it for a mostly-text one; DEFAULT_CONFIG's
+// value covers both a brand-new project and any existing site.config.json
+// written before this field existed.
+async function getImageResizeMaxDimension() {
+  const config = await getSiteConfig();
+  return config.imageResizeMaxDimension || DEFAULT_CONFIG.imageResizeMaxDimension;
+}
+
+// Downscales via canvas so the longer edge is at most maxDimension,
+// re-encoding at IMAGE_RESIZE_QUALITY. Returns the original file unchanged if
+// it's already small enough or if decoding/encoding fails for any reason —
+// callers always get a usable File back either way.
+async function resizeImageFile(file, maxDimension) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return file; // not decodable as a raster image (corrupt, unsupported) — upload as-is
+  }
+  const scale = maxDimension / Math.max(bitmap.width, bitmap.height);
+  if (scale >= 1) {
+    bitmap.close();
+    return file;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const mimeType = assetMimeType(file.name);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, mimeType, IMAGE_RESIZE_QUALITY));
+  if (!blob) return file;
+  return new File([blob], file.name, { type: mimeType, lastModified: file.lastModified });
+}
+
+// mode: false — never resize (checkbox unchecked in the Assets dialog).
+// true — the Assets dialog checkbox is already an explicit ahead-of-time
+// opt-in, so resize immediately, no further prompt, whenever the image is
+// actually oversized.
+// "ask" — the toolbar fast-path has no checkbox, so decode first and only
+// prompt if the image turns out to be oversized.
+// Gating on file.size here (the original approach) was the bug: a
+// well-compressed PNG can be well under LARGE_FILE_WARN_BYTES while still
+// being e.g. 4500x4500 — decode and compare actual pixel dimensions against
+// imageResizeMaxDimension instead, regardless of how small the file already
+// is in bytes.
+async function maybeResizeImage(file, mode) {
+  if (!mode || !canResizeImage(file.name)) return file;
+  const maxDimension = await getImageResizeMaxDimension();
+  const resized = await resizeImageFile(file, maxDimension);
+  if (resized === file) return file; // already within bounds, or undecodable — resizeImageFile() returns the same instance in both cases
+  if (mode === "ask") {
+    const useResized = confirm(
+      `"${file.name}" is larger than ${maxDimension}px on its long edge. Resize it for web use ` +
+        `(${formatFileSize(file.size)} → ${formatFileSize(resized.size)})? OK = resize, Cancel = upload at full size.`
+    );
+    if (!useResized) return file;
+  }
+  setStatus(`Resized ${file.name}: ${formatFileSize(file.size)} → ${formatFileSize(resized.size)}.`);
+  return resized;
+}
+
+// Runs after any resize decision — flags a file (resized or not, image or
+// not) that's still large in bytes, since there's nothing WebHaste can do
+// to shrink a PDF/video/already-compact-but-huge-dimension image any
+// further, only warn before the host's own API rejects it at publish time.
+async function warnIfLarge(file) {
+  if (file.size < LARGE_FILE_WARN_BYTES) return true;
+  return confirm(
+    `"${file.name}" is ${formatFileSize(file.size)}. Large files slow down page loads for ` +
+      `every visitor, and both Cloudflare Pages and Netlify reject files past a certain size ` +
+      `(Cloudflare's limit is 25MB per file). Upload anyway?`
+  );
+}
+
+// Shared by both upload entry points (toolbar fast-path and Assets dialog).
+async function prepareAssetFileForUpload(file, resizeRequested) {
+  file = await maybeResizeImage(file, resizeRequested);
+  if (!(await warnIfLarge(file))) return null;
+  return file;
+}
+
 // Snippet inserted into page content for a given uploaded asset. Root-
 // relative (leading /) so it resolves correctly regardless of how deep the
 // page it's inserted into ends up living (e.g. /shows/baldknobbers.html) —
@@ -553,6 +661,15 @@ function slugifyFileName(input) {
 function sanitizeDeployDirectory(input) {
   const cleaned = (input || "").trim().replace(/[\\/:*?"<>|]+/g, "");
   return cleaned || "dist";
+}
+
+// Clamped rather than rejected outright — an empty/non-numeric field falls
+// back to the default, and anything below 100 (which would make most
+// resized images useless) is floored rather than saved as typed.
+function sanitizeImageResizeMaxDimension(input) {
+  const parsed = parseInt(input, 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_CONFIG.imageResizeMaxDimension;
+  return Math.max(100, parsed);
 }
 
 // Same char-class rule as slugifyFileName(), but for a single folder
@@ -2606,16 +2723,23 @@ document.getElementById("insertImageBtn").addEventListener("click", () => {
   document.getElementById("imageFastPathInput").click();
 });
 
+// No persistent checkbox here (unlike the Assets dialog below) — this path
+// is meant to be pick-upload-insert-done, so resizing is offered inline via
+// confirm() only when the picked image is actually oversized (see
+// maybeResizeImage()'s "ask" mode), rather than adding always-visible UI to
+// a button that's usually instant.
 document.getElementById("imageFastPathInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   e.target.value = ""; // allow picking the same file again later
   if (!file) return;
+  const prepared = await prepareAssetFileForUpload(file, "ask");
+  if (!prepared) return; // user declined to upload an oversized file
   const assetsDir = await getAssetsDirHandle(true);
-  const writable = await (await assetsDir.getFileHandle(file.name, { create: true })).createWritable();
-  await writable.write(await file.arrayBuffer());
+  const writable = await (await assetsDir.getFileHandle(prepared.name, { create: true })).createWritable();
+  await writable.write(await prepared.arrayBuffer());
   await writable.close();
-  insertSnippet(assetSnippet(file.name));
-  setStatus(`Uploaded and inserted ${file.name}.`);
+  insertSnippet(assetSnippet(prepared.name));
+  setStatus(`Uploaded and inserted ${prepared.name}.`);
 });
 
 // ---- Assets dialog — browse/upload/reuse everything in assets/ ----
@@ -2684,6 +2808,8 @@ document.getElementById("openAssetsBtn").addEventListener("click", async () => {
     return;
   }
   captureSelection();
+  document.getElementById("assetResizeImages").checked = false;
+  document.getElementById("assetResizeMaxLabel").textContent = await getImageResizeMaxDimension();
   await renderAssetGrid();
   assetsDialog.showModal();
 });
@@ -2720,12 +2846,15 @@ document.getElementById("assetUploadInput").addEventListener("change", async (e)
   const file = e.target.files[0];
   e.target.value = "";
   if (!file) return;
+  const resizeRequested = document.getElementById("assetResizeImages").checked;
+  const prepared = await prepareAssetFileForUpload(file, resizeRequested);
+  if (!prepared) return; // user declined to upload an oversized file
   const assetsDir = await getAssetsDirHandle(true);
-  const writable = await (await assetsDir.getFileHandle(file.name, { create: true })).createWritable();
-  await writable.write(await file.arrayBuffer());
+  const writable = await (await assetsDir.getFileHandle(prepared.name, { create: true })).createWritable();
+  await writable.write(await prepared.arrayBuffer());
   await writable.close();
   await renderAssetGrid();
-  setStatus(`Uploaded ${file.name}.`);
+  setStatus(`Uploaded ${prepared.name}.`);
 });
 
 // ---- Blocks dialog — built-in BLOCK_LIBRARY + site-specific .webhaste/blocks/ ----
@@ -4188,6 +4317,8 @@ document.getElementById("siteSettingsBtn").addEventListener("click", async () =>
   setLanguageSelectValue(cfgLanguageSelect, document.getElementById("cfgLanguageOther"), config.language || "en");
   document.getElementById("cfgDeploymentTarget").value = config.deploymentTarget || "cloudflare";
   document.getElementById("cfgDeployDirectory").value = config.deployDirectory || "dist";
+  document.getElementById("cfgImageResizeMaxDimension").value =
+    config.imageResizeMaxDimension || DEFAULT_CONFIG.imageResizeMaxDimension;
   siteSettingsDialog.showModal();
 });
 document.getElementById("cfgLanguage").addEventListener("change", (e) => {
@@ -4204,6 +4335,7 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
     language: getLanguageSelectValue(document.getElementById("cfgLanguage"), document.getElementById("cfgLanguageOther")) || "en",
     deploymentTarget: document.getElementById("cfgDeploymentTarget").value,
     deployDirectory: sanitizeDeployDirectory(document.getElementById("cfgDeployDirectory").value),
+    imageResizeMaxDimension: sanitizeImageResizeMaxDimension(document.getElementById("cfgImageResizeMaxDimension").value),
   };
   const cfgDir = await getConfigDir(true);
   await writeJSONFile(cfgDir, "site.config.json", config);

@@ -154,6 +154,8 @@
     </label>
     <label>Local Render Folder <input id="cfgDeployDirectory" type="text" placeholder="dist" /></label>
     <p class="hint">Used by "Render to local folder". Defaults to "dist" for SFTP/manual deploys — use "docs" for GitHub Pages' /docs convention, or whatever your host's publish directory expects.</p>
+    <label>Image Resize Max Dimension (px) <input id="cfgImageResizeMaxDimension" type="number" min="100" step="10" placeholder="1920" /></label>
+    <p class="hint">Longer edge a resized image is capped at when "Resize large images" is used (Assets dialog and the Image toolbar button). Defaults to 1920 — raise it for a site with large hero/gallery images, lower it for a mostly-text/mobile-first site.</p>
     <p class="hint">Stored in .webhaste/, travels with the git repo, not published.</p>
     <div class="dialog-actions">
       <button id="siteSettingsCancel">Cancel</button>
@@ -207,6 +209,7 @@
   <dialog id="assetsDialog">
     <h3>Project Assets — assets/</h3>
     <label>Upload New <input type="file" id="assetUploadInput" /></label>
+    <label class="checkbox-label hint"><input type="checkbox" id="assetResizeImages" /> Resize large images for web (max <span id="assetResizeMaxLabel">1920</span>px, unchecked = upload as-is)</label>
     <div id="assetGrid" class="asset-grid"></div>
     <div class="dialog-actions">
       <button id="assetsDialogClose">Close</button>
