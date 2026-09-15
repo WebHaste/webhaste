@@ -224,6 +224,18 @@ entirely when `site.config.json` → `domain` is unset. There's no
 your own `og:*`/`twitter:*` tags in a page's Header code field (see
 above) — they'd duplicate the auto-generated ones.
 
+## Schema Markup (Organization / LocalBusiness) is configured, not templated
+
+If `site.config.json` → `schemaMarkup` has a `type` and `name` set, a
+`<script type="application/ld+json">` tag describing the site as an
+Organization or LocalBusiness is injected automatically into `index.html`
+only — set via the extension's Site Settings dialog, not a template
+placeholder. Don't hand-write your own Organization/LocalBusiness JSON-LD in
+a page's Header code field (see above) — it would duplicate the
+auto-generated one. Header code is still the right place for schema types
+this feature doesn't cover (Article, Product, FAQPage, Event, etc.) or for
+schema on a page other than the homepage.
+
 ## Content blocks
 
 Reusable HTML snippets — hero sections, CTAs, embeds, etc. — follow this

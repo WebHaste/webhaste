@@ -1623,8 +1623,17 @@ function decorateBlocks() {
     const toolbar = document.createElement("div");
     toolbar.className = "cs-block-toolbar";
     toolbar.contentEditable = "false";
+    // Any block containing an iframe (the two built-in embed blocks, or a
+    // hand-authored .webhaste/blocks/*.html one) gets an extra button to
+    // retarget that iframe from Visual view — see openEmbedDialog() below.
+    // Checked once here, at toolbar-creation time, same as every other
+    // per-block decision in this function.
+    const embedBtn = block.querySelector("iframe")
+      ? '<button type="button" data-action="edit-embed" title="Edit embed code / URL">🔗</button>'
+      : "";
     toolbar.innerHTML =
       '<button type="button" data-action="edit-attrs" title="Edit ID / classes">⚙</button>' +
+      embedBtn +
       '<button type="button" data-action="move-up" title="Move block up">↑</button>' +
       '<button type="button" data-action="move-down" title="Move block down">↓</button>' +
       '<button type="button" data-action="cursor-after" title="Place cursor below this block">⏎</button>' +
@@ -1836,6 +1845,9 @@ document.getElementById("visualArea").addEventListener("click", (e) => {
   if (btn.dataset.action === "edit-attrs") {
     openDivAttrsDialog(block);
     return;
+  } else if (btn.dataset.action === "edit-embed") {
+    openEmbedDialog(block);
+    return;
   } else if (btn.dataset.action === "delete") {
     if (!confirm("Delete this block? This can't be undone.")) return;
     block.remove();
@@ -1907,6 +1919,69 @@ document.getElementById("divAttrsSave").addEventListener("click", () => {
     scheduleSave();
   }
   divAttrsDialog.close();
+});
+
+// ---- Embed blocks (Video Embed / Misc Embed / custom iframe blocks) ----
+// Retargeting an iframe's src used to be Code-view-only (see the comment on
+// "video-embed" in BLOCK_LIBRARY) — this dialog lets the author paste
+// whatever embed snippet their provider (YouTube, Vimeo, Zoho Forms, etc.)
+// hands them and updates the block's existing iframe in place, leaving its
+// wrapper div/classes (the 16:9 ratio box, the form's min-height, etc.)
+// untouched.
+let editingEmbedIframe = null;
+const embedDialog = document.getElementById("embedDialog");
+
+function openEmbedDialog(block) {
+  editingEmbedIframe = block.querySelector("iframe");
+  document.getElementById("embedSnippetInput").value = editingEmbedIframe?.getAttribute("src") || "";
+  embedDialog.showModal();
+}
+
+// Accepts either a full <iframe ...>...</iframe> snippet (the common case —
+// most providers hand out a whole tag, not a bare URL) or just a URL typed/
+// pasted on its own. DOMParser finds the iframe regardless of what it's
+// nested in (some providers wrap it in a <div>), so both shapes reduce to
+// "pull src plus a safe subset of playback-related attributes."
+function parseEmbedSnippet(text) {
+  text = text.trim();
+  if (!text) return null;
+  if (/<iframe[\s>]/i.test(text)) {
+    const doc = new DOMParser().parseFromString(text, "text/html");
+    const iframe = doc.querySelector("iframe");
+    if (iframe && iframe.getAttribute("src")) {
+      return {
+        src: iframe.getAttribute("src"),
+        title: iframe.getAttribute("title") || "",
+        allow: iframe.getAttribute("allow") || "",
+        allowfullscreen: iframe.hasAttribute("allowfullscreen"),
+        referrerpolicy: iframe.getAttribute("referrerpolicy") || "",
+      };
+    }
+  }
+  return { src: text };
+}
+
+document.getElementById("embedCancel").addEventListener("click", () => embedDialog.close());
+
+embedDialog.addEventListener("close", () => {
+  editingEmbedIframe = null;
+});
+
+document.getElementById("embedSave").addEventListener("click", () => {
+  const parsed = parseEmbedSnippet(document.getElementById("embedSnippetInput").value);
+  if (!parsed) {
+    alert("Paste an embed snippet or URL first.");
+    return;
+  }
+  if (editingEmbedIframe) {
+    editingEmbedIframe.setAttribute("src", parsed.src);
+    if (parsed.title) editingEmbedIframe.setAttribute("title", parsed.title);
+    if (parsed.allow) editingEmbedIframe.setAttribute("allow", parsed.allow);
+    if (parsed.allowfullscreen) editingEmbedIframe.setAttribute("allowfullscreen", "");
+    if (parsed.referrerpolicy) editingEmbedIframe.setAttribute("referrerpolicy", parsed.referrerpolicy);
+    scheduleSave();
+  }
+  embedDialog.close();
 });
 
 // ---- Table structural editing (rows/columns) ----
@@ -3489,10 +3564,9 @@ tailwind: `
     frameworks: {
       // Fixed 16:9 ratio wrapper — right for video (YouTube, Vimeo, etc.),
       // wrong for anything whose content height isn't a fixed proportion of
-      // its width. See "form-embed" below for that case. There's no
-      // editable-in-place way to retarget an iframe's src from Visual view
-      // (unlike text content), so the placeholder URL is meant to be swapped
-      // out via Code view for the real embed URL.
+      // its width. See "form-embed" below for that case. The placeholder URL
+      // is meant to be swapped out for the real embed URL via the block
+      // toolbar's 🔗 button (openEmbedDialog()) rather than Code view.
       bootstrap5: `
       <div class="video-content ratio ratio-16x9 my-4">
   <iframe src="https://example.com/replace-with-your-embed-url" title="Video embed" allowfullscreen></iframe>
@@ -4319,14 +4393,70 @@ document.getElementById("siteSettingsBtn").addEventListener("click", async () =>
   document.getElementById("cfgDeployDirectory").value = config.deployDirectory || "dist";
   document.getElementById("cfgImageResizeMaxDimension").value =
     config.imageResizeMaxDimension || DEFAULT_CONFIG.imageResizeMaxDimension;
+  const schema = config.schemaMarkup || {};
+  const schemaAddr = schema.address || {};
+  document.getElementById("cfgSchemaType").value = schema.type || "";
+  document.getElementById("cfgSchemaName").value = schema.name || "";
+  document.getElementById("cfgSchemaLogo").value = schema.logo || "";
+  document.getElementById("cfgSchemaPhone").value = schema.telephone || "";
+  document.getElementById("cfgSchemaStreet").value = schemaAddr.streetAddress || "";
+  document.getElementById("cfgSchemaCity").value = schemaAddr.addressLocality || "";
+  document.getElementById("cfgSchemaRegion").value = schemaAddr.addressRegion || "";
+  document.getElementById("cfgSchemaPostal").value = schemaAddr.postalCode || "";
+  document.getElementById("cfgSchemaCountry").value = schemaAddr.addressCountry || "";
+  document.getElementById("cfgSchemaSameAs").value = (schema.sameAs || []).join("\n");
+  toggleSchemaFields();
   siteSettingsDialog.showModal();
 });
 document.getElementById("cfgLanguage").addEventListener("change", (e) => {
   document.getElementById("cfgLanguageOther").style.display = e.target.value === "__other__" ? "" : "none";
 });
+function toggleSchemaFields() {
+  document.getElementById("cfgSchemaFields").classList.toggle("hidden", !document.getElementById("cfgSchemaType").value);
+}
+document.getElementById("cfgSchemaType").addEventListener("change", toggleSchemaFields);
+
+// Undefined-valued keys are dropped by JSON.stringify, so returning
+// undefined here (Type left as "None", or Name left blank — same
+// "omit rather than emit broken" rule buildSitemap() uses for a missing
+// domain) means site.config.json simply has no schemaMarkup key at all,
+// same pattern every other optional config/pages.json field in this app
+// follows.
+function collectSchemaMarkup() {
+  const type = document.getElementById("cfgSchemaType").value;
+  const name = document.getElementById("cfgSchemaName").value.trim();
+  if (!type || !name) return undefined;
+  const address = {
+    streetAddress: document.getElementById("cfgSchemaStreet").value.trim(),
+    addressLocality: document.getElementById("cfgSchemaCity").value.trim(),
+    addressRegion: document.getElementById("cfgSchemaRegion").value.trim(),
+    postalCode: document.getElementById("cfgSchemaPostal").value.trim(),
+    addressCountry: document.getElementById("cfgSchemaCountry").value.trim(),
+  };
+  const sameAs = document.getElementById("cfgSchemaSameAs").value
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return {
+    type,
+    name,
+    logo: document.getElementById("cfgSchemaLogo").value.trim(),
+    telephone: document.getElementById("cfgSchemaPhone").value.trim(),
+    ...(Object.values(address).some(Boolean) && { address }),
+    ...(sameAs.length && { sameAs }),
+  };
+}
 document.getElementById("siteSettingsCancel").addEventListener("click", () => siteSettingsDialog.close());
 document.getElementById("siteSettingsSave").addEventListener("click", async () => {
+  // Merged onto the previously-saved config rather than built from just this
+  // dialog's fields, so a key this dialog doesn't know about — projectId
+  // (see ensureScaffold()) being the one that actually matters, since
+  // silently dropping it would make ensureScaffold() mint a fresh random id
+  // on the very next save, orphaning this project's saved Cloudflare/Netlify
+  // credentials — survives a Site Settings save intact.
+  const existing = await getSiteConfig();
   const config = {
+    ...existing,
     siteName: document.getElementById("cfgSiteName").value.trim(),
     domain: document.getElementById("cfgDomain").value.trim(),
     paragraphMode: document.getElementById("cfgParagraphMode").value,
@@ -4336,6 +4466,7 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
     deploymentTarget: document.getElementById("cfgDeploymentTarget").value,
     deployDirectory: sanitizeDeployDirectory(document.getElementById("cfgDeployDirectory").value),
     imageResizeMaxDimension: sanitizeImageResizeMaxDimension(document.getElementById("cfgImageResizeMaxDimension").value),
+    schemaMarkup: collectSchemaMarkup(),
   };
   const cfgDir = await getConfigDir(true);
   await writeJSONFile(cfgDir, "site.config.json", config);

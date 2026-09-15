@@ -153,10 +153,31 @@
       </select>
     </label>
     <label>Local Render Folder <input id="cfgDeployDirectory" type="text" placeholder="dist" /></label>
-    <p class="hint">Used by "Render to local folder". Defaults to "dist" for SFTP/manual deploys — use "docs" for GitHub Pages' /docs convention, or whatever your host's publish directory expects.</p>
+    <p class="hint">Defaults to "dist" for SFTP/manual deploys — use "docs" for GitHub Pages' /docs convention, or whatever your host's publish directory expects.</p>
     <label>Image Resize Max Dimension (px) <input id="cfgImageResizeMaxDimension" type="number" min="100" step="10" placeholder="1920" /></label>
-    <p class="hint">Longer edge a resized image is capped at when "Resize large images" is used (Assets dialog and the Image toolbar button). Defaults to 1920 — raise it for a site with large hero/gallery images, lower it for a mostly-text/mobile-first site.</p>
-    <p class="hint">Stored in .webhaste/, travels with the git repo, not published.</p>
+    <p class="hint">Longest edge when "Resize large images" is used. Defaults to 1920px; adjust as needed for your site template.</p>
+
+    <h4>Schema Markup (Homepage)</h4>
+    <p class="hint">Adds JSON-LD structured data to index.html. For other schema types (Article, Product, FAQPage, etc.) or for per-page control, use page's "Header code" field instead.</p>
+    <label>Type
+      <select id="cfgSchemaType">
+        <option value="">None</option>
+        <option value="Organization">Organization</option>
+        <option value="LocalBusiness">Local Business</option>
+      </select>
+    </label>
+    <div id="cfgSchemaFields" class="hidden">
+      <label>Name <input id="cfgSchemaName" type="text" placeholder="Acme Inc." /></label>
+      <label>Logo URL <input id="cfgSchemaLogo" type="text" placeholder="/assets/logo.png" /></label>
+      <label>Phone <input id="cfgSchemaPhone" type="text" placeholder="+1-555-555-5555" /></label>
+      <label>Street Address <input id="cfgSchemaStreet" type="text" /></label>
+      <label>City <input id="cfgSchemaCity" type="text" /></label>
+      <label>State/Region <input id="cfgSchemaRegion" type="text" /></label>
+      <label>Postal Code <input id="cfgSchemaPostal" type="text" /></label>
+      <label>Country <input id="cfgSchemaCountry" type="text" placeholder="US" /></label>
+      <label>Social Profile URLs (one per line) <textarea id="cfgSchemaSameAs" rows="3" placeholder="https://facebook.com/yourpage&#10;https://instagram.com/yourhandle"></textarea></label>
+    </div>
+
     <div class="dialog-actions">
       <button id="siteSettingsCancel">Cancel</button>
       <button id="siteSettingsSave" class="primary">Save</button>
@@ -281,6 +302,18 @@
     <div class="dialog-actions">
       <button id="divAttrsCancel">Cancel</button>
       <button id="divAttrsSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="embedDialog">
+    <h3>Edit Embed</h3>
+    <p class="hint">Paste the embed code your video/form provider gave you (an
+      &lt;iframe&gt; snippet), or just its URL, and this block's iframe will be
+      updated in place.</p>
+    <label>Embed code or URL <textarea id="embedSnippetInput" rows="6" style="font-family: monospace; font-size: 12px;" placeholder="<iframe src=&quot;https://...&quot; ...></iframe>"></textarea></label>
+    <div class="dialog-actions">
+      <button id="embedCancel">Cancel</button>
+      <button id="embedSave" class="primary">Save</button>
     </div>
   </dialog>
 

@@ -202,9 +202,16 @@ Two sources feed the same grid:
   exist until someone adds a file to it, same as `assets/`.
 
 Every inserted block gets a `cs-block` wrapper (`cs-block--<type>` class) and
-a small move-up/move-down/delete toolbar; iframe-based blocks (the two embed
-types) can't have their `src` retargeted from Visual view like text can —
-that's a Code view edit.
+a small move-up/move-down/delete toolbar. Any block whose markup contains an
+`<iframe>` — the two built-in embed types, or a custom
+`.webhaste/blocks/*.html` block — also gets a 🔗 toolbar button
+(`openEmbedDialog()` in `editor.js`) for pasting in the real embed snippet
+(or bare URL) from Visual view; it updates that iframe's `src` plus a safe
+subset of attributes (`title`, `allow`, `allowfullscreen`, `referrerpolicy`)
+in place, leaving the block's own wrapper markup (the 16:9 ratio div, a
+form's `min-height`, etc.) untouched. Retargeting an iframe `src` is the only
+such in-place edit — swapping which *block* is used, or hand-tuning wrapper
+classes/styles, is still a Code view edit.
 
 `writeBlockLibraryDoc()` in `ensureScaffold()` regenerates
 `.webhaste/block-library.md` on every folder open: every `BLOCK_LIBRARY`
@@ -557,3 +564,47 @@ Render-to-Local-Folder path and `cli/compose.js` get this for free with no
 changes of their own, and it's *not* duplicated into `editor.js`'s preview
 branch — an invisible `<meta>` tag has no observable effect inside the
 preview iframe either way.
+
+### 13. Schema Markup (Organization / LocalBusiness JSON-LD)
+
+Site Settings' "Schema Markup" section writes `site.config.json` →
+`schemaMarkup` (`{ type, name, logo, telephone, address, sameAs }`, `address`
+itself `{ streetAddress, addressLocality, addressRegion, postalCode,
+addressCountry }`), and `compose-core.js`'s `buildSchemaMarkup()` turns that
+into a `<script type="application/ld+json">` tag injected right after
+`buildSocialMetaTags()`'s OG tags. Deliberately scoped to **just
+`index.html`**, checked in `composePage()` itself (`if (title ===
+"index.html")`) rather than every page — unlike OG tags, which describe
+whatever page is being shared, Organization/LocalBusiness describe the
+site/business as a whole, and Google's own guidance is that this markup
+belongs on the homepage specifically. A site that wants schema on other
+pages (Article, Product, FAQPage, Event, etc.) or more control than these
+two generic types offer already has Page Properties' "Header code" field
+(section 11 above) for that — this feature intentionally doesn't grow into
+a general per-page/per-type schema builder.
+
+`type`/`name` are the only two fields that gate whether anything is emitted
+at all (`buildSchemaMarkup()` returns `null` without both, same "omit rather
+than emit broken" rule `buildSitemap()` uses for a missing domain) — every
+other field (`logo`, `telephone`, the whole `address` object, `sameAs`) is
+optional and left out of the JSON-LD individually when blank, same pattern
+`buildSocialMetaTags()` already follows for `og:description`/`og:url`.
+`url` in the emitted JSON-LD isn't a stored field at all — it's derived from
+`config.domain` on every render, reusing the exact domain-normalization
+`buildSocialMetaTags()`'s `og:url` and `buildSitemap()` already do (protocol
+prepended if missing), so there's one fewer thing to keep in sync when a
+site's domain changes. `sameAs` (social profile URLs) is a newline-separated
+textarea in the dialog rather than a dynamic add/remove list, same
+simple-textarea choice `nav.json`'s raw-JSON editing makes.
+
+Site Settings' Save handler now reads the existing config and spreads it
+before overwriting the fields the dialog itself owns
+(`{ ...existing, siteName: ..., ... }`) rather than building a fresh object
+from only its own inputs like it used to — the old behavior silently
+dropped `projectId` (see "Project config" above) on every single Site
+Settings save, since `writeJSONFile()` is a full overwrite with no merging
+and `projectId` isn't one of this dialog's fields. That's not just a schema-
+markup-specific fix: any field not owned by this dialog now survives a
+save, `schemaMarkup` included, exactly like a field owned by *this* dialog
+would already need to survive a save from the Menus/Page Properties dialogs
+(which write different files entirely, so didn't have this problem).

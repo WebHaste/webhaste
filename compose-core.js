@@ -191,6 +191,40 @@
     return tags.join("\n");
   }
 
+  // Optional homepage-only JSON-LD (Organization/LocalBusiness), from Site
+  // Settings' "Schema Markup" section — config.schemaMarkup. Deliberately
+  // scoped to just index.html by composePage() below rather than every
+  // page: these two types describe the site/business as a whole, not any
+  // one page, and Google's own guidance is that Organization markup belongs
+  // on the homepage. A site that needs schema for other pages (Article,
+  // Product, FAQPage, etc.) or wants more control than these two generic
+  // types offer already has Page Properties' "Header code" field for that.
+  // Returns null when no type/name is configured, same "omit rather than
+  // emit broken" rule buildSitemap() uses for a missing domain.
+  function buildSchemaMarkup(config) {
+    const schema = config && config.schemaMarkup;
+    if (!schema || !schema.type || !schema.name) return null;
+    const data = { "@context": "https://schema.org", "@type": schema.type, name: schema.name };
+    let domain = ((config && config.domain) || "").trim().replace(/\/+$/, "");
+    if (domain) {
+      if (!/^https?:\/\//i.test(domain)) domain = `https://${domain}`;
+      data.url = domain;
+    }
+    if (schema.logo) data.logo = schema.logo;
+    if (schema.telephone) data.telephone = schema.telephone;
+    const addr = schema.address || {};
+    if (addr.streetAddress || addr.addressLocality || addr.addressRegion || addr.postalCode || addr.addressCountry) {
+      data.address = { "@type": "PostalAddress" };
+      if (addr.streetAddress) data.address.streetAddress = addr.streetAddress;
+      if (addr.addressLocality) data.address.addressLocality = addr.addressLocality;
+      if (addr.addressRegion) data.address.addressRegion = addr.addressRegion;
+      if (addr.postalCode) data.address.postalCode = addr.postalCode;
+      if (addr.addressCountry) data.address.addressCountry = addr.addressCountry;
+    }
+    if (Array.isArray(schema.sameAs) && schema.sameAs.length) data.sameAs = schema.sameAs;
+    return `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+  }
+
   // templateText === null/"" means "No layout (raw HTML)" — rawContent
   // ships as-is, same as composePage()'s isPreview=false, no-template branch.
   function composePage({ templateText, rawContent, title, config, navData, pagesData }) {
@@ -217,6 +251,12 @@
       .replace(/{{LANG}}/g, pageLang)
       .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
     out = out.replace(/<\/head>/i, `${buildSocialMetaTags(pageMeta, pageTitle, title, config)}\n</head>`);
+    // Schema Markup is homepage-only — see buildSchemaMarkup()'s own comment
+    // for why "index.html" specifically rather than every page.
+    if (title === "index.html") {
+      const schemaTag = buildSchemaMarkup(config);
+      if (schemaTag) out = out.replace(/<\/head>/i, `${schemaTag}\n</head>`);
+    }
     // Page Properties' "Hide from search engines" checkbox — a real noindex
     // signal (unlike sitemap/search-index exclusion below, which are just
     // omissions from our own generated files and don't stop a crawler that
@@ -411,6 +451,7 @@
     isSearchExcluded,
     buildSitemap,
     buildSearchIndex,
+    buildSchemaMarkup,
     relativizeRootPath,
     rewriteRootRelativePaths,
   };

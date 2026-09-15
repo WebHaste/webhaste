@@ -27,6 +27,11 @@ site and change over time. Check this file first:
 - `language` — a BCP 47 tag (e.g. `en`, `pt-BR`) that fills the template's
   `{{LANG}}` placeholder for every page site-wide. Individual pages can
   override this — see references/navigation-and-metadata.md.
+- `schemaMarkup` — Organization/LocalBusiness JSON-LD injected into
+  `index.html` only when both `type` and `name` are set. See
+  references/seo-and-search.md — don't hand-write your own
+  Organization/LocalBusiness `<script type="application/ld+json">` in a
+  page's Header code field, it would duplicate this.
 
 The same "no CDN `<script>` in preview" limitation applies to icon
 libraries (Bootstrap Icons, Font Awesome, etc.) added to the template's
