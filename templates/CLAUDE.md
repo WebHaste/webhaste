@@ -126,6 +126,32 @@ links to it. Two more files, both in `.webhaste/`:
   Google Tag Manager container snippet in the template instead and managing
   tags in GTM's own UI, rather than hand-editing this field per page.
 
+## `assets/` and `scripts/` are flat — no subfolders
+
+Both directories are read one level deep only; WebHaste does not walk
+subdirectories when composing pages. A file at `assets/photo.jpg` works —
+`assets/uploads/2024/01/photo.jpg` does not. A nested file isn't just
+missed by the Assets dialog: it fails silently everywhere —
+
+- It won't render in the editor's live preview (shows as a broken
+  image/missing stylesheet, with no error explaining why).
+- It's excluded from Publish (Cloudflare/Netlify) and from Render to Local
+  Folder/Packaged, so the live site 404s on it — even though the file is
+  sitting right there in the project folder and looks fine in `git status`.
+
+This matters most when importing/converting an existing site (e.g. a
+WordPress export, which nests uploads as `wp-content/uploads/YYYY/MM/...`
+by convention): flatten every file straight into `assets/` (or `scripts/`
+for JS/CSS) and rewrite every `src`/`href` reference to match — don't
+preserve the source site's folder structure. Watch for filename collisions
+across what were previously separate folders (rename to disambiguate, e.g.
+`photo-2023.jpg` vs `photo-2024.jpg`), and for any stylesheet among the
+files that itself references sibling assets by relative path (e.g. an icon
+font's `@font-face` pointing at `../fonts/name.woff2`) — those internal
+paths need rewriting too once the file they're relative to moves.
+(Page files themselves don't have this restriction — `blog/post.html` is
+fine — this only applies to `assets/`/`scripts/`.)
+
 ## Multi-language content
 
 `{{LANG}}` in the layout template resolves per page as: this page's

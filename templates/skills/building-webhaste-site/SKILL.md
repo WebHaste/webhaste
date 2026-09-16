@@ -40,6 +40,11 @@ fits the task, and prefer `CLAUDE.md` if the two ever appear to disagree
    fragment, not a document — there's no `<head>`/nav/footer without the
    template substitution applied. Use `.webhaste/compose.js` (needs Node);
    see references/site-config-and-testing.md.
+6. **`assets/` and `scripts/` are flat — no subfolders.** A file at
+   `assets/uploads/2024/photo.jpg` fails silently: it won't preview and
+   won't be included in Publish/Render. Flatten nested folders (common when
+   importing a WordPress export) straight into `assets/`/`scripts/` and
+   rewrite every reference — see references/pages-and-templates.md.
 
 ## File Structure
 
@@ -48,8 +53,10 @@ my-site/
   index.html, about.html, ...   ← page fragments (published)
   robots.txt                     ← hand-editable, scaffolded once
   CLAUDE.md                       ← full prose version of this skill
-  assets/                         ← images/PDFs inserted via Insert Image
-  scripts/                        ← template-level styles.css/main.js
+  assets/                         ← images/PDFs inserted via Insert Image;
+                                     flat only, no subfolders (see gotcha 6)
+  scripts/                        ← template-level styles.css/main.js;
+                                     flat only, same as assets/
   .webhaste/
     site.config.json              ← siteName, domain, cssFramework, ...
     nav.json                      ← named menus, nested children

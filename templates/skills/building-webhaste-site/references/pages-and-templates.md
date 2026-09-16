@@ -49,6 +49,25 @@ generated automatically from title/description already, see
 references/seo-and-search.md. Hand-adding your own here would duplicate
 them.
 
+## `assets/` and `scripts/` are flat — no subfolders
+
+Both directories are read one level deep only; WebHaste does not walk
+subdirectories when composing pages. `assets/photo.jpg` works —
+`assets/uploads/2024/01/photo.jpg` does not, and fails silently: it won't
+render in the editor's live preview (broken image/missing stylesheet, no
+error), and it's excluded from Publish and Render to Local
+Folder/Packaged, so the live site 404s on it.
+
+This matters most when importing/converting an existing site (e.g. a
+WordPress export, which nests uploads as `wp-content/uploads/YYYY/MM/...`
+by convention): flatten every file straight into `assets/` (or `scripts/`)
+and rewrite every reference to match — don't preserve the source site's
+folder structure. Watch for filename collisions once flattened, and for
+any stylesheet that references sibling assets by relative path (e.g. an
+icon font's `@font-face` pointing at `../fonts/name.woff2`) — rewrite those
+too. Page files themselves don't have this restriction — `blog/post.html`
+is fine.
+
 ## Multi-language content
 
 `{{LANG}}` in the layout template resolves per page as: this page's
