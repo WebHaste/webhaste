@@ -252,7 +252,7 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   border: 1px solid #4a4a4a;
   border-radius: 4px;
   padding: 2px;
-  z-index: 5;
+  z-index: 201;
 }
 .visual-area .cs-block.cs-hovered > .cs-block-toolbar { display: flex; }
 .cs-block-toolbar button {
@@ -315,7 +315,17 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
    avoid the block/div toolbars' top-right corner (z-index 5/4) — it never
    needs to out-stack them because nested toolbars are kept from appearing
    at all via the hover redirect in the mouseover listener, not by masking. */
-.visual-area .wh-locked { outline-color: rgba(217, 119, 6, 0.6) !important; }
+.visual-area .wh-locked { position: relative; outline-color: rgba(217, 119, 6, 0.6) !important; }
+.visual-area .wh-locked::after {
+  content: " ";
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: rgba(230,230,230,0.7);
+  z-index: 200;
+}
 .visual-area .wh-locked.cs-hovered { outline-color: #d97706 !important; }
 .wh-locked::before {
   content: "🔒";
@@ -329,7 +339,7 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   border: 1px solid rgba(217, 119, 6, 0.6);
   border-radius: 3px;
   pointer-events: none;
-  z-index: 2;
+  z-index: 201;
 }
 /* ---- Tables (see decorateTables()/decorateTableRows() in editor.js) ----
    The table itself gets the same top-right ⚙ cog as a div/block (shares
