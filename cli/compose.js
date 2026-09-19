@@ -38,10 +38,11 @@
  *   --packaged  Headless equivalent of the extension's "Packaged" deployment
  *               target: rewrites root-relative paths ("/about.html") to
  *               "../"-relative ones so the output works when opened straight
- *               from disk (file://), and embeds search data per page instead
- *               of writing search-index.json. sitemap.xml/robots.txt/
- *               404.html are omitted, since none are meaningful without a
- *               real domain/server.
+ *               from disk (file://), and embeds search data and any Lottie
+ *               animation JSON per page instead of fetching either at
+ *               runtime (both are blocked by CORS under file://).
+ *               sitemap.xml/robots.txt/404.html are omitted, since none are
+ *               meaningful without a real domain/server.
  *
  * Exits non-zero with an error if site.config.json/nav.json/pages.json
  * exist but fail to parse — unlike the browser extension, which silently
@@ -171,8 +172,8 @@ function parseArgs(argv) {
         "  --out       Output folder, relative to siteDir (default: deployDirectory\n" +
         "              from .webhaste/site.config.json, or \"dist\")\n" +
         "  --packaged  Render for opening straight from disk (file://) instead of a\n" +
-        "              server — rewrites root-relative paths, embeds search data per\n" +
-        "              page, and omits sitemap.xml/robots.txt/404.html"
+        "              server — rewrites root-relative paths, embeds search/Lottie\n" +
+        "              data per page, and omits sitemap.xml/robots.txt/404.html"
     );
     process.exit(0);
   }
@@ -303,6 +304,10 @@ function main() {
     let out = composed;
     if (packaged) {
       const depth = relPath.split("/").length - 1;
+      // Found on the pre-rewrite content, while every data-lottie-src is
+      // still the plain "/assets/name.json" form — see findLottieSrcs()'s
+      // comment in compose-core.js for why that matters below.
+      const lottieSrcs = WebhasteCompose.findLottieSrcs(composed);
       out = WebhasteCompose.rewriteRootRelativePaths(out, depth);
       if (searchEntries && out.includes("search.js")) {
         const pageIndex = searchEntries.map((entry) => ({
@@ -313,6 +318,29 @@ function main() {
           /<head[^>]*>/i,
           (match) => `${match}\n<script>window.CS_SEARCH_INDEX = ${JSON.stringify(pageIndex)};</script>`
         );
+      }
+      if (lottieSrcs.length) {
+        // Same fetch()-blocked-under-file:// reasoning as the search embed
+        // above — embed each referenced animation's actual JSON so
+        // lottie-init.js can use it directly instead of lottie-web's own
+        // path-based fetch. A src whose asset is missing, or isn't valid
+        // JSON, is silently left out — lottie-init.js falls back to its
+        // normal path/fetch for that one, which fails the same way it
+        // would have without this embedding at all.
+        const dataBySrc = {};
+        for (const src of lottieSrcs) {
+          const assetName = src.replace(/^\/assets\//, "");
+          try {
+            const text = fs.readFileSync(path.join(root, "assets", assetName), "utf8");
+            dataBySrc[WebhasteCompose.relativizeRootPath(src, depth)] = JSON.parse(text);
+          } catch {
+            // Missing file or invalid JSON — leave it out, see comment above.
+          }
+        }
+        const lottieScript = WebhasteCompose.buildLottieDataScript(dataBySrc);
+        if (lottieScript) {
+          out = out.replace(/<head[^>]*>/i, (match) => `${match}\n${lottieScript}`);
+        }
       }
     }
     const dest = path.join(distDir, relPath);

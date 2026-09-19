@@ -237,6 +237,40 @@ copy of the index embedded inline, with every result link already pointing
 at the right relative path for that page. Nothing about writing pages or
 using the search box changes — this is purely a render-time difference.
 
+## Lottie/JSON animations
+
+The Blocks dialog's "Lottie Animation" block wires an uploaded Lottie/
+Bodymovin `.json` export into a page via a `data-lottie-src="/assets/
+your-file.json"` attribute — same `assets/` upload path as an image, since
+the Assets dialog treats `.json` as a third asset kind alongside images and
+PDFs. Two files are already scaffolded into `scripts/` for you, same
+never-overwritten pattern as `search.js`/`lunr.min.js` above —
+`lottie.min.js` (the player library) and `lottie-init.js` (this site's glue
+that finds every `[data-lottie-src]` element on the page and plays it).
+Neither does anything until the template actually references both:
+
+```html
+<script src="/scripts/lottie.min.js"></script>
+<script src="/scripts/lottie-init.js"></script>
+```
+
+**The block only ever shows a static placeholder in the WebHaste editor** —
+in Visual view and in live Preview alike — never the real animation. This
+is deliberate, not a bug to chase: `scripts/*.js` can't execute inside the
+preview iframe at all (the same `script-src 'self'` restriction that
+already blocks a site's own `scripts/main.js` there), so there was never a
+way to render the actual animation short of a much larger CSP workaround.
+The real animation only appears on the published site, or a "Render to
+Local Folder"/"Packaged" build opened in a normal browser tab — check it
+there, not in WebHaste's own preview.
+
+Animations still work fully offline under the **Packaged** deployment
+target (no server, opened straight from disk) — same as site search: each
+page gets its referenced animation's actual JSON embedded inline instead of
+`lottie-init.js` fetching it, since `file://` pages can't fetch anything.
+Nothing to configure for this; it's automatic whenever a page has a Lottie
+block, same as the search embedding above.
+
 ## Open Graph / Twitter Card tags are automatic
 
 Every page gets `og:title`, `og:description`, `og:type`, `og:site_name`,

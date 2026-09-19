@@ -87,3 +87,35 @@ main { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
   margin: 0;
   color: #555;
 }
+
+
+/* LOTTIE/JSON ANIMATIONS — see this project's CLAUDE.md, "Lottie/JSON
+   animations" section. [data-lottie-src] is what scripts/lottie-init.js
+   looks for; this is just the placeholder look before/unless that script
+   runs (it never runs inside the WebHaste editor's own preview — see that
+   file's comment) — lottie-init.js clears this element's content itself
+   once the real animation is playing, so nothing here needs to be removed
+   by hand. */
+
+.cs-lottie-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 200px;
+  padding: 24px;
+  text-align: center;
+  color: #888;
+  background: #f5f5f5;
+  border: 1px dashed #ccc;
+  border-radius: 6px;
+}
+
+.cs-lottie-placeholder__icon {
+  font-size: 32px;
+}
+
+.cs-lottie-placeholder__label {
+  font-size: 13px;
+}

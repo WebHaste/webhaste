@@ -27,3 +27,25 @@ ones (Hero, CTA, Testimonial, etc., with their real markup for this site's
 hand-written — regenerated every time the project folder is opened in the
 editor, so hand edits to it won't stick. Add blocks by dropping a new file
 into `.webhaste/blocks/`, not by editing `block-library.md` directly.
+
+## Lottie/JSON animations
+
+The built-in "Lottie Animation" block wires an uploaded `.json` (Lottie/
+Bodymovin export) into a page via `data-lottie-src="/assets/name.json"` —
+uploaded through the Assets dialog like an image. `scripts/lottie.min.js`
+(player library) and `scripts/lottie-init.js` (this site's glue, finds
+every `[data-lottie-src]` element and plays it) are already scaffolded;
+the template needs both `<script>` tags added by hand, same as
+`lunr.min.js`/`search.js` in "SEO & Search" — nothing auto-injected.
+
+This block **only ever shows a static placeholder in the WebHaste
+editor** — Visual view and live Preview alike — never the real animation.
+`scripts/*.js` can't execute inside the preview iframe (same restriction
+that blocks a site's own `scripts/main.js` there), so this is expected,
+not broken. Check the real animation on the published site, or a "Render
+to Local Folder"/"Packaged" build opened in a normal browser tab.
+
+It also works fully offline under **Packaged** (no server, opened straight
+from disk) — same as site search: each page's referenced animation JSON
+gets embedded inline automatically instead of fetched, since `file://`
+pages can't fetch anything. Nothing to configure for this.

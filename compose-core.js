@@ -442,6 +442,39 @@
     return JSON.stringify(entries);
   }
 
+  // Finds every data-lottie-src="..." value in a composed page's HTML —
+  // used by the packaged deployment target to know which Lottie assets need
+  // their JSON embedded inline per page (see buildLottieDataScript() below
+  // for why: fetch()/XHR of a local file is blocked by CORS under file://
+  // regardless of path form, the same reason search's index is embedded
+  // as window.CS_SEARCH_INDEX instead of fetched there). Call this on a
+  // page's content BEFORE rewriteRootRelativePaths() runs on it, while
+  // every value is still the plain "/assets/name.json" lottieBlockMarkup()/
+  // setLottieBlockSource() always write — callers can't cheaply reverse a
+  // "../../assets/name.json" back to a bare filename, but they can easily
+  // relativizeRootPath() this original value themselves to know what the
+  // rewritten attribute will read as, for keying the data embedded below.
+  function findLottieSrcs(html) {
+    const srcs = new Set();
+    String(html || "").replace(/data-lottie-src="([^"]+)"/g, (match, src) => {
+      srcs.add(src);
+      return match;
+    });
+    return Array.from(srcs);
+  }
+
+  // dataBySrc is { [finalAttributeValue]: parsedAnimationJson }, already
+  // resolved and relativized by the caller (reading each asset file is
+  // environment-specific — browser File System Access vs. Node fs — so it
+  // can't happen in this dependency-free module, same reason lastmod
+  // gathering for buildSitemap() lives in each caller instead of here).
+  // Returns null when there's nothing to embed, so callers can skip the
+  // <head> insertion entirely, same as buildSitemap()/buildSearchIndex().
+  function buildLottieDataScript(dataBySrc) {
+    if (!dataBySrc || !Object.keys(dataBySrc).length) return null;
+    return `<script>window.CS_LOTTIE_DATA = ${JSON.stringify(dataBySrc)};</script>`;
+  }
+
   return {
     renderMenu,
     composePage,
@@ -454,5 +487,7 @@
     buildSchemaMarkup,
     relativizeRootPath,
     rewriteRootRelativePaths,
+    findLottieSrcs,
+    buildLottieDataScript,
   };
 });

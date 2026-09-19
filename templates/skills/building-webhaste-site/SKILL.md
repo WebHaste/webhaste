@@ -83,7 +83,7 @@ my-site/
    description, draft status, language, template override).
 4. **Add reusable content** — read
    [references/blocks.md](references/blocks.md) for the content-block
-   wrapper convention and `.webhaste/blocks/`.
+   wrapper convention, `.webhaste/blocks/`, and Lottie/JSON animations.
 5. **Handle SEO and search** — read
    [references/seo-and-search.md](references/seo-and-search.md) for
    `sitemap.xml`, `robots.txt`, `search-index.json`, and the three
@@ -99,6 +99,6 @@ my-site/
 | --- | --- |
 | [references/pages-and-templates.md](references/pages-and-templates.md) | Fragment/template contract, placeholders, per-page template override, multi-language |
 | [references/navigation-and-metadata.md](references/navigation-and-metadata.md) | `nav.json` menus/layouts, `pages.json` fields (title, description, draft, language, template) |
-| [references/blocks.md](references/blocks.md) | Content block wrapper convention, `.webhaste/blocks/`, `block-library.md` |
+| [references/blocks.md](references/blocks.md) | Content block wrapper convention, `.webhaste/blocks/`, `block-library.md`, Lottie/JSON animations |
 | [references/seo-and-search.md](references/seo-and-search.md) | `sitemap.xml`, `robots.txt`, site search wiring, the three Page Properties checkboxes |
 | [references/site-config-and-testing.md](references/site-config-and-testing.md) | `site.config.json` fields, no build step, headless testing with `compose.js`, do-not-hand-edit list |

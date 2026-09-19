@@ -507,8 +507,14 @@ const ASSET_MIME_TYPES = {
   pdf: "application/pdf",
   css: "text/css",
   js: "text/javascript",
+  json: "application/json",
 };
 const ASSET_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp"]);
+// Lottie/Bodymovin animations — same assets/ upload path as images, but
+// rendered client-side by a JS player (scripts/lottie.min.js, scaffolded by
+// ensureScaffold()) rather than displayed directly, so they get their own
+// extension bucket instead of falling into isImageAsset()'s.
+const ASSET_LOTTIE_EXTENSIONS = new Set(["json"]);
 
 function assetExtension(name) {
   const dot = name.lastIndexOf(".");
@@ -521,6 +527,10 @@ function assetMimeType(name) {
 
 function isImageAsset(name) {
   return ASSET_IMAGE_EXTENSIONS.has(assetExtension(name));
+}
+
+function isLottieAsset(name) {
+  return ASSET_LOTTIE_EXTENSIONS.has(assetExtension(name));
 }
 
 // ---- Large-file handling for asset uploads ----
@@ -860,6 +870,34 @@ async function ensureScaffold() {
     }
   }
 
+  // Lottie/JSON animations — scripts/lottie.min.js (vendored third-party
+  // player, see vendor/lottie/, same Manifest V3 no-remotely-hosted-code
+  // reasoning as lunr.min.js above) plus scripts/lottie-init.js (this
+  // repo's own glue: scans the page for the "lottie-animation" block's
+  // [data-lottie-src] placeholders and plays each one). Scaffolded
+  // unconditionally, same as the search files above, even though nothing
+  // uses either file until a page actually has a Lottie block and the
+  // template references both <script> tags — see CLAUDE.md's "Lottie/JSON
+  // animations" section for why the editor only ever shows a static
+  // placeholder for these (no preview-iframe rendering, same limitation
+  // scripts/main.js already has there).
+  const lottieScaffoldFiles = [
+    ["templates/lottie-init.js", "lottie-init.js"],
+    ["vendor/lottie/lottie.min.js", "lottie.min.js"],
+  ];
+  for (const [src, destName] of lottieScaffoldFiles) {
+    try {
+      await projectDirs.scripts.getFileHandle(destName);
+    } catch {
+      const res = await fetch(chrome.runtime.getURL(src));
+      const text = await res.text();
+      const handle = await projectDirs.scripts.getFileHandle(destName, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+    }
+  }
+
   // 404.html — Cloudflare Pages and Netlify both auto-serve a root-level
   // 404.html for any unmatched path (otherwise they fall back to serving
   // the homepage, which is confusing). Copied in once from the extension's
@@ -912,11 +950,23 @@ async function ensureScaffold() {
     await writable.close();
   }
 
-  // templates/ + a starter layout, copied in from the extension's own bundled copy
+  // templates/ + a starter layout, copied in from the extension's own bundled
+  // copy — but only when the project has no workable template at all.
+  // Checking for the specific "simple-layout.html" name (the old behavior)
+  // meant renaming or replacing it with a differently-named template caused
+  // it to reappear on every subsequent folder open, forever — the exact
+  // filename isn't what matters, only that *some* template exists for a
+  // fresh project to not be templateless. Any *.html file already present
+  // (renamed starter, or an author's own from-scratch template) counts.
   const templatesDir = await cfgDir.getDirectoryHandle("templates", { create: true });
-  try {
-    await templatesDir.getFileHandle("simple-layout.html");
-  } catch {
+  let hasTemplate = false;
+  for await (const [entryName, entryHandle] of templatesDir.entries()) {
+    if (entryHandle.kind === "file" && entryName.toLowerCase().endsWith(".html")) {
+      hasTemplate = true;
+      break;
+    }
+  }
+  if (!hasTemplate) {
     const res = await fetch(chrome.runtime.getURL("templates/simple-layout.html"));
     const text = await res.text();
     const handle = await templatesDir.getFileHandle("simple-layout.html", { create: true });
@@ -1631,9 +1681,15 @@ function decorateBlocks() {
     const embedBtn = block.querySelector("iframe")
       ? '<button type="button" data-action="edit-embed" title="Edit embed code / URL">🔗</button>'
       : "";
+    // Same idea as embedBtn above, but for the Lottie block's [data-lottie-src]
+    // placeholder div instead of an iframe — see openLottieAssetPicker().
+    const lottieBtn = block.querySelector("[data-lottie-src]")
+      ? '<button type="button" data-action="edit-lottie" title="Choose animation file (.json)">🎞️</button>'
+      : "";
     toolbar.innerHTML =
       '<button type="button" data-action="edit-attrs" title="Edit ID / classes">⚙</button>' +
       embedBtn +
+      lottieBtn +
       '<button type="button" data-action="move-up" title="Move block up">↑</button>' +
       '<button type="button" data-action="move-down" title="Move block down">↓</button>' +
       '<button type="button" data-action="cursor-after" title="Place cursor below this block">⏎</button>' +
@@ -1847,6 +1903,9 @@ document.getElementById("visualArea").addEventListener("click", (e) => {
     return;
   } else if (btn.dataset.action === "edit-embed") {
     openEmbedDialog(block);
+    return;
+  } else if (btn.dataset.action === "edit-lottie") {
+    openLottieAssetPicker(block);
     return;
   } else if (btn.dataset.action === "delete") {
     if (!confirm("Delete this block? This can't be undone.")) return;
@@ -2821,6 +2880,16 @@ document.getElementById("imageFastPathInput").addEventListener("change", async (
 const assetsDialog = document.getElementById("assetsDialog");
 let assetObjectUrls = [];
 
+// Non-null while the dialog was opened via a Lottie block's 🎞️ toolbar
+// button (openLottieAssetPicker() below) rather than the normal "Insert
+// Asset" entry point — set to that block's placeholder div. In that mode
+// the grid is filtered to just Lottie/JSON files, and clicking a tile
+// rewires the existing block instead of inserting a new one. Captured into
+// a local before assetsDialog.close() in the click handler below, since
+// close() dispatches its "close" event (which resets this back to null)
+// synchronously, before the handler's own code after close() would run.
+let lottiePickerTarget = null;
+
 function revokeAssetObjectUrls() {
   assetObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   assetObjectUrls = [];
@@ -2830,15 +2899,19 @@ async function renderAssetGrid() {
   revokeAssetObjectUrls();
   const grid = document.getElementById("assetGrid");
   grid.innerHTML = "";
+  const emptyMessage = lottiePickerTarget
+    ? '<p class="hint">No Lottie/JSON files uploaded yet — use Upload New above.</p>'
+    : '<p class="hint">No assets uploaded yet.</p>';
 
   const assetsDir = await getAssetsDirHandle(false);
   if (!assetsDir) {
-    grid.innerHTML = '<p class="hint">No assets uploaded yet.</p>';
+    grid.innerHTML = emptyMessage;
     return;
   }
 
   for await (const [name, handle] of assetsDir.entries()) {
     if (handle.kind !== "file") continue;
+    if (lottiePickerTarget && !isLottieAsset(name)) continue;
     const tile = document.createElement("div");
     tile.className = "asset-tile";
     tile.dataset.name = name;
@@ -2853,7 +2926,7 @@ async function renderAssetGrid() {
     } else {
       const icon = document.createElement("div");
       icon.className = "asset-file-icon";
-      icon.textContent = "📄";
+      icon.textContent = isLottieAsset(name) ? "🎞️" : "📄";
       tile.appendChild(icon);
     }
 
@@ -2873,7 +2946,7 @@ async function renderAssetGrid() {
   }
 
   if (!grid.children.length) {
-    grid.innerHTML = '<p class="hint">No assets uploaded yet.</p>';
+    grid.innerHTML = emptyMessage;
   }
 }
 
@@ -2883,17 +2956,48 @@ document.getElementById("openAssetsBtn").addEventListener("click", async () => {
     return;
   }
   captureSelection();
+  lottiePickerTarget = null;
   document.getElementById("assetResizeImages").checked = false;
   document.getElementById("assetResizeMaxLabel").textContent = await getImageResizeMaxDimension();
   await renderAssetGrid();
   assetsDialog.showModal();
 });
 
+// Reuses the same browse/upload dialog rather than a second one — the only
+// difference is the picker-mode filtering/click-handling above and below,
+// same "one dialog, two modes" approach the Assets dialog itself already
+// isn't split from the toolbar's image fast-path.
+async function openLottieAssetPicker(block) {
+  captureSelection();
+  // The clicked button's [data-action] target is the outer .cs-block
+  // wrapper (see the click dispatcher above) — resolve down to the actual
+  // placeholder div, same as openEmbedDialog() resolving to block's inner
+  // <iframe>. Setting data-lottie-src on the wrapper instead would give
+  // lottie-init.js two matching elements per block on the published page.
+  lottiePickerTarget = block.querySelector("[data-lottie-src]");
+  document.getElementById("assetResizeImages").checked = false;
+  document.getElementById("assetResizeMaxLabel").textContent = await getImageResizeMaxDimension();
+  await renderAssetGrid();
+  assetsDialog.showModal();
+}
+
+// Updates an existing Lottie block's placeholder in place — mirrors how
+// openEmbedDialog()'s save handler retargets an iframe's src without
+// touching the rest of that block's wrapper markup.
+function setLottieBlockSource(placeholderDiv, name) {
+  placeholderDiv.dataset.lottieSrc = `/assets/${name}`;
+  const label = placeholderDiv.querySelector(".cs-lottie-placeholder__label");
+  if (label) label.textContent = `🎞️ ${name}`;
+}
+
 document.getElementById("assetsDialogClose").addEventListener("click", () => assetsDialog.close());
 
 // Covers Close button, Escape, and backdrop dismissal uniformly, unlike
 // hanging cleanup off a single button's click handler.
-assetsDialog.addEventListener("close", revokeAssetObjectUrls);
+assetsDialog.addEventListener("close", () => {
+  revokeAssetObjectUrls();
+  lottiePickerTarget = null;
+});
 
 document.getElementById("assetGrid").addEventListener("click", async (e) => {
   const deleteBtn = e.target.closest(".asset-delete-btn");
@@ -2910,11 +3014,27 @@ document.getElementById("assetGrid").addEventListener("click", async (e) => {
 
   const tile = e.target.closest(".asset-tile");
   if (!tile) return;
+  // Captured before close() — see lottiePickerTarget's comment above.
+  const pickerTarget = lottiePickerTarget;
   // Close BEFORE inserting — showModal() makes the rest of the page inert
   // while open, so #visualArea can't actually take focus (and execCommand
   // then has nothing to insert into) until the dialog is gone.
   assetsDialog.close();
-  insertSnippet(assetSnippet(tile.dataset.name));
+
+  if (pickerTarget) {
+    setLottieBlockSource(pickerTarget, tile.dataset.name);
+    scheduleSave();
+    return;
+  }
+
+  if (isLottieAsset(tile.dataset.name)) {
+    // Same "click to insert" convenience as any other asset, but a bare
+    // .json file isn't itself renderable — insert a full Lottie block
+    // already wired to it rather than a dangling <a>/<img>.
+    insertBlock("lottie-animation", lottieBlockMarkup(tile.dataset.name));
+  } else {
+    insertSnippet(assetSnippet(tile.dataset.name));
+  }
 });
 
 document.getElementById("assetUploadInput").addEventListener("change", async (e) => {
@@ -3371,6 +3491,27 @@ function slugifyBlockType(id) {
   return id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+// Markup for the "lottie-animation" block, below. Shared by BLOCK_LIBRARY's
+// static empty-state entry (name omitted) and by openAssetsBtn's grid click
+// handler, which inserts a Lottie block already wired to the asset that was
+// clicked (name given) — one template instead of two copies to keep in sync.
+// data-lottie-src is what scripts/lottie-init.js (scaffolded by
+// ensureScaffold(), see its comment) looks for at publish time; nothing in
+// this markup renders the real animation itself — see "Lottie/JSON
+// animations" in CLAUDE.md for why that's a deliberate placeholder-only
+// scope, not a missing feature.
+function lottieBlockMarkup(name) {
+  const label = name
+    ? `🎞️ ${name}`
+    : "🎞️ Click this block's 🎞️ toolbar button to choose an animation (.json)";
+  return `
+      <div class="lottie-content my-4 cs-lottie-placeholder" data-lottie-src="${name ? `/assets/${name}` : ""}">
+  <span class="cs-lottie-placeholder__icon">🎞️</span>
+  <span class="cs-lottie-placeholder__label">${label}</span>
+</div>
+`;
+}
+
 // Pre-baked, framework-styled HTML blocks — inserted via insertBlock(),
 // then hand-edited in place (headline/copy/images), Elementor-style. Only
 // bootstrap5 markup exists today; a block with no entry for the site's
@@ -3588,6 +3729,19 @@ tailwind: `
       <iframe src="https://example.com/replace-with-your-embed-url" title="Misc embed" class="w-100 border-0 my-4" style="min-height: 600px;"></iframe>
       </div>
       `,
+    },
+  },
+  {
+    id: "lottie-animation",
+    label: "Lottie Animation",
+    icon: "🎞️",
+    frameworks: {
+      // Deliberately just a placeholder div, not a working animation — see
+      // lottieBlockMarkup()'s comment. Bootstrap5-only for now like the two
+      // embed blocks above, though the markup itself has nothing
+      // framework-specific about it (no Bootstrap classes to speak of); kept
+      // scoped the same way rather than widening it speculatively.
+      bootstrap5: lottieBlockMarkup(null),
     },
   },
 ];
@@ -5072,6 +5226,10 @@ async function renderToLocalFolder(packaged = false) {
     let out = content;
     if (packaged) {
       const depth = name.split("/").length - 1;
+      // Found on the pre-rewrite content, while every data-lottie-src is
+      // still the plain "/assets/name.json" form — see findLottieSrcs()'s
+      // comment for why that matters for the lookup below.
+      const lottieSrcs = WebhasteCompose.findLottieSrcs(content);
       out = WebhasteCompose.rewriteRootRelativePaths(out, depth);
       if (searchEntries && out.includes("search.js")) {
         const pageIndex = searchEntries.map((entry) => ({
@@ -5082,6 +5240,31 @@ async function renderToLocalFolder(packaged = false) {
           /<head[^>]*>/i,
           (match) => `${match}\n<script>window.CS_SEARCH_INDEX = ${JSON.stringify(pageIndex)};</script>`
         );
+      }
+      if (lottieSrcs.length) {
+        // fetch()/XHR of a local file is blocked by CORS under file://
+        // regardless of path form (same reason the search index is embedded
+        // above rather than fetched) — embed each referenced animation's
+        // actual JSON so lottie-init.js can use it directly instead of
+        // lottie-web's own path-based fetch. A src whose asset is missing,
+        // or isn't valid JSON, is silently left out — lottie-init.js falls
+        // back to its normal path/fetch for that one, which fails the same
+        // way it would have without this embedding at all.
+        const dataBySrc = {};
+        for (const src of lottieSrcs) {
+          const assetName = src.replace(/^\/assets\//, "");
+          const buf = assets[assetName];
+          if (!buf) continue;
+          try {
+            dataBySrc[WebhasteCompose.relativizeRootPath(src, depth)] = JSON.parse(new TextDecoder().decode(buf));
+          } catch {
+            // Not valid JSON — leave it out, see comment above.
+          }
+        }
+        const lottieScript = WebhasteCompose.buildLottieDataScript(dataBySrc);
+        if (lottieScript) {
+          out = out.replace(/<head[^>]*>/i, (match) => `${match}\n${lottieScript}`);
+        }
       }
     }
     const handle = await getNestedFileHandle(distDir, name, { create: true });

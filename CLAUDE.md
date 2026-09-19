@@ -65,7 +65,18 @@ my-site/
 so agent tooling that auto-discovers a root-level `CLAUDE.md`/`AGENTS.md`
 picks it up without being told where to look. Its content is copied in from
 this repo's own `templates/CLAUDE.md` — same mechanism as the starter
-`simple-layout.html`, see `ensureScaffold()` in `editor.js`.
+`simple-layout.html`, see `ensureScaffold()` in `editor.js`. One difference:
+`simple-layout.html`'s own existence check isn't keyed to that exact
+filename the way every other copy-once file's is (`CLAUDE.md`, `robots.txt`,
+`404.html`, the Tailwind files) — it's "does `templates/` contain *any*
+`*.html` file at all." Checking the exact name meant renaming or replacing
+the starter with a differently-named template (a `template.html` an author
+wrote from scratch, say) caused it to keep reappearing on every subsequent
+folder open, forever, since nothing named `simple-layout.html` existed
+anymore. Any existing template counts now — the point was always "a fresh
+project shouldn't be templateless," never "this specific file must exist."
+
+
 
 `.claude/skills/building-webhaste-site/` is scaffolded the same way, from
 `templates/skills/building-webhaste-site/` in this repo, and for the same
@@ -321,8 +332,10 @@ Set under Site Settings → Deployment Target (`site.config.json` →
   `<script>window.CS_SEARCH_INDEX = [...]</script>` injected right after
   `<head>`, with every result's `url` pre-relativized for that specific
   page (`search.js`'s `loadIndex()` uses this global instead of fetching
-  when present). `sitemap.xml`, `robots.txt`, and `404.html` are all
-  omitted for this target — none are meaningful without a real
+  when present). Lottie/JSON animations get the identical treatment for the
+  identical reason — see "Lottie/JSON animations" below for
+  `window.CS_LOTTIE_DATA`. `sitemap.xml`, `robots.txt`, and `404.html` are
+  all omitted for this target — none are meaningful without a real
   domain/server (a 404 page can never be triggered without one routing to
   it). `cli/compose.js --packaged` is the headless equivalent, for testing
   or CI without the extension installed.
@@ -565,7 +578,94 @@ changes of their own, and it's *not* duplicated into `editor.js`'s preview
 branch — an invisible `<meta>` tag has no observable effect inside the
 preview iframe either way.
 
-### 13. Schema Markup (Organization / LocalBusiness JSON-LD)
+### 13. Lottie/JSON animations — placeholder-only preview
+
+A "Lottie Animation" entry in `BLOCK_LIBRARY` (`editor.js`) inserts a
+`.cs-block--lottie-animation` wrapper around a `data-lottie-src` placeholder
+div — same idea as the Video/Misc Embed blocks' iframe, but for a Lottie/
+Bodymovin JSON export instead of a URL. `.json` is a third asset kind
+alongside images/PDFs (`isLottieAsset()`/`ASSET_LOTTIE_EXTENSIONS`, and
+`application/json` added to `ASSET_MIME_TYPES`), uploaded and browsed
+through the same Assets dialog.
+
+The player itself is a real JS runtime (`lottie-web`), so it gets vendored
+locally at `vendor/lottie/lottie.min.js` — same Manifest V3
+no-remotely-hosted-code reasoning as `vendor/lunr/`. `ensureScaffold()`
+copies it into every project's `scripts/lottie.min.js`, alongside
+`scripts/lottie-init.js` (from `templates/lottie-init.js` — this repo's own
+glue script, modeled directly on `templates/search.js`: finds every
+`[data-lottie-src]` element on the page and calls `lottie.loadAnimation()`
+into it, no-ops if `lottie` isn't loaded or nothing on the page needs it).
+Both are scaffolded unconditionally, same as `search.js`/`lunr.min.js` —
+nothing runs until the site's template actually adds both `<script>` tags,
+same "generate the dependency for every site, don't wire up visible markup
+on the author's behalf" pattern search already follows. `templates/
+styles.css` also ships a baseline `.cs-lottie-placeholder` look (dashed box,
+icon, label) so an unwired or not-yet-loaded block doesn't render as bare
+unstyled text on a real site.
+
+**The block never renders a real animation anywhere inside the extension —
+Visual view or live Preview.** This isn't a missing feature to eventually
+close; it's the same `script-src 'self'` wall that already blocks a site's
+own `scripts/main.js` inside the preview iframe (see
+`rewriteScriptsForPreview()`'s comment) — a vendored player script hits the
+identical restriction a CDN one would, so there's no preview-side
+workaround available short of relaxing that CSP itself. The placeholder
+(`.cs-lottie-placeholder`, a `data-lottie-src` div plus an icon/label span)
+is genuinely the only thing that can show there; the real animation only
+appears once published, or in a "Render to Local Folder"/"Packaged" build
+opened in a normal browser tab.
+
+**The Packaged deployment target needed a second fix beyond the placeholder**
+— `lottie-init.js`'s `path:` option makes lottie-web do a real XHR, and a
+`file://` page has a `"null"` origin, so Chrome blocks *that* XHR
+unconditionally (not just cross-directory ones — see "Publishing" above for
+the identical reasoning behind `window.CS_SEARCH_INDEX`). `compose-core.js`'s
+`findLottieSrcs()` scans a page's pre-`rewriteRootRelativePaths()` content for
+every `data-lottie-src` value, and `buildLottieDataScript()` turns a
+caller-supplied `{ src: parsedAnimationJson }` map into a
+`window.CS_LOTTIE_DATA = {...}` `<script>` inserted right after `<head>`,
+keyed by each src's *already-relativized* form (`relativizeRootPath()`) so it
+matches what `el.getAttribute("data-lottie-src")` will actually read at
+runtime. Reading the referenced asset file's bytes is environment-specific
+(browser `ArrayBuffer` vs. Node `fs.readFileSync`), so that part stays in
+each caller — `editor.js`'s `renderToLocalFolder()` and `cli/compose.js`
+both do it, mirroring the `lastmod`-gathering split `buildSitemap()` already
+requires. `lottie-init.js` checks `window.CS_LOTTIE_DATA[src]` first and only
+falls back to `path` (a real fetch, fine for a served/Cloudflare/Netlify
+site, broken under `file://`) when it's absent — a missing/invalid asset
+just leaves that one src unembedded rather than failing the whole page's
+render.
+
+Because `scripts/lottie-init.js` is scaffolded copy-once (same
+never-overwritten rule as `robots.txt`/`CLAUDE.md`), a project opened
+*before* this `window.CS_LOTTIE_DATA` support existed has an old copy stuck
+in its `scripts/` folder that will keep hitting the CORS bug above forever,
+even after this file's own logic is fixed — reopening the project doesn't
+help, since `ensureScaffold()` only ever writes a scaffolded file when it's
+*missing*, never to update one that's outdated. The only fix for an
+already-affected project is replacing that one file by hand with the
+current `templates/lottie-init.js`; there's no version check or migration
+mechanism for scaffolded scripts today.
+
+Wiring a block to a specific asset happens two ways, both funneling through
+the Assets dialog rather than a dedicated third dialog: clicking a `.json`
+tile there with no Lottie block selected inserts a brand-new block already
+wired to it (`insertBlock("lottie-animation", lottieBlockMarkup(name))`,
+mirroring how clicking an image tile inserts a new `<img>`); clicking a
+Lottie block's own 🎞️ toolbar button (added in `decorateBlocks()` next to
+Embed's 🔗, same `block.querySelector(...)`-gated pattern) instead opens
+the same dialog in a picker mode (`lottiePickerTarget`) that filters the
+grid to just `.json` files and rewrites that specific block's
+`data-lottie-src`/label in place on a tile click, rather than inserting a
+second block — the retarget-in-place idea `openEmbedDialog()` already
+established for iframes, applied to an attribute instead of an iframe
+`src`. `lottiePickerTarget` is read into a local before `assetsDialog
+.close()` in the grid's click handler, since `close()` dispatches its
+`"close"` event (which resets that module-level flag back to `null`)
+synchronously, before the rest of the handler would otherwise run.
+
+### 14. Schema Markup (Organization / LocalBusiness JSON-LD)
 
 Site Settings' "Schema Markup" section writes `site.config.json` →
 `schemaMarkup` (`{ type, name, logo, telephone, address, sameAs }`, `address`
