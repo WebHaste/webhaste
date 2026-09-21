@@ -4205,7 +4205,10 @@ const PREVIEW_WINDOW_SHELL = `<!doctype html>
     font-size: 12px;
     cursor: pointer;
   }
-  #cs-preview-ribbon button:hover { background: #3a3a3a; }
+  #cs-preview-ribbon button:hover { 
+    background: #000000;
+    box-shadow: 0 0 10px 0 rgba(0, 255, 255, 0.6);
+  }
   #cs-preview-size {
     margin-left: auto;
     color: #999;
