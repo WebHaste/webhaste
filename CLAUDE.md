@@ -824,3 +824,65 @@ behavior discussed above) — a lesser, self-healing failure mode than the
 alternative. Cloudflare Pages has no such escape hatch either way — its
 redirects always win over a matching asset regardless of forcing — so this
 tradeoff is really a Netlify-specific one.
+
+### 16. Broken link detection — Menu editor validation + Check Links dialog
+
+Both features are built on the same three shared functions in `editor.js`
+(placed just above the Menu editor dialog, their first consumer):
+`looksInternalHref()` filters out anything that isn't checkable at all —
+`http(s):`/`mailto:`/`tel:` links and same-page `#anchor`s are left alone
+entirely, since there's nothing this extension can verify about an
+off-site URL or an in-page anchor. `getKnownLinkTargets()` walks the project
+fresh via the existing `walkPages()` (same call the sidebar already makes)
+rather than trusting any cached list — `fileCache` only fills in as pages
+are opened, not up front, so it's not a reliable source, and a plain
+directory listing is cheap enough to not need caching (same reasoning
+`getImageResizeMaxDimension()` uses for `site.config.json`). It also lists
+(names only, via the existing `getAssetsDirHandle()`/`getScriptsDirHandle()`/
+`getElementsDirHandle()` — not `getProjectAssets()` et al., which read every
+file's full bytes into an `ArrayBuffer` and would be wasteful just to check
+a name exists) everything under `assets/`/`scripts/`/`elements/`, flat/
+one-level same as those folders already are elsewhere in this codebase —
+a first version only walked pages, and flagged every link to a PDF/image
+under `assets/` (a normal pattern via the Assets dialog) as broken, found
+live-testing this against chromecms.com's own checklist-PDF download link.
+`isInternalHrefBroken()`
+strips a trailing `#fragment`/`?query`, normalizes a leading `/`, and
+checks the result against that path set both as typed and with `.html`
+appended — the same extensionless-URL leniency the Redirects feature's
+`buildRedirectsFile()` needed, and for the identical reason: Cloudflare
+Pages/Netlify both serve the extensionless form of every page by default,
+so a site owner typing the clean URL shouldn't be flagged as broken just
+for that.
+
+**Menu editor validation** (the primary ask — users hand-type every nav
+href, with no autocomplete/picker, so a typo or a link left stale after a
+page rename is easy to introduce and easy to miss) hooks into
+`renderNavItem()`'s existing `.item-href` input: `knownPagePaths` is
+snapshotted once when the dialog opens (not re-walked per keystroke), and
+`validateHrefInput()` runs both on initial render (so a *pre-existing*
+broken link shows red immediately, not just one newly typed) and on every
+`input` event. A broken match gets a `.href-broken` class (red border/tint,
+matching the same red `.nav-delete-item` already uses for its destructive
+button) plus a `title` tooltip — deliberately not a blocking validation,
+since a menu item might legitimately be mid-edit or point somewhere not
+built yet.
+
+**Check Links** is a separate, manual toolbar button/dialog (not wired into
+Publish) that scans the *entire* site in one pass: every page's raw
+pre-composition content (via `DOMParser` — `editor.js` is browser-only,
+unlike `compose-core.js`, so there's no cross-environment reason to fall
+back to `stripHtmlToText()`'s regex approach here) for `<a href>` tags, plus
+every menu's items (including dropdown children) from `nav.json` directly.
+Scanning *raw* content, not composed output, is deliberate — composed
+output would duplicate every nav-rendered link into every single page's
+results, drowning real per-page findings in repetition; nav links are
+still covered, just once each per menu, via the separate `navData` pass
+rather than once per page. Results render via `createElement`/`textContent`
+rather than an innerHTML template string, since a link's text or href is
+user-authored page content this extension should display, never interpret
+as markup. Deliberately scoped to internal links only, matching the
+GitHub issue that requested this (#8) — checking external URLs would need
+a live network request per link, slower and far less reliable than a
+local file-existence check, for a concern (a *third-party* site changing
+or breaking) this extension has no way to fix anyway.

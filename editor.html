@@ -16,9 +16,15 @@
     <select id="recentProjects" title="Switch to a recently opened project"></select>
     <span id="folderName" class="folder-name">No folder selected</span>
     <div class="spacer"></div>
-    <button id="siteSettingsBtn">⚙️ Site Settings</button>
-    <button id="editNav">🔗 Menus</button>
-    <button id="editRedirects">↪️ Redirects</button>
+    <div class="dropdown" id="siteAdminDropdown">
+      <button type="button" id="siteAdminToggle">⚙️ Site Admin ▾</button>
+      <div class="dropdown-menu" id="siteAdminMenu">
+        <button id="siteSettingsBtn">⚙️ Site Settings</button>
+        <button id="editNav">🔗 Menus</button>
+        <button id="editRedirects">↪️ Redirects</button>
+        <button id="checkLinksBtn">🔍 Check Links</button>
+      </div>
+    </div>
     <button id="publishBtn" class="primary">🚀 Publish</button>
     <a id="helpLink" href="https://chromecms.com/docs" target="_blank" rel="noopener noreferrer"><img src="icons/hasty-head.png" alt="" class="help-icon" /> Help</a>
   </header>
@@ -134,6 +140,18 @@
     <div class="dialog-actions">
       <button id="redirectsCancel">Cancel</button>
       <button id="redirectsSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="checkLinksDialog">
+    <h3>Check Links</h3>
+    <p class="hint">
+      Scans every page's content plus every menu for internal links that don't
+      resolve to a real page. External links and same-page anchors aren't checked.
+    </p>
+    <div id="checkLinksResults" class="check-links-results"></div>
+    <div class="dialog-actions">
+      <button id="checkLinksClose" class="primary">Close</button>
     </div>
   </dialog>
 

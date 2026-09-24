@@ -111,6 +111,29 @@ cm.on("change", (instance, changeObj) => {
   scheduleSave();
 });
 
+// ---- Site Admin dropdown (Site Settings/Menus/Redirects/Check Links) ----
+// Purely visual grouping — the four buttons inside keep their own existing
+// ids/click handlers (registered elsewhere in this file) untouched. Closes
+// on any click inside the menu (after that button's own handler has already
+// run — event bubbling means a listener on the button itself always fires
+// before this delegated one on its ancestor) or anywhere outside it.
+{
+  const siteAdminToggle = document.getElementById("siteAdminToggle");
+  const siteAdminMenu = document.getElementById("siteAdminMenu");
+  siteAdminToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    siteAdminMenu.classList.toggle("open");
+  });
+  siteAdminMenu.addEventListener("click", (e) => {
+    if (e.target.tagName === "BUTTON") siteAdminMenu.classList.remove("open");
+  });
+  document.addEventListener("click", (e) => {
+    if (!siteAdminMenu.contains(e.target) && e.target !== siteAdminToggle) {
+      siteAdminMenu.classList.remove("open");
+    }
+  });
+}
+
 // ---- Editor enabled/disabled state ----
 // No file is open until the user opens or creates one; until then the
 // visual/code panes must not look interactable, since flushPendingSave()
@@ -4285,6 +4308,61 @@ document.getElementById("openPreviewWindowBtn").addEventListener("click", () => 
   renderPreview();
 });
 
+// ---- Shared internal-link resolution (Menu editor validation + Check Links) ----
+// A link "looks internal" if it isn't an absolute URL or a special-scheme/
+// anchor-only href — those are left alone entirely, since there's nothing
+// this extension can verify about an off-site URL or a same-page anchor.
+function looksInternalHref(href) {
+  const trimmed = (href || "").trim();
+  if (!trimmed || trimmed === "#") return false;
+  return !/^(https?:|mailto:|tel:)/i.test(trimmed) && !trimmed.startsWith("#");
+}
+
+// Walked fresh every time rather than cached — fileCache only fills in as
+// pages are opened, not up front, and a plain directory listing is cheap
+// enough to not need caching, same reasoning getImageResizeMaxDimension()
+// already uses for site.config.json. Includes pages AND published
+// assets/scripts/elements (flat, one level — same non-recursive limitation
+// getProjectAssets() et al. already have), since a link can legitimately
+// point at a PDF/image under assets/ via the Assets dialog, not just
+// another page — an early version of this only walked pages, and flagged
+// every asset link on the site as broken. Paths are lowercased, leading-"/"
+// forms, e.g. "/about.html"/"/assets/brochure.pdf" — matching how
+// nav.json/redirects.json hrefs are authored.
+async function getKnownLinkTargets() {
+  const exclude = await getPageExcludeSet();
+  const paths = new Set();
+  for await (const { path } of walkPages(dirHandle, exclude)) {
+    paths.add("/" + path.toLowerCase());
+  }
+  for (const [folder, getDirHandle] of [
+    ["assets", getAssetsDirHandle],
+    ["scripts", getScriptsDirHandle],
+    ["elements", getElementsDirHandle],
+  ]) {
+    const dir = await getDirHandle(false);
+    if (!dir) continue;
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === "file") paths.add(`/${folder}/${name}`.toLowerCase());
+    }
+  }
+  return paths;
+}
+
+// True when href looks internal but doesn't resolve to a real page — checked
+// both as typed and with ".html" appended, since Cloudflare Pages/Netlify
+// both serve the extensionless form of every page by default (see the
+// Redirects feature's buildRedirectsFile() in compose-core.js), so a site
+// owner typing the clean URL isn't flagged as broken just for that.
+function isInternalHrefBroken(href, knownPaths) {
+  if (!looksInternalHref(href)) return false;
+  let path = href.trim().split("#")[0].split("?")[0];
+  if (!path || path === "/") path = "/index.html";
+  if (!path.startsWith("/")) path = "/" + path;
+  path = path.toLowerCase();
+  return !knownPaths.has(path) && !knownPaths.has(path + ".html");
+}
+
 // ---- Menu editor dialog — drag-and-drop tree, backed by SortableJS ----
 // Menus are edited as a working copy (navWorkingData) that only gets
 // written to nav.json on Save. Each rendered <li> is tagged with a random
@@ -4297,12 +4375,17 @@ let navWorkingData = null;
 let currentMenuName = null;
 let itemsById = new Map();
 let navJsonMode = false;
+// Snapshotted once per dialog open (not re-walked per keystroke) — see
+// isInternalHrefBroken()'s comment for why a fresh-but-not-live-updating
+// read is the right tradeoff here.
+let knownLinkTargets = new Set();
 
 document.getElementById("editNav").addEventListener("click", async () => {
   if (!dirHandle) {
     setStatus("Open a project folder first.");
     return;
   }
+  knownLinkTargets = await getKnownLinkTargets();
   const navData = await getNavData();
   navWorkingData = JSON.parse(JSON.stringify(navData)); // deep copy — Cancel must not mutate the saved version
   if (!navWorkingData.menus) navWorkingData.menus = {};
@@ -4397,6 +4480,12 @@ function makeItemId() {
   return "n" + Math.random().toString(36).slice(2, 10);
 }
 
+function validateHrefInput(inputEl) {
+  const broken = isInternalHrefBroken(inputEl.value, knownLinkTargets);
+  inputEl.classList.toggle("href-broken", broken);
+  inputEl.title = broken ? "No page found at this path — check for a typo or a renamed/deleted file." : "";
+}
+
 function renderNavItem(item, isChild) {
   const id = makeItemId();
   itemsById.set(id, item);
@@ -4418,8 +4507,12 @@ function renderNavItem(item, isChild) {
   const hrefInput = row.querySelector(".item-href");
   labelInput.value = item.label || "";
   hrefInput.value = item.href || "";
+  validateHrefInput(hrefInput); // catches pre-existing broken links immediately, not just new typos
   labelInput.addEventListener("input", (e) => { item.label = e.target.value; });
-  hrefInput.addEventListener("input", (e) => { item.href = e.target.value; });
+  hrefInput.addEventListener("input", (e) => {
+    item.href = e.target.value;
+    validateHrefInput(hrefInput);
+  });
 
   row.querySelector(".nav-delete-item").addEventListener("click", () => {
     li.remove();
@@ -4636,6 +4729,93 @@ document.getElementById("redirectsSave").addEventListener("click", async () => {
   redirectsDialog.close();
   setStatus("Redirects updated (.webhaste/redirects.json).");
 });
+
+// ---- Check Links dialog — scans every page + every menu for internal
+// links that don't resolve to a real page (isInternalHrefBroken()/
+// getKnownLinkTargets(), shared with the Menu editor's own live validation
+// above) ----
+document.getElementById("checkLinksBtn").addEventListener("click", async () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
+  setStatus("Checking links...");
+  const results = await scanForBrokenLinks();
+  renderCheckLinksResults(results);
+  document.getElementById("checkLinksDialog").showModal();
+  setStatus(results.length ? `Found ${results.length} broken link(s).` : "No broken internal links found.");
+});
+
+document.getElementById("checkLinksClose").addEventListener("click", () =>
+  document.getElementById("checkLinksDialog").close()
+);
+
+// Scans each page's raw (pre-composition) content rather than composed
+// output — composed output would duplicate every nav-rendered link into
+// every single page's scan, drowning real per-page findings in noise. Nav
+// links are still covered, just once each per menu, via the separate
+// navData pass below rather than once per page.
+async function scanForBrokenLinks() {
+  const knownPaths = await getKnownLinkTargets();
+  const exclude = await getPageExcludeSet();
+  const results = [];
+
+  for await (const { path, handle } of walkPages(dirHandle, exclude)) {
+    const file = await handle.getFile();
+    const rawContent = await file.text();
+    const doc = new DOMParser().parseFromString(rawContent, "text/html");
+    for (const a of doc.querySelectorAll("a[href]")) {
+      const href = a.getAttribute("href");
+      if (isInternalHrefBroken(href, knownPaths)) {
+        results.push({ source: path, href, label: a.textContent.trim().slice(0, 60) || "(no text)" });
+      }
+    }
+  }
+
+  const navData = await getNavData();
+  for (const [menuName, items] of Object.entries(navData.menus || {})) {
+    const flat = [];
+    (items || []).forEach((item) => {
+      flat.push(item);
+      (item.children || []).forEach((child) => flat.push(child));
+    });
+    for (const item of flat) {
+      if (isInternalHrefBroken(item.href, knownPaths)) {
+        results.push({ source: `Menu: ${menuName}`, href: item.href, label: item.label || "(no label)" });
+      }
+    }
+  }
+
+  return results;
+}
+
+// Built via DOM methods rather than innerHTML template strings — a link's
+// text or href is user-authored page content, not markup this extension
+// should ever interpret.
+function renderCheckLinksResults(results) {
+  const el = document.getElementById("checkLinksResults");
+  el.innerHTML = "";
+  if (!results.length) {
+    const ok = document.createElement("p");
+    ok.className = "check-links-ok";
+    ok.textContent = "✅ No broken internal links found.";
+    el.appendChild(ok);
+    return;
+  }
+  for (const r of results) {
+    const row = document.createElement("div");
+    row.className = "check-links-row";
+    const source = document.createElement("span");
+    source.className = "check-links-source";
+    source.textContent = `${r.source} — "${r.label}"`;
+    const hrefEl = document.createElement("span");
+    hrefEl.className = "check-links-href";
+    hrefEl.textContent = r.href;
+    row.appendChild(source);
+    row.appendChild(hrefEl);
+    el.appendChild(row);
+  }
+}
 
 // ---- Site Settings dialog ----
 const siteSettingsDialog = document.getElementById("siteSettingsDialog");

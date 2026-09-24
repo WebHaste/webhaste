@@ -36,6 +36,36 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 button:disabled:hover { background: #3a3a3a; }
 button.primary { background: #2563eb; border-color: #2563eb; }
 button.primary:hover { background: #1d4ed8; }
+/* ---- Site Admin dropdown (Site Settings/Menus/Redirects/Check Links) ----
+   Groups four occasional-use dialogs behind one toggle so the topbar
+   doesn't keep growing by one button per feature — see CLAUDE.md. The four
+   buttons inside keep their existing ids/click handlers unchanged; this is
+   purely a visual regrouping. */
+.dropdown { position: relative; }
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #252525;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  padding: 4px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 170px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+.dropdown-menu.open { display: flex; }
+.dropdown-menu button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border-radius: 4px;
+}
+.dropdown-menu button:hover { background: #3a3a3a; box-shadow: none; }
 .topbar a {
   background: #252525;
   color: #eee;
@@ -692,6 +722,16 @@ dialog label.checkbox-label input[type="checkbox"] { width: auto; }
   flex-shrink: 0;
 }
 .nav-item-row .nav-delete-item { color: #f87171; }
+.nav-item-row .item-href.href-broken { border-color: #f87171; background: #3a1f1f; }
+
+/* ---- Check Links dialog ---- */
+#checkLinksDialog { width: 560px; max-width: 90vw; }
+.check-links-results { max-height: 340px; overflow-y: auto; margin: 10px 0; }
+.check-links-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid #3d3d3d; }
+.check-links-row:last-child { border-bottom: none; }
+.check-links-source { font-size: 11px; color: #888; }
+.check-links-href { color: #f87171; font-family: monospace; font-size: 12px; }
+.check-links-ok { color: #4ade80; padding: 10px 0; }
 
 /* ---- Assets dialog (image/file uploads) ---- */
 #assetsDialog { width: 480px; max-width: 90vw; }
