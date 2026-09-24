@@ -480,21 +480,35 @@
   // originated, so one generated file serves both real-server deploy
   // targets with no target-specific branching, unlike nearly everything
   // else in this module. Not written for the Packaged (file://) target —
-  // there's no server there to redirect on, and (per the discussion behind
-  // this feature) a static stub page at the old path would actively shadow
-  // the real redirect on Cloudflare/Netlify if that same rendered folder
-  // were later deployed there, since both platforms let an existing static
-  // file at a path win over a _redirects rule for that path by default.
-  // Returns null when nothing is configured, so callers can skip
+  // there's no server there to redirect on; see CLAUDE.md's "Redirects"
+  // section for why a static stub page isn't generated as a fallback there
+  // either. Returns null when nothing is configured, so callers can skip
   // writing the file entirely, same "omit rather than emit empty" rule
   // buildSitemap()/buildSearchIndex() already follow. Deliberately not
   // forced (no trailing "!") — if a page is later recreated at a "from"
   // path, the real file should win over a stale redirect rather than the
   // redirect silently blocking it forever.
+  //
+  // Every WebHaste page is authored as a .html file, but Cloudflare Pages
+  // and Netlify both strip that extension by default (/about.html serves
+  // at /about) — so the URL search engines actually indexed, and the one a
+  // visitor has bookmarked, is usually the extensionless one, not the
+  // .html path a site owner types into the "from" field. A rule that only
+  // covers the .html form misses the very request it's meant to catch, so
+  // each entry whose "from" ends in .html also emits the extensionless
+  // form as a second rule, from the same single dialog entry, rather than
+  // requiring a site owner to know to add it themselves as a separate one.
   function buildRedirectsFile(redirects) {
     const list = (redirects || []).filter((r) => r && r.from && r.to);
     if (!list.length) return null;
-    return list.map((r) => `${r.from}  ${r.to}  ${r.type || 301}`).join("\n") + "\n";
+    const lines = [];
+    for (const r of list) {
+      const type = r.type || 301;
+      lines.push(`${r.from}  ${r.to}  ${type}`);
+      const bare = r.from.replace(/\.html$/i, "");
+      if (bare !== r.from && bare) lines.push(`${bare}  ${r.to}  ${type}`);
+    }
+    return lines.join("\n") + "\n";
   }
 
   return {

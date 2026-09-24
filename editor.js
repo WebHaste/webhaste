@@ -4593,11 +4593,29 @@ document.getElementById("redirectsAddRow").addEventListener("click", () => {
 
 document.getElementById("redirectsCancel").addEventListener("click", () => redirectsDialog.close());
 
-// A bare "from"/"to" is normalized to a root-relative path (leading "/"
-// added if missing) — an absolute http(s) "to" URL is left untouched, since
-// redirecting off-site to another domain is a legitimate use of this file.
-// Rows missing either field are dropped rather than saved as broken rules.
-function normalizeRedirectPath(value) {
+// "from" always refers to a path on this site — never an external URL, even
+// if a site owner pastes a full address straight from their browser's bar
+// (an easy mistake, and one that would otherwise save a _redirects rule
+// that can never match any real incoming request path). A bare path gets a
+// leading "/" added if missing; a full http(s) URL is stripped down to just
+// its pathname.
+function normalizeRedirectFrom(value) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      return new URL(trimmed).pathname || "/";
+    } catch {
+      return trimmed; // unparseable — leave as-is rather than mangle it further
+    }
+  }
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+// "to", unlike "from", may legitimately be a full external URL (redirecting
+// off-site to another domain entirely) — left untouched in that case;
+// otherwise a bare path gets a leading "/" added if missing.
+function normalizeRedirectTo(value) {
   const trimmed = (value || "").trim();
   if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
@@ -4605,10 +4623,11 @@ function normalizeRedirectPath(value) {
 
 document.getElementById("redirectsSave").addEventListener("click", async () => {
   const rows = Array.from(document.querySelectorAll("#redirectsRows .redirect-row"));
+  // Rows missing either field are dropped rather than saved as broken rules.
   const redirects = rows
     .map((row) => ({
-      from: normalizeRedirectPath(row.querySelector(".redirect-from").value),
-      to: normalizeRedirectPath(row.querySelector(".redirect-to").value),
+      from: normalizeRedirectFrom(row.querySelector(".redirect-from").value),
+      to: normalizeRedirectTo(row.querySelector(".redirect-to").value),
       type: parseInt(row.querySelector(".redirect-type").value, 10),
     }))
     .filter((entry) => entry.from && entry.to);
@@ -5080,9 +5099,23 @@ async function upsertHashes(jwt, hashes) {
   }
 }
 
-async function createPagesDeployment(account, project, token, manifest) {
+// redirectsFile, when present, is sent as its own "_redirects" multipart
+// field rather than folded into the asset manifest above — Cloudflare's own
+// Wrangler CLI does the same (it excludes _redirects/_headers/_routes.json
+// from the hashed asset manifest entirely and submits them as dedicated
+// fields on this same create-deployment call; see buildRedirectsFile()'s
+// comment in compose-core.js for the story behind that discovery). Pushing
+// _redirects through the asset-manifest path like every other file — the
+// first version of this feature did exactly that — makes Cloudflare treat
+// it as a literal downloadable text file rather than routing config: it
+// shows up fine in the deployment's file listing, but no redirect ever
+// actually fires.
+async function createPagesDeployment(account, project, token, manifest, redirectsFile) {
   const formData = new FormData();
   formData.append("manifest", JSON.stringify(manifest));
+  if (redirectsFile) {
+    formData.append("_redirects", new Blob([redirectsFile], { type: "text/plain" }), "_redirects");
+  }
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/pages/projects/${encodeURIComponent(project)}/deployments`,
     { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData }
@@ -5125,14 +5158,10 @@ async function publishSite(account, project, token) {
       });
     }
     const redirectsData = await getRedirectsData();
+    // Deliberately NOT pushed into `files` — see createPagesDeployment()'s
+    // comment for why it needs to travel as its own multipart field instead
+    // of through the hashed asset manifest like sitemap.xml/robots.txt above.
     const redirectsFile = WebhasteCompose.buildRedirectsFile(redirectsData.redirects);
-    if (redirectsFile) {
-      files.push({
-        path: "/_redirects",
-        arrayBuffer: new TextEncoder().encode(redirectsFile).buffer,
-        contentType: withCharset("text/plain"),
-      });
-    }
 
     setStatus(`Hashing ${files.length} file(s)...`);
     await hashFileList(files);
@@ -5158,7 +5187,7 @@ async function publishSite(account, project, token) {
     setStatus("Finalizing deployment...");
     const manifest = {};
     for (const f of files) manifest[f.path] = f.hash;
-    const data = await createPagesDeployment(account, project, token, manifest);
+    const data = await createPagesDeployment(account, project, token, manifest, redirectsFile);
 
     if (data.success) {
       await writePublishStateSnapshot(pageEntries);

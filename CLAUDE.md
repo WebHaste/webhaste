@@ -720,10 +720,17 @@ another raw-JSON textarea or a SortableJS tree — rows are read straight out
 of the DOM on Save (`createRedirectRow()`/the save handler in `editor.js`)
 rather than maintained as a separate working-copy object graph, since
 there's no drag-reorder or object-identity requirement driving that pattern
-for `nav.json`. `normalizeRedirectPath()` adds a leading `/` to a bare path
-on save (`contact.html` → `/contact.html`) but leaves an absolute `http(s)`
-`to` value untouched, since redirecting off-site to a different domain
-entirely is a legitimate rule. Scaffolded once as `{ redirects: [] }`, same
+for `nav.json`. Save normalizes each field with a different rule, since
+"from" and "to" mean different things: `normalizeRedirectFrom()` always
+reduces the value to a root-relative path — a bare value gets a leading
+`/` added (`contact.html` → `/contact.html`), and a full URL pasted in by
+mistake (an easy slip when copying straight from a browser's address bar)
+is stripped down to just its `pathname`, since "from" only ever refers to
+a path on this site and a rule whose source still had a scheme+host on it
+would never match a real incoming request. `normalizeRedirectTo()` adds
+the same leading `/` to a bare value but leaves a full `http(s)` URL
+untouched, since redirecting off-site to a different domain entirely is a
+legitimate destination. Scaffolded once as `{ redirects: [] }`, same
 never-overwritten pattern as `nav.json`.
 
 `compose-core.js`'s `buildRedirectsFile()` turns that list into a real
@@ -734,12 +741,55 @@ Pages and Netlify** with no target-specific branching at all — the only
 feature in this codebase where two deploy targets share output like that
 rather than each needing its own renderer (contrast `cssFramework`'s nav
 markup, which picks a different renderer per framework even though the
-underlying `nav.json` never changes). `publishSite()`, `publishToNetlify()`,
-`renderToLocalFolder()`, and `cli/compose.js` each call it and include the
-result the same way they already do `sitemap.xml`/`robots.txt`. Returns
-`null` when the list is empty, same "omit rather than emit broken/empty"
-rule `buildSitemap()`/`buildSearchIndex()` already follow, so callers skip
+underlying `nav.json` never changes). Returns `null` when the list is
+empty, same "omit rather than emit broken/empty" rule
+`buildSitemap()`/`buildSearchIndex()` already follow, so callers skip
 writing the file rather than publish an empty one.
+
+**Every entry whose `from` ends in `.html` emits two `_redirects` lines,
+not one** — the `.html` path itself, plus its extensionless form
+(`/about.html` → also `/about`). This isn't optional/configurable, because
+it isn't really a choice: every WebHaste page is authored as a `.html`
+file, but Cloudflare Pages and Netlify both strip that extension from a
+URL by default (`/about.html` serves at `/about`), so the URL a search
+engine actually indexed — and the one a visitor bookmarked — is normally
+the extensionless one, not the literal filename a site owner types into
+the Redirects dialog. A rule that only covered the `.html` form would miss
+the exact request it exists to catch. Found by testing this feature
+live against chromecms.com: the `.html` redirect worked immediately after
+the Direct Upload fix above, but the bare `/changedpage` URL still 404'd
+until this was added. `bare !== r.from` guards against emitting a
+duplicate/blank second line for a `from` that was already extensionless.
+
+**Cloudflare's Direct Upload API needs `_redirects` sent as its own
+multipart field, not as a regular file in the asset manifest** — the first
+version of this feature pushed it into `publishSite()`'s `files` array
+exactly like `sitemap.xml`/`robots.txt` just above it, hashed and uploaded
+through the same `check-missing`/`upload`/`upsert-hashes` flow as every
+other page/asset. That deploys fine and even shows `_redirects` in
+Cloudflare's own dashboard file listing — but produces zero actual
+redirect behavior, because plain Direct Upload deployments only treat
+`_redirects` as routing config when it arrives through a dedicated
+`_redirects` field on the `POST .../pages/projects/{project}/deployments`
+call (confirmed against Cloudflare's API reference for that endpoint, and
+consistent with `wrangler pages deploy` excluding `_redirects`/`_headers`/
+`_routes.json` from its own hashed asset manifest for the same reason).
+Folded into the manifest, it's just an inert text file at `/_redirects`.
+`createPagesDeployment()` now takes an optional `redirectsFile` argument,
+appended as `formData.append("_redirects", new Blob([redirectsFile]), ...)`
+alongside the existing `manifest` field; `publishSite()` deliberately
+excludes `_redirects` from `files` entirely rather than including it there
+too, to avoid re-introducing the exact bug this fixes. This split is
+Cloudflare-Direct-Upload-specific: **Netlify's manual deploy API has no
+such distinction** — `_redirects` is genuinely just a normal file in its
+digest/files object, so `publishToNetlify()` keeps treating it that way.
+`renderToLocalFolder()`/`cli/compose.js` also just write it as a plain
+file on disk either way, which is correct there too — a real file at the
+output root is exactly what a git-integrated Cloudflare Pages build (whose
+own build pipeline *does* parse `_redirects` from the output directory,
+unlike raw Direct Upload) or Netlify expects, and it's simply inert and
+harmless for a GitHub Pages `docs/` hand-off or any other static host that
+doesn't recognize the filename at all.
 
 **Not written for the Packaged (`file://`) target**, and deliberately not
 replaced with a static stub page (e.g. an `oldpage.html` with a meta-refresh)
@@ -748,21 +798,29 @@ skipped there for the same "no real server, nothing to redirect on" reason.
 A stub page was considered specifically for the case where a "Render to
 Local Folder" output later gets deployed to Cloudflare Pages or Netlify
 after all (a real scenario, since that target exists precisely for
-hand-off to whatever hosting the author already uses): both platforms let
-an *existing static file* at a path win over a `_redirects` rule for that
-same path by default, so shipping both `_redirects` and a same-path stub
-file would silently defeat the real edge-level 301 the moment it landed on
-either platform — replacing a strong SEO signal with a weak client-side
-one, the opposite of this feature's purpose. A site author who wants a
-meta-refresh fallback for some other static host can still add one by hand
-via Page Properties' "Header code" field (section 11 above) on that
-specific page.
+hand-off to whatever hosting the author already uses) — but the two
+platforms disagree here, and it's worth being precise about which one the
+concern actually applies to: Netlify's *unforced* rules let an existing
+static file at a path win over a `_redirects` rule for that same path
+(needs a trailing `!`/`force: true` to override), so shipping both
+`_redirects` and a same-path stub file would silently defeat the real 301
+the moment it landed on Netlify. Cloudflare Pages' own docs say the
+opposite — "redirects are always followed, regardless of whether or not an
+asset matches the incoming request" — so a stub wouldn't actually conflict
+there. Since Render to Local Folder can't know which host a given copy
+ends up on, and the Netlify failure mode alone is enough to make an
+unconditional stub a footgun, the simplest correct choice is still to skip
+it entirely rather than special-case per eventual host. A site author who
+wants a meta-refresh fallback for some other static host can still add one
+by hand via Page Properties' "Header code" field (section 11 above) on
+that specific page.
 
-Redirect rules are deliberately **not forced** (no trailing `!`, the
-Netlify/Cloudflare syntax for "always override a matching static file") —
-if a page is later recreated at a `from` path, the real file should win
-over a stale forgotten redirect rather than the redirect silently and
-permanently shadowing it. This does mean an *active* redirect for a path
-that still has a real page at it will lose to that page on Cloudflare
-Pages/Netlify (the same static-file-wins behavior discussed above) — a
-lesser, self-healing failure mode than the alternative.
+Redirect rules are deliberately **not forced** (no trailing `!`) — if a
+page is later recreated at a `from` path, the real file should win over a
+stale forgotten redirect rather than the redirect silently and permanently
+shadowing it. On Netlify this means an *active* redirect for a path that
+still has a real page at it will lose to that page (the unforced-rule
+behavior discussed above) — a lesser, self-healing failure mode than the
+alternative. Cloudflare Pages has no such escape hatch either way — its
+redirects always win over a matching asset regardless of forcing — so this
+tradeoff is really a Netlify-specific one.
