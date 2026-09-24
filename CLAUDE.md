@@ -708,3 +708,61 @@ markup-specific fix: any field not owned by this dialog now survives a
 save, `schemaMarkup` included, exactly like a field owned by *this* dialog
 would already need to survive a save from the Menus/Page Properties dialogs
 (which write different files entirely, so didn't have this problem).
+
+### 15. Redirects — `.webhaste/redirects.json` + `_redirects`
+
+The Redirects dialog (toolbar button, alongside Menus/Site Settings) edits
+`.webhaste/redirects.json` — a flat list of `{ from, to, type: 301|302 }`
+rules, e.g. for a page that's been renamed or deleted. Unlike `nav.json`'s
+tree editor, the schema here has no nesting, so the dialog is a plain
+add/remove-row table (`#redirectsRows` in `editor.html`) rather than
+another raw-JSON textarea or a SortableJS tree — rows are read straight out
+of the DOM on Save (`createRedirectRow()`/the save handler in `editor.js`)
+rather than maintained as a separate working-copy object graph, since
+there's no drag-reorder or object-identity requirement driving that pattern
+for `nav.json`. `normalizeRedirectPath()` adds a leading `/` to a bare path
+on save (`contact.html` → `/contact.html`) but leaves an absolute `http(s)`
+`to` value untouched, since redirecting off-site to a different domain
+entirely is a legitimate rule. Scaffolded once as `{ redirects: [] }`, same
+never-overwritten pattern as `nav.json`.
+
+`compose-core.js`'s `buildRedirectsFile()` turns that list into a real
+`_redirects` file — deliberately Netlify's own format, since Cloudflare
+Pages independently chose to support the exact same file/syntax. That
+means **one generated file, written identically, covers both Cloudflare
+Pages and Netlify** with no target-specific branching at all — the only
+feature in this codebase where two deploy targets share output like that
+rather than each needing its own renderer (contrast `cssFramework`'s nav
+markup, which picks a different renderer per framework even though the
+underlying `nav.json` never changes). `publishSite()`, `publishToNetlify()`,
+`renderToLocalFolder()`, and `cli/compose.js` each call it and include the
+result the same way they already do `sitemap.xml`/`robots.txt`. Returns
+`null` when the list is empty, same "omit rather than emit broken/empty"
+rule `buildSitemap()`/`buildSearchIndex()` already follow, so callers skip
+writing the file rather than publish an empty one.
+
+**Not written for the Packaged (`file://`) target**, and deliberately not
+replaced with a static stub page (e.g. an `oldpage.html` with a meta-refresh)
+for that target either — sitemap.xml/robots.txt/404.html are already
+skipped there for the same "no real server, nothing to redirect on" reason.
+A stub page was considered specifically for the case where a "Render to
+Local Folder" output later gets deployed to Cloudflare Pages or Netlify
+after all (a real scenario, since that target exists precisely for
+hand-off to whatever hosting the author already uses): both platforms let
+an *existing static file* at a path win over a `_redirects` rule for that
+same path by default, so shipping both `_redirects` and a same-path stub
+file would silently defeat the real edge-level 301 the moment it landed on
+either platform — replacing a strong SEO signal with a weak client-side
+one, the opposite of this feature's purpose. A site author who wants a
+meta-refresh fallback for some other static host can still add one by hand
+via Page Properties' "Header code" field (section 11 above) on that
+specific page.
+
+Redirect rules are deliberately **not forced** (no trailing `!`, the
+Netlify/Cloudflare syntax for "always override a matching static file") —
+if a page is later recreated at a `from` path, the real file should win
+over a stale forgotten redirect rather than the redirect silently and
+permanently shadowing it. This does mean an *active* redirect for a path
+that still has a real page at it will lose to that page on Cloudflare
+Pages/Netlify (the same static-file-wins behavior discussed above) — a
+lesser, self-healing failure mode than the alternative.

@@ -376,6 +376,7 @@ const DEFAULT_NAV = {
     ]
   }
 };
+const DEFAULT_REDIRECTS = { redirects: [] };
 
 async function getConfigDir(create = true) {
   return dirHandle.getDirectoryHandle(".webhaste", { create });
@@ -790,6 +791,15 @@ async function ensureScaffold() {
     await cfgDir.getFileHandle("nav.json");
   } catch {
     await writeJSONFile(cfgDir, "nav.json", DEFAULT_NAV);
+  }
+
+  // redirects.json — old-path → new-path 301/302 rules, edited via the
+  // Redirects dialog. Empty by default; see buildRedirectsFile() in
+  // compose-core.js for how this becomes a _redirects file on Publish/Render.
+  try {
+    await cfgDir.getFileHandle("redirects.json");
+  } catch {
+    await writeJSONFile(cfgDir, "redirects.json", DEFAULT_REDIRECTS);
   }
 
   // assets/, scripts/, elements/ — published (not dot-prefixed) folders
@@ -3840,6 +3850,11 @@ async function getNavData() {
   return readJSONFile(cfgDir, "nav.json", DEFAULT_NAV);
 }
 
+async function getRedirectsData() {
+  const cfgDir = await getConfigDir(true);
+  return readJSONFile(cfgDir, "redirects.json", DEFAULT_REDIRECTS);
+}
+
 // publish-state.json — a per-page mtime snapshot taken after every
 // successful Publish (Cloudflare/Netlify) or Render to Local Folder, so the
 // sidebar can flag which files have changed since. Deliberately not
@@ -4530,6 +4545,79 @@ function syncJsonIntoWorkingData() {
   }
 }
 
+// ---- Redirects dialog — flat list of old-path → new-path 301/302 rules ----
+// Unlike nav.json's tree editor, the schema here is flat (from/to/type per
+// entry), so rows are just read straight out of the DOM on Save rather than
+// maintained as a separate working-copy object graph the way navWorkingData
+// needs for its drag-reorder/object-identity requirements.
+const redirectsDialog = document.getElementById("redirectsDialog");
+
+function createRedirectRow(entry) {
+  const row = document.createElement("div");
+  row.className = "redirect-row";
+  row.innerHTML = `
+    <input type="text" class="redirect-from" placeholder="/old-page.html" />
+    <span class="redirect-arrow">→</span>
+    <input type="text" class="redirect-to" placeholder="/new-page.html" />
+    <select class="redirect-type">
+      <option value="301">301 (permanent)</option>
+      <option value="302">302 (temporary)</option>
+    </select>
+    <button type="button" class="redirect-remove" title="Remove">✕</button>
+  `;
+  row.querySelector(".redirect-from").value = entry.from || "";
+  row.querySelector(".redirect-to").value = entry.to || "";
+  row.querySelector(".redirect-type").value = String(entry.type || 301);
+  row.querySelector(".redirect-remove").addEventListener("click", () => row.remove());
+  return row;
+}
+
+document.getElementById("editRedirects").addEventListener("click", async () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
+  const data = await getRedirectsData();
+  const rowsEl = document.getElementById("redirectsRows");
+  rowsEl.innerHTML = "";
+  (data.redirects || []).forEach((entry) => rowsEl.appendChild(createRedirectRow(entry)));
+  redirectsDialog.showModal();
+});
+
+document.getElementById("redirectsAddRow").addEventListener("click", () => {
+  const rowsEl = document.getElementById("redirectsRows");
+  const row = createRedirectRow({ from: "", to: "", type: 301 });
+  rowsEl.appendChild(row);
+  row.querySelector(".redirect-from").focus();
+});
+
+document.getElementById("redirectsCancel").addEventListener("click", () => redirectsDialog.close());
+
+// A bare "from"/"to" is normalized to a root-relative path (leading "/"
+// added if missing) — an absolute http(s) "to" URL is left untouched, since
+// redirecting off-site to another domain is a legitimate use of this file.
+// Rows missing either field are dropped rather than saved as broken rules.
+function normalizeRedirectPath(value) {
+  const trimmed = (value || "").trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+document.getElementById("redirectsSave").addEventListener("click", async () => {
+  const rows = Array.from(document.querySelectorAll("#redirectsRows .redirect-row"));
+  const redirects = rows
+    .map((row) => ({
+      from: normalizeRedirectPath(row.querySelector(".redirect-from").value),
+      to: normalizeRedirectPath(row.querySelector(".redirect-to").value),
+      type: parseInt(row.querySelector(".redirect-type").value, 10),
+    }))
+    .filter((entry) => entry.from && entry.to);
+  const cfgDir = await getConfigDir(true);
+  await writeJSONFile(cfgDir, "redirects.json", { redirects });
+  redirectsDialog.close();
+  setStatus("Redirects updated (.webhaste/redirects.json).");
+});
+
 // ---- Site Settings dialog ----
 const siteSettingsDialog = document.getElementById("siteSettingsDialog");
 document.getElementById("siteSettingsBtn").addEventListener("click", async () => {
@@ -5036,6 +5124,15 @@ async function publishSite(account, project, token) {
         contentType: withCharset("text/plain"),
       });
     }
+    const redirectsData = await getRedirectsData();
+    const redirectsFile = WebhasteCompose.buildRedirectsFile(redirectsData.redirects);
+    if (redirectsFile) {
+      files.push({
+        path: "/_redirects",
+        arrayBuffer: new TextEncoder().encode(redirectsFile).buffer,
+        contentType: withCharset("text/plain"),
+      });
+    }
 
     setStatus(`Hashing ${files.length} file(s)...`);
     await hashFileList(files);
@@ -5132,6 +5229,9 @@ async function publishToNetlify(siteId, token) {
   if (searchIndex) fileEntries.push({ path: "/search-index.json", content: searchIndex });
   const robots = await getRobotsTxtContent();
   if (robots) fileEntries.push({ path: "/robots.txt", content: robots });
+  const redirectsData = await getRedirectsData();
+  const redirectsFile = WebhasteCompose.buildRedirectsFile(redirectsData.redirects);
+  if (redirectsFile) fileEntries.push({ path: "/_redirects", content: redirectsFile });
   const digests = {};
   for (const f of fileEntries) digests[f.path] = await sha1Hex(f.content);
 
@@ -5276,11 +5376,14 @@ async function renderToLocalFolder(packaged = false) {
     await writable.close();
   }
 
-  // sitemap.xml/robots.txt need a real domain/server to mean anything, and
-  // search-index.json is superseded by the per-page embed above — none of
-  // the three are written for a packaged (file://) copy.
+  // sitemap.xml/robots.txt/_redirects need a real domain/server to mean
+  // anything, and search-index.json is superseded by the per-page embed
+  // above — none of these are written for a packaged (file://) copy. See
+  // buildRedirectsFile()'s comment in compose-core.js for why _redirects
+  // specifically isn't replaced with a static stub page for this target.
   let sitemap = null;
   let robots = null;
+  let redirectsFile = null;
   if (!packaged) {
     sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
     if (sitemap) {
@@ -5300,6 +5403,14 @@ async function renderToLocalFolder(packaged = false) {
       const handle = await getNestedFileHandle(distDir, "robots.txt", { create: true });
       const writable = await handle.createWritable();
       await writable.write(robots);
+      await writable.close();
+    }
+    const redirectsData = await getRedirectsData();
+    redirectsFile = WebhasteCompose.buildRedirectsFile(redirectsData.redirects);
+    if (redirectsFile) {
+      const handle = await getNestedFileHandle(distDir, "_redirects", { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(redirectsFile);
       await writable.close();
     }
   }
@@ -5335,7 +5446,9 @@ async function renderToLocalFolder(packaged = false) {
   }
 
   const pageCount = Object.keys(pages).filter((name) => !(packaged && name.toLowerCase() === "404.html")).length;
-  const extras = [sitemap && "sitemap.xml", robots && "robots.txt"].filter(Boolean).join(", ");
+  const extras = [sitemap && "sitemap.xml", robots && "robots.txt", redirectsFile && "_redirects"]
+    .filter(Boolean)
+    .join(", ");
   await writePublishStateSnapshot(pageEntries);
   await refreshFileList();
   setStatus(

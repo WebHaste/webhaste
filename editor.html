@@ -18,6 +18,7 @@
     <div class="spacer"></div>
     <button id="siteSettingsBtn">⚙️ Site Settings</button>
     <button id="editNav">🔗 Menus</button>
+    <button id="editRedirects">↪️ Redirects</button>
     <button id="publishBtn" class="primary">🚀 Publish</button>
     <a id="helpLink" href="https://chromecms.com/docs" target="_blank" rel="noopener noreferrer"><img src="icons/hasty-head.png" alt="" class="help-icon" /> Help</a>
   </header>
@@ -117,6 +118,21 @@
     <div class="dialog-actions">
       <button id="navCancel">Cancel</button>
       <button id="navSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="redirectsDialog">
+    <h3>URL Redirects — .webhaste/redirects.json</h3>
+    <p class="hint">
+      Redirect an old page path to a new one — e.g. after renaming or deleting a page.
+      Publishes <code>_redirects</code> file, which Cloudflare Pages and Netlify 
+      both understand natively. Not applied for Packaged (file://) deployments.
+    </p>
+    <div id="redirectsRows" class="redirects-rows"></div>
+    <button id="redirectsAddRow" type="button">+ Add Redirect</button>
+    <div class="dialog-actions">
+      <button id="redirectsCancel">Cancel</button>
+      <button id="redirectsSave" class="primary">Save</button>
     </div>
   </dialog>
 

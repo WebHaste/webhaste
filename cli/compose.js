@@ -93,6 +93,8 @@ const DEFAULT_NAV = {
   },
 };
 
+const DEFAULT_REDIRECTS = { redirects: [] };
+
 // Same stripped-character set as sanitizeDeployDirectory() in editor.js.
 function sanitizeDeployDirectory(input) {
   const cleaned = (input || "").trim().replace(/[\\/:*?"<>|]+/g, "");
@@ -205,6 +207,7 @@ function main() {
   const config = readJSON(path.join(cfgDir, "site.config.json"), DEFAULT_CONFIG);
   const navData = readJSON(path.join(cfgDir, "nav.json"), DEFAULT_NAV);
   const pagesData = readJSON(path.join(cfgDir, "pages.json"), {});
+  const redirectsData = readJSON(path.join(cfgDir, "redirects.json"), DEFAULT_REDIRECTS);
 
   // A page's own pages.json "template" field (set via the extension's Page
   // Properties dialog) overrides config.activeTemplate for just that page —
@@ -294,6 +297,12 @@ function main() {
   const hasRobots = !packaged && fs.existsSync(robotsPath);
   if (hasRobots) fs.copyFileSync(robotsPath, path.join(distDir, "robots.txt"));
 
+  // _redirects — see buildRedirectsFile()'s comment in compose-core.js for
+  // why this is the one generated file shared verbatim by both Cloudflare
+  // Pages and Netlify, and why it's skipped for --packaged.
+  const redirectsFile = !packaged && WebhasteCompose.buildRedirectsFile(redirectsData.redirects);
+  if (redirectsFile) fs.writeFileSync(path.join(distDir, "_redirects"), redirectsFile);
+
   // Pass 2: write each page, applying the packaged rewrite/embed if requested.
   let writtenPageCount = 0;
   for (const { relPath, composed } of pageEntries) {
@@ -353,7 +362,12 @@ function main() {
   const scriptCount = copyDirRecursive(path.join(root, "scripts"), path.join(distDir, "scripts"));
   const elementCount = copyDirRecursive(path.join(root, "elements"), path.join(distDir, "elements"));
 
-  const extras = [sitemap && "sitemap.xml", !packaged && searchIndexJson && "search-index.json", hasRobots && "robots.txt"]
+  const extras = [
+    sitemap && "sitemap.xml",
+    !packaged && searchIndexJson && "search-index.json",
+    hasRobots && "robots.txt",
+    redirectsFile && "_redirects",
+  ]
     .filter(Boolean)
     .join(", ");
   console.log(

@@ -475,6 +475,28 @@
     return `<script>window.CS_LOTTIE_DATA = ${JSON.stringify(dataBySrc)};</script>`;
   }
 
+  // Builds a _redirects file from .webhaste/redirects.json's entries —
+  // Cloudflare Pages deliberately supports the same file/format Netlify
+  // originated, so one generated file serves both real-server deploy
+  // targets with no target-specific branching, unlike nearly everything
+  // else in this module. Not written for the Packaged (file://) target —
+  // there's no server there to redirect on, and (per the discussion behind
+  // this feature) a static stub page at the old path would actively shadow
+  // the real redirect on Cloudflare/Netlify if that same rendered folder
+  // were later deployed there, since both platforms let an existing static
+  // file at a path win over a _redirects rule for that path by default.
+  // Returns null when nothing is configured, so callers can skip
+  // writing the file entirely, same "omit rather than emit empty" rule
+  // buildSitemap()/buildSearchIndex() already follow. Deliberately not
+  // forced (no trailing "!") — if a page is later recreated at a "from"
+  // path, the real file should win over a stale redirect rather than the
+  // redirect silently blocking it forever.
+  function buildRedirectsFile(redirects) {
+    const list = (redirects || []).filter((r) => r && r.from && r.to);
+    if (!list.length) return null;
+    return list.map((r) => `${r.from}  ${r.to}  ${r.type || 301}`).join("\n") + "\n";
+  }
+
   return {
     renderMenu,
     composePage,
@@ -489,5 +511,6 @@
     rewriteRootRelativePaths,
     findLottieSrcs,
     buildLottieDataScript,
+    buildRedirectsFile,
   };
 });

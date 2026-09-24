@@ -606,6 +606,15 @@ dialog label.checkbox-label input[type="checkbox"] { width: auto; }
 .hint.warning { color: #e0a030; }
 .hidden { display: none; }
 
+/* ---- Redirects dialog ---- */
+#redirectsDialog { width: 550px; max-width: 90vw; }
+.redirects-rows { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.redirect-row { display: flex; align-items: center; gap: 6px; }
+.redirect-row input { flex: 1; width: auto; font-size: 12px; }
+.redirect-arrow { color: #888; }
+.redirect-row select { width: auto; font-size: 12px; padding: 5px; }
+.redirect-remove { font-size: 12px; padding: 5px 8px; }
+
 /* ---- Nav tree editor (Edit Menus dialog) ---- */
 #navDialog { width: 620px; max-width: 90vw; }
 
