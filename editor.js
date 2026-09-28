@@ -476,6 +476,148 @@ async function getCustomBlocks() {
   return blocks;
 }
 
+// ---- .webhaste/lists/ — the "Lists" feature (GitHub #2): admin-defined,
+// schema-flexible collections of entries (a blog index, a link list, a
+// staff directory) rendered into a page via a Blocks-dialog placeholder plus
+// a scaffolded client-side script (scripts/list.js, added in a later step).
+// One JSON file per list — schema, render/pagination settings, and entries
+// all live together (the same "settings travels with its data" shape
+// redirects.json uses), rather than one shared file the way nav.json/
+// pages.json are, since a site can have several unrelated lists and an edit
+// to one should never risk touching another's file. Lazy-created like
+// assets/.webhaste/blocks/ — the directory doesn't exist until the first
+// list is made, unlike .webhaste/ itself, which ensureScaffold() creates
+// upfront.
+async function getListsDirHandle(create = false) {
+  try {
+    return await (await getConfigDir(true)).getDirectoryHandle("lists", { create });
+  } catch (err) {
+    if (err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
+// Field types a list's schema can declare. Drives both the CRUD form's
+// input widget and the client-side renderer's tag mapping ("link" becomes a
+// real <a href>, "image" a real <img src>, "text"/"date" plain text) — kept
+// as a flat allowlist rather than free-form strings so a hand-edited
+// lists/*.json can't declare a type nothing knows how to render.
+const LIST_FIELD_TYPES = ["text", "date", "link", "image"];
+
+// Ready-made schemas the "New List" flow offers as a starting point, taken
+// straight from the feature request's own examples — not two hardcoded
+// list "kinds" the rest of the code branches on, just pre-filled field/sort
+// defaults for the one generic JSON shape every list uses (a staff
+// directory is just a list with different fields, no separate code path).
+const LIST_STARTERS = {
+  "blog-posts": {
+    name: "Blog Posts",
+    fields: [
+      { key: "date", label: "Publication Date", type: "date" },
+      { key: "title", label: "Title", type: "text" },
+      { key: "link", label: "Link", type: "link" },
+    ],
+    sortField: "date",
+    sortOrder: "desc",
+  },
+  "link-list": {
+    name: "Link List",
+    fields: [
+      { key: "title", label: "Title", type: "text" },
+      { key: "link", label: "Link", type: "link" },
+    ],
+    sortField: "title",
+    sortOrder: "asc",
+  },
+};
+
+// Same char-class rule as slugifyPathSegment() — a list's filename is just
+// another path segment, so it needs the same safety guarantee (also what
+// keeps a ".." name from ever becoming a real .webhaste/lists/ filename).
+function slugifyListSlug(input) {
+  const slug = (input || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "list";
+}
+
+function defaultListData(name) {
+  return {
+    name: name || "Untitled List",
+    fields: [],
+    sortField: "",
+    sortOrder: "desc",
+    pagination: { enabled: false, perPage: 10 },
+    entries: [],
+  };
+}
+
+// Every *.json file directly under .webhaste/lists/ — the set the List
+// Manager dialog's picker shows. Returns slugs (filename minus ".json"),
+// not parsed contents — same "cheap listing, read full data on demand"
+// reasoning getCustomBlocks()/getKnownLinkTargets() already use elsewhere
+// in this file, and a picker only ever needs names up front.
+async function getListSlugs() {
+  const dir = await getListsDirHandle(false);
+  if (!dir) return [];
+  const slugs = [];
+  for await (const [name, handle] of dir.entries()) {
+    if (handle.kind === "file" && name.endsWith(".json")) slugs.push(name.slice(0, -".json".length));
+  }
+  return slugs.sort();
+}
+
+async function getListData(slug) {
+  const dir = await getListsDirHandle(false);
+  if (!dir) return null;
+  return readJSONFile(dir, `${slug}.json`, null);
+}
+
+async function saveListData(slug, data) {
+  const dir = await getListsDirHandle(true);
+  await writeJSONFile(dir, `${slug}.json`, data);
+}
+
+async function deleteListData(slug) {
+  const dir = await getListsDirHandle(false);
+  if (!dir) return;
+  try {
+    await dir.removeEntry(`${slug}.json`);
+  } catch (err) {
+    if (err.name !== "NotFoundError") throw err;
+  }
+}
+
+// Turns a proposed list name into a unique, filesystem-safe slug —
+// "Blog Posts" -> "blog-posts", suffixed "-2"/"-3"/... on collision with an
+// existing list rather than silently overwriting it (e.g. a second "Blog
+// Posts" list for a second language shouldn't clobber the first).
+async function uniqueListSlug(name) {
+  const base = slugifyListSlug(name);
+  const existing = new Set(await getListSlugs());
+  if (!existing.has(base)) return base;
+  let i = 2;
+  while (existing.has(`${base}-${i}`)) i++;
+  return `${base}-${i}`;
+}
+
+// Creates a new list file from one of LIST_STARTERS (or a blank list when
+// starterKey is omitted/unknown), writing it to a fresh, collision-free
+// slug. Returns { slug, data } so a caller (the List Manager dialog) can
+// open the new list for editing immediately without a second read.
+async function createList(name, starterKey) {
+  const starter = (starterKey && LIST_STARTERS[starterKey]) || null;
+  const data = {
+    ...defaultListData(name || (starter && starter.name)),
+    ...(starter ? { fields: starter.fields, sortField: starter.sortField, sortOrder: starter.sortOrder } : {}),
+  };
+  const slug = await uniqueListSlug(data.name);
+  await saveListData(slug, data);
+  return { slug, data };
+}
+
 // ---- .webhaste/backups/ — safety net for an edit that scheduleSave()
 // queued but flushPendingSave() had to defer (see openFile()'s
 // outgoing-file conflict check): rather than let that edit sit only in
@@ -929,6 +1071,24 @@ async function ensureScaffold() {
       await writable.write(text);
       await writable.close();
     }
+  }
+
+  // Lists (GitHub #2) — scripts/list.js (this repo's own vanilla-JS
+  // renderer, no vendored third-party dependency needed, unlike search/
+  // Lottie above). Scaffolded unconditionally, same never-overwritten
+  // pattern as the files above, even though nothing uses it until a page
+  // actually has a List block and the template references its <script>
+  // tag — same "no preview-iframe rendering" limitation as
+  // lottie-init.js/search.js.
+  try {
+    await projectDirs.scripts.getFileHandle("list.js");
+  } catch {
+    const res = await fetch(chrome.runtime.getURL("templates/list.js"));
+    const text = await res.text();
+    const handle = await projectDirs.scripts.getFileHandle("list.js", { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
   }
 
   // 404.html — Cloudflare Pages and Netlify both auto-serve a root-level
@@ -1719,10 +1879,16 @@ function decorateBlocks() {
     const lottieBtn = block.querySelector("[data-lottie-src]")
       ? '<button type="button" data-action="edit-lottie" title="Choose animation file (.json)">🎞️</button>'
       : "";
+    // Same idea again, for a List block's [data-list-src] placeholder —
+    // see openListPicker().
+    const listBtn = block.querySelector("[data-list-src]")
+      ? '<button type="button" data-action="edit-list" title="Choose a list">🗂️</button>'
+      : "";
     toolbar.innerHTML =
       '<button type="button" data-action="edit-attrs" title="Edit ID / classes">⚙</button>' +
       embedBtn +
       lottieBtn +
+      listBtn +
       '<button type="button" data-action="move-up" title="Move block up">↑</button>' +
       '<button type="button" data-action="move-down" title="Move block down">↓</button>' +
       '<button type="button" data-action="cursor-after" title="Place cursor below this block">⏎</button>' +
@@ -1939,6 +2105,9 @@ document.getElementById("visualArea").addEventListener("click", (e) => {
     return;
   } else if (btn.dataset.action === "edit-lottie") {
     openLottieAssetPicker(block);
+    return;
+  } else if (btn.dataset.action === "edit-list") {
+    openListPicker(block);
     return;
   } else if (btn.dataset.action === "delete") {
     if (!confirm("Delete this block? This can't be undone.")) return;
@@ -3149,6 +3318,69 @@ document.getElementById("blockGrid").addEventListener("click", (e) => {
   setStatus("Inserted block.");
 });
 
+// ---- List picker dialog — wires a "List: Links"/"List: Directory" block's
+// [data-list-src] placeholder to one of this site's .webhaste/lists/*.json
+// files. Separate from the Assets dialog's picker-mode (openLottieAssetPicker())
+// since lists aren't assets — they live under .webhaste/, not assets/ — but
+// otherwise the same "retarget an existing block in place" idea as that
+// dialog and openEmbedDialog(). Reuses the Blocks dialog's .block-grid/
+// .block-tile styling rather than inventing a third grid look. ----
+const listPickerDialog = document.getElementById("listPickerDialog");
+let listPickerTarget = null;
+
+async function renderListPickerGrid() {
+  const grid = document.getElementById("listPickerGrid");
+  grid.innerHTML = "";
+  const slugs = await getListSlugs();
+  if (!slugs.length) {
+    grid.innerHTML = '<p class="hint">No lists yet — create one from Site Admin → 🗂️ Lists first.</p>';
+    return;
+  }
+  for (const slug of slugs) {
+    const data = await getListData(slug);
+    const tile = document.createElement("div");
+    tile.className = "block-tile";
+    tile.dataset.slug = slug;
+    tile.dataset.name = (data && data.name) || slug;
+    const iconEl = document.createElement("div");
+    iconEl.className = "block-tile-icon";
+    iconEl.textContent = "🗂️";
+    const labelEl = document.createElement("div");
+    labelEl.className = "block-tile-label";
+    labelEl.textContent = (data && data.name) || slug;
+    tile.append(iconEl, labelEl);
+    grid.appendChild(tile);
+  }
+}
+
+// Same "resolve the toolbar button's block down to the actual placeholder
+// div" reasoning as openLottieAssetPicker()'s comment.
+async function openListPicker(block) {
+  listPickerTarget = block.querySelector("[data-list-src]");
+  await renderListPickerGrid();
+  listPickerDialog.showModal();
+}
+
+function setListBlockSource(placeholderDiv, slug, name) {
+  placeholderDiv.dataset.listSrc = `/lists/${slug}.json`;
+  const label = placeholderDiv.querySelector(".cs-list-placeholder__label");
+  if (label) label.textContent = `🗂️ ${name || slug}`;
+}
+
+document.getElementById("listPickerClose").addEventListener("click", () => listPickerDialog.close());
+
+listPickerDialog.addEventListener("close", () => {
+  listPickerTarget = null;
+});
+
+document.getElementById("listPickerGrid").addEventListener("click", (e) => {
+  const tile = e.target.closest(".block-tile");
+  if (!tile || !listPickerTarget) return;
+  setListBlockSource(listPickerTarget, tile.dataset.slug, tile.dataset.name);
+  listPickerDialog.close();
+  scheduleSave();
+});
+
 // ---- Symbols dialog — common punctuation + a small curated emoji set,
 // same insert-at-cursor pattern as the Assets/Blocks grids above
 // (captureSelection() before showModal() steals focus, insertSnippet()
@@ -3545,6 +3777,28 @@ function lottieBlockMarkup(name) {
 `;
 }
 
+// Same idea as lottieBlockMarkup() above, for the two List blocks (GitHub
+// #2) — a placeholder div carrying data-list-src/data-list-view, which
+// scripts/list.js (scaffolded by ensureScaffold(), see its comment) looks
+// for at publish time. data-list-src is a *published* root-relative path
+// (/lists/<slug>.json), not the .webhaste/lists/<slug>.json source file —
+// .webhaste/ is never published, so the publish/render pipeline copies
+// each list's JSON out to a real /lists/ folder at compose time (see
+// getProjectLists()). Nothing in this markup renders a real list — same
+// placeholder-only scope as Lottie, for the identical reason (list.js
+// can't run inside the preview iframe's script-src 'self' CSP).
+function listBlockMarkup(view, slug, name) {
+  const label = slug
+    ? `🗂️ ${name || slug}`
+    : "🗂️ Click this block's 🗂️ toolbar button to choose a list";
+  return `
+      <div class="cs-list-placeholder" data-list-src="${slug ? `/lists/${slug}.json` : ""}" data-list-view="${view}">
+  <span class="cs-list-placeholder__icon">🗂️</span>
+  <span class="cs-list-placeholder__label">${label}</span>
+</div>
+`;
+}
+
 // Pre-baked, framework-styled HTML blocks — inserted via insertBlock(),
 // then hand-edited in place (headline/copy/images), Elementor-style. Only
 // bootstrap5 markup exists today; a block with no entry for the site's
@@ -3775,6 +4029,25 @@ tailwind: `
       // framework-specific about it (no Bootstrap classes to speak of); kept
       // scoped the same way rather than widening it speculatively.
       bootstrap5: lottieBlockMarkup(null),
+    },
+  },
+  {
+    id: "list-links",
+    label: "List: Links",
+    icon: "🗂️",
+    frameworks: {
+      // Same placeholder-only reasoning as lottie-animation above, and
+      // same bootstrap5-only scoping as the two embed blocks — nothing
+      // framework-specific about the markup itself.
+      bootstrap5: listBlockMarkup("links", null, null),
+    },
+  },
+  {
+    id: "list-directory",
+    label: "List: Directory",
+    icon: "🗂️",
+    frameworks: {
+      bootstrap5: listBlockMarkup("directory", null, null),
     },
   },
 ];
@@ -4730,6 +5003,259 @@ document.getElementById("redirectsSave").addEventListener("click", async () => {
   setStatus("Redirects updated (.webhaste/redirects.json).");
 });
 
+// ---- Lists dialog — GitHub #2. Three views inside one <dialog>, toggled
+// via .hidden: a picker (choose an existing list, or start a new one), a
+// "New List" name+starter form, and the fields/settings/entries editor.
+// The editor works off a deep-copied working object (listWorkingData),
+// same pattern as nav.json's navWorkingData rather than redirects.json's
+// read-rows-from-DOM-on-save — entries table columns are derived from the
+// live (possibly mid-edit) fields list, so add/remove-field needs to
+// re-render entries immediately, which a working-copy-plus-render-function
+// approach handles far more simply than reading heterogeneous DOM rows back
+// into a schema on Save.
+const listsDialog = document.getElementById("listsDialog");
+const LIST_FIELD_TYPE_LABELS = { text: "Text", date: "Date", link: "Link", image: "Image" };
+let listWorkingData = null;
+let currentListSlug = null;
+
+function showListsView(view) {
+  document.getElementById("listsPickerView").classList.toggle("hidden", view !== "picker");
+  document.getElementById("listsNewView").classList.toggle("hidden", view !== "new");
+  document.getElementById("listsEditView").classList.toggle("hidden", view !== "edit");
+}
+
+// Options show each list's own name, not its filename slug — the slug is
+// an implementation detail (also collision-suffixed, e.g. "blog-posts-2"),
+// while the name is what the site owner actually typed in and recognizes.
+async function refreshListsPicker(selectSlug) {
+  const picker = document.getElementById("listsPicker");
+  const slugs = await getListSlugs();
+  const entries = await Promise.all(slugs.map(async (slug) => ({ slug, data: await getListData(slug) })));
+  picker.innerHTML = entries
+    .map(({ slug, data }) => `<option value="${slug}">${(data && data.name) || slug}</option>`)
+    .join("");
+  if (selectSlug) picker.value = selectSlug;
+  const hasLists = entries.length > 0;
+  document.getElementById("listsEditBtn").disabled = !hasLists;
+  document.getElementById("listsDeleteBtn").disabled = !hasLists;
+}
+
+document.getElementById("editLists").addEventListener("click", async () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
+  await refreshListsPicker();
+  showListsView("picker");
+  listsDialog.showModal();
+});
+
+document.getElementById("listsPickerClose").addEventListener("click", () => listsDialog.close());
+
+document.getElementById("listsNewBtn").addEventListener("click", () => {
+  document.getElementById("listsNewName").value = "";
+  document.getElementById("listsNewStarter").value = "";
+  showListsView("new");
+});
+
+document.getElementById("listsNewCancel").addEventListener("click", () => showListsView("picker"));
+
+// Writes the new list to disk immediately (createList() below), same as
+// nav.json's "+ New Menu" — Cancelling the editor view afterward discards
+// further edits, not the list's existence, which keeps this flow to one
+// round-trip instead of holding a not-yet-real list only in memory.
+document.getElementById("listsNewCreate").addEventListener("click", async () => {
+  const name = document.getElementById("listsNewName").value.trim();
+  const starterKey = document.getElementById("listsNewStarter").value;
+  const { slug, data } = await createList(name, starterKey);
+  currentListSlug = slug;
+  listWorkingData = data;
+  renderListEditView();
+  showListsView("edit");
+});
+
+document.getElementById("listsEditBtn").addEventListener("click", async () => {
+  const slug = document.getElementById("listsPicker").value;
+  if (!slug) return;
+  const data = await getListData(slug);
+  if (!data) {
+    setStatus(`List "${slug}" could not be read.`);
+    return;
+  }
+  currentListSlug = slug;
+  listWorkingData = JSON.parse(JSON.stringify(data)); // deep copy — Cancel must not mutate the saved version
+  renderListEditView();
+  showListsView("edit");
+});
+
+document.getElementById("listsDeleteBtn").addEventListener("click", async () => {
+  const slug = document.getElementById("listsPicker").value;
+  if (!slug) return;
+  const data = await getListData(slug);
+  if (!confirm(`Delete the list "${(data && data.name) || slug}"? This cannot be undone.`)) return;
+  await deleteListData(slug);
+  await refreshListsPicker();
+  setStatus(`List "${(data && data.name) || slug}" deleted.`);
+});
+
+document.getElementById("listEditCancel").addEventListener("click", async () => {
+  await refreshListsPicker(currentListSlug);
+  showListsView("picker");
+});
+
+document.getElementById("listEditSave").addEventListener("click", async () => {
+  listWorkingData.name = document.getElementById("listEditName").value.trim() || listWorkingData.name;
+  await saveListData(currentListSlug, listWorkingData);
+  listsDialog.close();
+  setStatus(`List "${listWorkingData.name}" saved (.webhaste/lists/${currentListSlug}.json).`);
+});
+
+// Same char-class rule as slugifyListSlug() — a field's key just needs to
+// be a stable, collision-free object key, not anything shown to the site
+// owner directly (they see the label). Computed once when a field is
+// added and never recomputed on later label edits, so renaming a field
+// after entries already reference its key doesn't orphan their values.
+function uniqueFieldKey(fields, label) {
+  const base = slugifyListSlug(label || "field");
+  const existing = new Set(fields.map((f) => f.key));
+  if (!existing.has(base)) return base;
+  let i = 2;
+  while (existing.has(`${base}-${i}`)) i++;
+  return `${base}-${i}`;
+}
+
+function renderListEditView() {
+  document.getElementById("listEditName").value = listWorkingData.name || "";
+  renderListFieldsRows();
+  renderListSortFieldOptions();
+  document.getElementById("listPaginationEnabled").checked = !!listWorkingData.pagination.enabled;
+  document.getElementById("listPerPage").value = listWorkingData.pagination.perPage || 10;
+  document.getElementById("listSortOrder").value = listWorkingData.sortOrder || "desc";
+  renderListEntriesRows();
+}
+
+function renderListFieldsRows() {
+  const rowsEl = document.getElementById("listFieldsRows");
+  rowsEl.innerHTML = "";
+  listWorkingData.fields.forEach((field, i) => {
+    const row = document.createElement("div");
+    row.className = "list-field-row";
+    row.innerHTML = `
+      <input type="text" class="list-field-label" placeholder="Field label" />
+      <select class="list-field-type">
+        ${LIST_FIELD_TYPES.map((t) => `<option value="${t}">${LIST_FIELD_TYPE_LABELS[t]}</option>`).join("")}
+      </select>
+      <button type="button" class="list-field-remove" title="Remove">✕</button>
+    `;
+    row.querySelector(".list-field-label").value = field.label || "";
+    row.querySelector(".list-field-type").value = field.type || "text";
+    row.querySelector(".list-field-label").addEventListener("input", (e) => {
+      listWorkingData.fields[i].label = e.target.value;
+      renderListSortFieldOptions();
+      renderListEntriesRows(); // cell placeholders show the label
+    });
+    row.querySelector(".list-field-type").addEventListener("change", (e) => {
+      listWorkingData.fields[i].type = e.target.value;
+      renderListEntriesRows(); // date fields need a different <input type>
+    });
+    row.querySelector(".list-field-remove").addEventListener("click", () => {
+      const removedKey = listWorkingData.fields[i].key;
+      listWorkingData.fields.splice(i, 1);
+      if (listWorkingData.sortField === removedKey) listWorkingData.sortField = "";
+      renderListFieldsRows();
+      renderListSortFieldOptions();
+      renderListEntriesRows();
+    });
+    rowsEl.appendChild(row);
+  });
+}
+
+document.getElementById("listFieldsAddRow").addEventListener("click", () => {
+  const label = "New Field";
+  listWorkingData.fields.push({ key: uniqueFieldKey(listWorkingData.fields, label), label, type: "text" });
+  renderListFieldsRows();
+  renderListSortFieldOptions();
+  renderListEntriesRows();
+});
+
+function renderListSortFieldOptions() {
+  const select = document.getElementById("listSortField");
+  const current = listWorkingData.sortField || "";
+  select.innerHTML =
+    `<option value="">(none)</option>` +
+    listWorkingData.fields.map((f) => `<option value="${f.key}">${f.label}</option>`).join("");
+  select.value = current;
+}
+
+function renderListEntriesRows() {
+  const rowsEl = document.getElementById("listEntriesRows");
+  rowsEl.innerHTML = "";
+  listWorkingData.entries.forEach((entry, i) => {
+    const row = document.createElement("div");
+    row.className = "list-entry-row";
+    const cells = document.createElement("div");
+    cells.className = "list-entry-cells";
+    listWorkingData.fields.forEach((field) => {
+      const input = document.createElement("input");
+      input.type = field.type === "date" ? "date" : "text";
+      input.placeholder =
+        field.type === "link" ? `${field.label} (/page.html or https://...)` :
+        field.type === "image" ? `${field.label} (/assets/...)` : field.label;
+      input.value = entry[field.key] || "";
+      input.addEventListener("input", (e) => {
+        listWorkingData.entries[i][field.key] = e.target.value;
+      });
+      cells.appendChild(input);
+    });
+    const toolbar = document.createElement("div");
+    toolbar.className = "list-entry-toolbar";
+    toolbar.innerHTML = `
+      <button type="button" class="list-entry-up" title="Move up">↑</button>
+      <button type="button" class="list-entry-down" title="Move down">↓</button>
+      <button type="button" class="list-entry-remove" title="Remove">✕</button>
+    `;
+    toolbar.querySelector(".list-entry-up").addEventListener("click", () => {
+      if (i === 0) return;
+      [listWorkingData.entries[i - 1], listWorkingData.entries[i]] = [listWorkingData.entries[i], listWorkingData.entries[i - 1]];
+      renderListEntriesRows();
+    });
+    toolbar.querySelector(".list-entry-down").addEventListener("click", () => {
+      if (i === listWorkingData.entries.length - 1) return;
+      [listWorkingData.entries[i + 1], listWorkingData.entries[i]] = [listWorkingData.entries[i], listWorkingData.entries[i + 1]];
+      renderListEntriesRows();
+    });
+    toolbar.querySelector(".list-entry-remove").addEventListener("click", () => {
+      listWorkingData.entries.splice(i, 1);
+      renderListEntriesRows();
+    });
+    row.appendChild(cells);
+    row.appendChild(toolbar);
+    rowsEl.appendChild(row);
+  });
+}
+
+document.getElementById("listEntriesAddRow").addEventListener("click", () => {
+  listWorkingData.entries.push({});
+  renderListEntriesRows();
+});
+
+document.getElementById("listPaginationEnabled").addEventListener("change", (e) => {
+  listWorkingData.pagination.enabled = e.target.checked;
+});
+
+document.getElementById("listPerPage").addEventListener("input", (e) => {
+  const parsed = parseInt(e.target.value, 10);
+  listWorkingData.pagination.perPage = Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+});
+
+document.getElementById("listSortField").addEventListener("change", (e) => {
+  listWorkingData.sortField = e.target.value;
+});
+
+document.getElementById("listSortOrder").addEventListener("change", (e) => {
+  listWorkingData.sortOrder = e.target.value;
+});
+
 // ---- Check Links dialog — scans every page + every menu for internal
 // links that don't resolve to a real page (isInternalHrefBroken()/
 // getKnownLinkTargets(), shared with the Menu editor's own live validation
@@ -5105,6 +5631,62 @@ async function getProjectElements() {
   return elements;
 }
 
+// Same shape again, for .webhaste/lists/ — but published to a real, real
+// root-level /lists/ folder rather than staying under .webhaste/, which is
+// never published (see this project's CLAUDE.md, "Project config"). This
+// is what makes scripts/list.js's fetch("/lists/<slug>.json") actually
+// resolve to something on a live Cloudflare/Netlify/Render-to-Local-Folder
+// site — without this copy, every List block would 404 outside the editor
+// on every deployment target. The Packaged (file://) target doesn't use
+// this folder at all — a real file still can't be fetch()'d under file://,
+// so renderToLocalFolder(true) embeds each page's list data inline instead
+// (window.CS_LIST_DATA, same as search/Lottie) rather than writing it here.
+async function getProjectLists() {
+  const listsDir = await getListsDirHandle(false);
+  if (!listsDir) return {};
+  const lists = {};
+  for await (const [name, handle] of listsDir.entries()) {
+    if (handle.kind !== "file" || !name.endsWith(".json")) continue;
+    lists[name] = await (await handle.getFile()).arrayBuffer();
+  }
+  return lists;
+}
+
+// A list an admin has created but hasn't (or no longer has) placed on any
+// published page shouldn't still get copied out to a public
+// /lists/<slug>.json URL — unlike assets/scripts/elements (wholesale-
+// published regardless of use, since anything in those folders was
+// explicitly uploaded/authored to be referenced), a list's entries can be
+// filled in ahead of deciding where — or whether — to actually place it,
+// and a JSON dump of its data sitting at a guessable URL nobody links to
+// is a real, if minor, exposure. Scans every page's *composed* output
+// (not raw source) via WebhasteCompose.findListSrcs() — composition never
+// touches a block's own data-list-src attribute, so this sees exactly the
+// same value the published page will, and already excludes drafts for
+// free since `pages` here only ever holds collectPublishPages()'s
+// non-draft set.
+function collectReferencedListSlugs(pages) {
+  const slugs = new Set();
+  for (const html of Object.values(pages)) {
+    for (const src of WebhasteCompose.findListSrcs(html)) {
+      const match = /^\/lists\/([^/]+)\.json$/.exec(src);
+      if (match) slugs.add(match[1]);
+    }
+  }
+  return slugs;
+}
+
+// Filters getProjectLists()'s result down to just the lists
+// collectReferencedListSlugs() found actually placed on a page.
+function filterReferencedLists(lists, pages) {
+  const referenced = collectReferencedListSlugs(pages);
+  const filtered = {};
+  for (const [name, arrayBuffer] of Object.entries(lists)) {
+    if (referenced.has(name.replace(/\.json$/i, ""))) filtered[name] = arrayBuffer;
+  }
+  return filtered;
+}
+
 // ---- Cloudflare Pages Direct Upload — a content-hash-addressed protocol ----
 // This is NOT a single multipart POST of raw files + a size manifest (an
 // earlier version of this function assumed that, and produced deployments
@@ -5146,7 +5728,7 @@ function withCharset(mimeType) {
 
 // Normalizes composed pages (strings) and raw assets/scripts (ArrayBuffers)
 // into one list, with the leading-slash paths Cloudflare's manifest requires.
-function buildPagesFileList(pages, assets, scripts = {}, elements = {}) {
+function buildPagesFileList(pages, assets, scripts = {}, elements = {}, lists = {}) {
   const files = [];
   for (const [name, html] of Object.entries(pages)) {
     files.push({
@@ -5172,6 +5754,13 @@ function buildPagesFileList(pages, assets, scripts = {}, elements = {}) {
   for (const [name, arrayBuffer] of Object.entries(elements)) {
     files.push({
       path: "/elements/" + name,
+      arrayBuffer,
+      contentType: withCharset(assetMimeType(name)),
+    });
+  }
+  for (const [name, arrayBuffer] of Object.entries(lists)) {
+    files.push({
+      path: "/lists/" + name,
       arrayBuffer,
       contentType: withCharset(assetMimeType(name)),
     });
@@ -5311,7 +5900,8 @@ async function publishSite(account, project, token) {
     const assets = await getProjectAssets();
     const scripts = await getProjectScripts();
     const elements = await getProjectElements();
-    const files = buildPagesFileList(pages, assets, scripts, elements);
+    const lists = filterReferencedLists(await getProjectLists(), pages);
+    const files = buildPagesFileList(pages, assets, scripts, elements, lists);
 
     const sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
     if (sitemap) {
@@ -5417,6 +6007,7 @@ async function publishToNetlify(siteId, token) {
   const assets = await getProjectAssets();
   const scripts = await getProjectScripts();
   const elements = await getProjectElements();
+  const lists = filterReferencedLists(await getProjectLists(), pages);
 
   setStatus("Hashing files...");
   const fileEntries = Object.entries(pages).map(([name, content]) => ({
@@ -5431,6 +6022,9 @@ async function publishToNetlify(siteId, token) {
   }
   for (const [name, arrayBuffer] of Object.entries(elements)) {
     fileEntries.push({ path: "/elements/" + name, content: arrayBuffer });
+  }
+  for (const [name, arrayBuffer] of Object.entries(lists)) {
+    fileEntries.push({ path: "/lists/" + name, content: arrayBuffer });
   }
   const sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
   if (sitemap) fileEntries.push({ path: "/sitemap.xml", content: sitemap });
@@ -5522,6 +6116,7 @@ async function renderToLocalFolder(packaged = false) {
   const assets = await getProjectAssets();
   const scripts = await getProjectScripts();
   const elements = await getProjectElements();
+  const lists = filterReferencedLists(await getProjectLists(), pages);
 
   // Computed up front either way — packaged mode embeds it per page below,
   // non-packaged mode writes it as search-index.json further down.
@@ -5576,6 +6171,33 @@ async function renderToLocalFolder(packaged = false) {
         const lottieScript = WebhasteCompose.buildLottieDataScript(dataBySrc);
         if (lottieScript) {
           out = out.replace(/<head[^>]*>/i, (match) => `${match}\n${lottieScript}`);
+        }
+      }
+      // Same fetch()-blocked-under-file:// reasoning as the search/Lottie
+      // embeds above — embed each referenced list's actual JSON (already
+      // filtered to just the lists this site actually publishes, by
+      // `lists` above) so list.js can use it directly instead of its own
+      // fetch(). A src whose list is missing, or isn't valid JSON, is
+      // silently left out — list.js falls back to its normal fetch for
+      // that one, which fails the same way it would have without this
+      // embedding at all (leaving that block's placeholder in place).
+      const listSrcs = WebhasteCompose.findListSrcs(content);
+      if (listSrcs.length) {
+        const listDataBySrc = {};
+        for (const src of listSrcs) {
+          const match = /^\/lists\/([^/]+)\.json$/.exec(src);
+          if (!match) continue;
+          const buf = lists[`${match[1]}.json`];
+          if (!buf) continue;
+          try {
+            listDataBySrc[WebhasteCompose.relativizeRootPath(src, depth)] = JSON.parse(new TextDecoder().decode(buf));
+          } catch {
+            // Not valid JSON — leave it out, see comment above.
+          }
+        }
+        const listScript = WebhasteCompose.buildListDataScript(listDataBySrc);
+        if (listScript) {
+          out = out.replace(/<head[^>]*>/i, (match) => `${match}\n${listScript}`);
         }
       }
     }
@@ -5654,6 +6276,22 @@ async function renderToLocalFolder(packaged = false) {
     }
   }
 
+  // Not written for --packaged, same as sitemap.xml/search-index.json/
+  // robots.txt/_redirects above — a real /lists/<slug>.json file can't be
+  // fetch()'d under file:// anyway (blocked by CORS regardless of path
+  // form), so each page gets its list data embedded inline instead (see
+  // the window.CS_LIST_DATA block in the per-page loop above) rather than
+  // this folder being written at all for that target.
+  if (!packaged && Object.keys(lists).length) {
+    const distListsDir = await distDir.getDirectoryHandle("lists", { create: true });
+    for (const [name, arrayBuffer] of Object.entries(lists)) {
+      const handle = await distListsDir.getFileHandle(name, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(arrayBuffer);
+      await writable.close();
+    }
+  }
+
   const pageCount = Object.keys(pages).filter((name) => !(packaged && name.toLowerCase() === "404.html")).length;
   const extras = [sitemap && "sitemap.xml", robots && "robots.txt", redirectsFile && "_redirects"]
     .filter(Boolean)
@@ -5661,7 +6299,7 @@ async function renderToLocalFolder(packaged = false) {
   await writePublishStateSnapshot(pageEntries);
   await refreshFileList();
   setStatus(
-    `Rendered ${pageCount} page(s), ${Object.keys(assets).length} asset(s), ${Object.keys(scripts).length} script(s), and ${Object.keys(elements).length} element(s)${extras ? `, plus ${extras},` : ""} to the ${folderName}/ folder.`
+    `Rendered ${pageCount} page(s), ${Object.keys(assets).length} asset(s), ${Object.keys(scripts).length} script(s), ${Object.keys(elements).length} element(s), and ${packaged ? 0 : Object.keys(lists).length} list(s)${extras ? `, plus ${extras},` : ""} to the ${folderName}/ folder.`
   );
 }
 

@@ -45,6 +45,12 @@ fits the task, and prefer `CLAUDE.md` if the two ever appear to disagree
    won't be included in Publish/Render. Flatten nested folders (common when
    importing a WordPress export) straight into `assets/`/`scripts/` and
    rewrite every reference — see references/pages-and-templates.md.
+7. **Search, Lottie, and Lists all need a `<script>` tag added to the
+   template by hand.** Each scaffolds its own `scripts/*.js` file
+   automatically, but none get wired into the template on your behalf —
+   the symptom of a missing tag is a working-looking editor placeholder
+   (or search box) that does nothing on the *live* published site. See
+   references/seo-and-search.md and references/blocks.md.
 
 ## File Structure
 
@@ -62,6 +68,7 @@ my-site/
     nav.json                      ← named menus, nested children
     pages.json                    ← per-page title/description/status/...
     blocks/*.html                 ← site-specific content blocks
+    lists/*.json                   ← List block data (fields, settings, entries)
     templates/*.html               ← layout template(s)
     compose.js, compose-core.js    ← regenerated Node CLI for headless render
     block-library.md               ← regenerated list of insertable blocks
@@ -83,7 +90,8 @@ my-site/
    description, draft status, language, template override).
 4. **Add reusable content** — read
    [references/blocks.md](references/blocks.md) for the content-block
-   wrapper convention, `.webhaste/blocks/`, and Lottie/JSON animations.
+   wrapper convention, `.webhaste/blocks/`, Lottie/JSON animations, and
+   Lists.
 5. **Handle SEO and search** — read
    [references/seo-and-search.md](references/seo-and-search.md) for
    `sitemap.xml`, `robots.txt`, `search-index.json`, and the three
@@ -99,6 +107,6 @@ my-site/
 | --- | --- |
 | [references/pages-and-templates.md](references/pages-and-templates.md) | Fragment/template contract, placeholders, per-page template override, multi-language |
 | [references/navigation-and-metadata.md](references/navigation-and-metadata.md) | `nav.json` menus/layouts, `pages.json` fields (title, description, draft, language, template) |
-| [references/blocks.md](references/blocks.md) | Content block wrapper convention, `.webhaste/blocks/`, `block-library.md`, Lottie/JSON animations |
+| [references/blocks.md](references/blocks.md) | Content block wrapper convention, `.webhaste/blocks/`, `block-library.md`, Lottie/JSON animations, Lists |
 | [references/seo-and-search.md](references/seo-and-search.md) | `sitemap.xml`, `robots.txt`, site search wiring, the three Page Properties checkboxes |
 | [references/site-config-and-testing.md](references/site-config-and-testing.md) | `site.config.json` fields, no build step, headless testing with `compose.js`, do-not-hand-edit list |

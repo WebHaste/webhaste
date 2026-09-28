@@ -570,7 +570,7 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
 .visual-area img.border { border: 1px solid #d1d5db; }
 .visual-area img.p-1 { padding: .25rem; }
 .visual-area img.rounded { border-radius: .375rem; }
-.preview-pane { border-left: 8px solid #939999; }
+.preview-pane { border-left: 2px solid #939999; }
 .preview-label {
   display: flex;
   align-items: center;
@@ -589,6 +589,34 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   padding: 3px 8px;
 }
 #previewFrame { flex: 1; border: none; background: #fff; }
+
+/* Custom scrollbar for file list */
+#fileList {
+  scrollbar-width: thin;
+  scrollbar-color: #a4aaaa #444949;
+}
+
+@supports not (scrollbar-color: #a4aaaa #444949) {
+  #fileList::-webkit-scrollbar {
+    width: 10px; /* Width of the vertical scrollbar */
+    height: 10px; /* Height of the horizontal scrollbar */
+  }
+  
+  #fileList::-webkit-scrollbar-track {
+    background: #444949; /* Color of the tracking area */
+    border-radius: 4px;
+  }
+  
+  #fileList::-webkit-scrollbar-thumb {
+    background: #a4aaaa; /* Color of the draggable handle */
+    border-radius: 4px;
+    border: 2px solid #444949; /* Creates padding around thumb */
+  }
+
+  #fileList::-webkit-scrollbar-thumb:hover {
+    background: #809292;
+  }
+}
 
 .status-bar {
   padding: 4px 12px;
@@ -726,6 +754,20 @@ dialog label.checkbox-label input[type="checkbox"] { width: auto; }
 
 /* ---- Check Links dialog ---- */
 #checkLinksDialog { width: 560px; max-width: 90vw; }
+/* ---- Lists dialog ---- */
+#listsDialog { width: 640px; max-width: 92vw; }
+#listsDialog h4 { margin: 16px 0 6px; font-size: 13px; color: #bbb; }
+.lists-picker-actions { justify-content: flex-start; }
+.list-fields-rows, .list-entries-rows { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 260px; overflow-y: auto; }
+.list-field-row { display: flex; align-items: center; gap: 6px; }
+.list-field-row input { flex: 1; width: auto; font-size: 12px; }
+.list-field-row select { width: auto; font-size: 12px; padding: 5px; }
+.list-field-remove, .list-entry-remove, .list-entry-up, .list-entry-down { font-size: 12px; padding: 5px 8px; }
+.list-entry-row { display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid #3d3d3d; border-radius: 4px; }
+.list-entry-cells { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
+.list-entry-cells input { flex: 1; min-width: 100px; width: auto; font-size: 12px; }
+.list-entry-toolbar { display: flex; gap: 4px; }
+
 .check-links-results { max-height: 340px; overflow-y: auto; margin: 10px 0; }
 .check-links-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid #3d3d3d; }
 .check-links-row:last-child { border-bottom: none; }

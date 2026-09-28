@@ -463,6 +463,25 @@
     return Array.from(srcs);
   }
 
+  // Finds every data-list-src="..." value in a composed page's HTML — used
+  // by every publish/render caller to know which lists are actually placed
+  // on a page, so an admin-managed list that hasn't been inserted anywhere
+  // yet (or was removed from every page since) doesn't still get copied out
+  // to a public /lists/<slug>.json URL. Unlike findLottieSrcs() (which must
+  // run before rewriteRootRelativePaths() to see the pre-rewrite value),
+  // callers can run this at any point — nothing rewrites a list's own
+  // published path back to a slug the way it does for Lottie's asset
+  // lookup, since a list is republished by slug, not read back by exact
+  // attribute value.
+  function findListSrcs(html) {
+    const srcs = new Set();
+    String(html || "").replace(/data-list-src="([^"]+)"/g, (match, src) => {
+      srcs.add(src);
+      return match;
+    });
+    return Array.from(srcs);
+  }
+
   // dataBySrc is { [finalAttributeValue]: parsedAnimationJson }, already
   // resolved and relativized by the caller (reading each asset file is
   // environment-specific — browser File System Access vs. Node fs — so it
@@ -473,6 +492,18 @@
   function buildLottieDataScript(dataBySrc) {
     if (!dataBySrc || !Object.keys(dataBySrc).length) return null;
     return `<script>window.CS_LOTTIE_DATA = ${JSON.stringify(dataBySrc)};</script>`;
+  }
+
+  // Same idea as buildLottieDataScript() above, for Lists under the
+  // Packaged (file://) target — a real /lists/<slug>.json file can't be
+  // fetch()'d under file:// (CORS) any more than a real Lottie asset or
+  // search-index.json can, so list.js needs the same per-page embedded
+  // fallback. dataBySrc is { [finalAttributeValue]: parsedListJson },
+  // resolved/relativized by the caller for the same environment-specific
+  // reasons as buildLottieDataScript().
+  function buildListDataScript(dataBySrc) {
+    if (!dataBySrc || !Object.keys(dataBySrc).length) return null;
+    return `<script>window.CS_LIST_DATA = ${JSON.stringify(dataBySrc)};</script>`;
   }
 
   // Builds a _redirects file from .webhaste/redirects.json's entries —
@@ -525,6 +556,8 @@
     rewriteRootRelativePaths,
     findLottieSrcs,
     buildLottieDataScript,
+    findListSrcs,
+    buildListDataScript,
     buildRedirectsFile,
   };
 });

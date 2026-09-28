@@ -22,6 +22,7 @@
         <button id="siteSettingsBtn">⚙️ Site Settings</button>
         <button id="editNav">🔗 Menus</button>
         <button id="editRedirects">↪️ Redirects</button>
+        <button id="editLists">📋 Lists</button>
         <button id="checkLinksBtn">🔍 Check Links</button>
       </div>
     </div>
@@ -140,6 +141,70 @@
     <div class="dialog-actions">
       <button id="redirectsCancel">Cancel</button>
       <button id="redirectsSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="listsDialog">
+    <h3>Lists — .webhaste/lists/</h3>
+
+    <div id="listsPickerView">
+      <p class="hint">
+        Reusable, admin-managed collections of entries — a blog index, a link list, a staff
+        directory — inserted into a page via the Blocks dialog. Sorted and paginated in the
+        visitor's browser by scripts/list.js.
+      </p>
+      <label>List <select id="listsPicker"></select></label>
+      <div class="dialog-actions lists-picker-actions">
+        <button id="listsNewBtn" type="button">+ New List</button>
+        <button id="listsDeleteBtn" type="button">Delete List</button>
+      </div>
+      <div class="dialog-actions">
+        <button id="listsPickerClose">Close</button>
+        <button id="listsEditBtn" class="primary">Edit</button>
+      </div>
+    </div>
+
+    <div id="listsNewView" class="hidden">
+      <label>List Name <input id="listsNewName" type="text" placeholder="e.g. Blog Posts" /></label>
+      <label>Start From
+        <select id="listsNewStarter">
+          <option value="">Blank list</option>
+          <option value="blog-posts">Blog Posts (date, title, link)</option>
+          <option value="link-list">Link List (title, link)</option>
+        </select>
+      </label>
+      <div class="dialog-actions">
+        <button id="listsNewCancel">Cancel</button>
+        <button id="listsNewCreate" class="primary">Create</button>
+      </div>
+    </div>
+
+    <div id="listsEditView" class="hidden">
+      <label>List Name <input id="listEditName" type="text" /></label>
+
+      <h4>Fields</h4>
+      <div id="listFieldsRows" class="list-fields-rows"></div>
+      <button id="listFieldsAddRow" type="button">+ Add Field</button>
+
+      <h4>Settings</h4>
+      <label class="checkbox-label"><input id="listPaginationEnabled" type="checkbox" /> Enable pagination</label>
+      <label>Items Per Page <input id="listPerPage" type="number" min="1" step="1" /></label>
+      <label>Sort By <select id="listSortField"></select></label>
+      <label>Sort Order
+        <select id="listSortOrder">
+          <option value="desc">Descending</option>
+          <option value="asc">Ascending</option>
+        </select>
+      </label>
+
+      <h4>Entries</h4>
+      <div id="listEntriesRows" class="list-entries-rows"></div>
+      <button id="listEntriesAddRow" type="button">+ Add Entry</button>
+
+      <div class="dialog-actions">
+        <button id="listEditCancel">Cancel</button>
+        <button id="listEditSave" class="primary">Save</button>
+      </div>
     </div>
   </dialog>
 
@@ -370,6 +435,15 @@
     <div id="blockGrid" class="block-grid"></div>
     <div class="dialog-actions">
       <button id="blocksDialogClose">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="listPickerDialog">
+    <h3>Choose a List</h3>
+    <p class="hint">Wires this block to one of your site's lists — manage lists (fields, settings, entries) from Site Admin → 🗂️ Lists.</p>
+    <div id="listPickerGrid" class="block-grid"></div>
+    <div class="dialog-actions">
+      <button id="listPickerClose">Close</button>
     </div>
   </dialog>
 

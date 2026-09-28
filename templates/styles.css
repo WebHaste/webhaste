@@ -119,3 +119,116 @@ main { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
 .cs-lottie-placeholder__label {
   font-size: 13px;
 }
+
+
+/* LISTS — see this project's CLAUDE.md, "Lists" section. [data-list-src]
+   is what scripts/list.js looks for; .cs-list-placeholder is the look
+   before that script runs (never, inside the WebHaste editor's own
+   preview — same as the Lottie placeholder above), replaced in place once
+   list.js renders the real content. The .cs-list/.cs-list-item/
+   .cs-list-field/.cs-list-pagination classes below are the actual
+   rendered output's baseline look — deliberately plain, not tied to any
+   CSS framework, since a list's fields are author-defined and can't be
+   mapped to framework utility classes the way BLOCK_LIBRARY's fixed
+   markup is. */
+
+.cs-list-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 120px;
+  padding: 24px;
+  text-align: center;
+  color: #888;
+  background: #f5f5f5;
+  border: 1px dashed #ccc;
+  border-radius: 6px;
+}
+
+.cs-list-placeholder__icon {
+  font-size: 32px;
+}
+
+.cs-list-placeholder__label {
+  font-size: 13px;
+}
+
+.cs-list--links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cs-list--links .cs-list-item {
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.cs-list--links .cs-list-item:last-child {
+  border-bottom: none;
+}
+
+.cs-list--links a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.cs-list--links a:hover {
+  text-decoration: underline;
+}
+
+.cs-list--links img.cs-list-field--image {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.cs-list--directory {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.cs-list--directory .cs-list-item {
+  padding: 16px;
+  border: 1px solid #eee;
+  border-radius: 6px;
+}
+
+.cs-list--directory img.cs-list-field--image {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.cs-list--directory .cs-list-field {
+  display: block;
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+.cs-list-field__label {
+  font-weight: 600;
+}
+
+.cs-list-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.cs-list-pagination__status {
+  font-size: 13px;
+  color: #555;
+}

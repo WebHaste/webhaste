@@ -126,7 +126,9 @@ Every page also gets Open Graph and Twitter Card meta tags (`og:title`, `og:desc
 │   ├── bootstrap.bundle.min.js ← JS for CSS library if stored locally (if needed)
 │   ├── scripts.js              ← site-wide custom JS
 │   ├── lunr.min.js             ← scaffolded automatically — search library, see below
-│   └── search.js               ← scaffolded automatically — search UI logic, see below
+│   ├── search.js               ← scaffolded automatically — search UI logic, see below
+│   └── list.js                 ← scaffolded automatically — renders List blocks; needs
+│                                  its own <script> tag added to the template by hand
 ├── search-index.json           ← generated at publish/render time, alongside sitemap.xml
 ├── dist/                       ← generated build output — deploy this, don't hand-edit
 └── .webhaste/
@@ -135,6 +137,8 @@ Every page also gets Open Graph and Twitter Card meta tags (`og:title`, `og:desc
     ├── pages.json              ← optional per-page <title>/meta overrides
     ├── block-library.md        ← generated list of available blocks
     ├── blocks/                 ← this site's reusable custom blocks
+    ├── lists/                  ← List block data (fields, settings, entries);
+    │                              only lists actually placed on a page get published
     ├── templates/              ← page layout(s); active one set in config
     ├── compose.js              ← generated — headless preview renderer
     └── compose-core.js         ← generated — shared substitution logic

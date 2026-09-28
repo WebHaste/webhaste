@@ -49,3 +49,40 @@ It also works fully offline under **Packaged** (no server, opened straight
 from disk) — same as site search: each page's referenced animation JSON
 gets embedded inline automatically instead of fetched, since `file://`
 pages can't fetch anything. Nothing to configure for this.
+
+## Lists
+
+The built-in "List: Links" and "List: Directory" blocks render an
+admin-managed list — set up from Site Admin → 🗂️ Lists (fields, sort
+order, optional pagination, entries) — into a page, via a
+`data-list-src="/lists/<slug>.json"` placeholder wired to one specific
+list through the block's own 🗂️ toolbar button.
+
+**The template must load `scripts/list.js`** (already scaffolded; add the
+tag by hand, same as `lottie-init.js`/`search.js` above — nothing
+auto-injected) or the block renders nothing but its placeholder on the
+*live* site, not just in the editor:
+
+```html
+<script src="/scripts/list.js"></script>
+```
+
+Field types drive rendering: `link` → real `<a href>` (and for "List:
+Links", makes the whole entry clickable), `image` → real `<img src>`,
+`date`/`text` → plain text, with a `date` value reformatted for display
+(e.g. "Sept. 28, 2026") rather than shown as its raw stored `yyyy-mm-dd`.
+Every rendered piece gets a `cs-list-field cs-list-field--<type>` /
+`cs-list-item` / `cs-list--links`/`cs-list--directory` class to style —
+same `cs-*` convention as search's result classes.
+
+Only a list actually referenced by a `data-list-src` on some page gets
+published to `/lists/<slug>.json` — one an admin filled in but hasn't
+placed anywhere yet stays private. Same placeholder-only-in-editor
+behavior as Lottie above, and same offline-Packaged support too: each
+page's referenced list data gets embedded inline automatically instead of
+fetched, since `file://` pages can't fetch anything. Nothing to configure
+for this. Pagination, when enabled, is entirely client-side
+(`?list_<slug>_page=N` in the URL) — there's no separate crawlable page
+per page-number.
+
+See this project's `CLAUDE.md`, "Lists" section, for the full story.

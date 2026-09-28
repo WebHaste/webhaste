@@ -4,10 +4,12 @@
  * compose.js — headless equivalent of the extension's "Render to Local
  * Folder" (editor.js: renderToLocalFolder()). Composes every *.html page at
  * a site's project root against its active template/nav/site config and
- * writes the result to a dist folder, plus copies of assets/ and scripts/
- * — no browser, no extension install, just Node. Built so an agent (or CI)
- * editing site files directly can check what actually ships, instead of
- * just guessing from the template placeholders.
+ * writes the result to a dist folder, plus copies of assets/, scripts/,
+ * and elements/, plus (for a real, non-packaged deploy) .webhaste/lists/*.json
+ * republished to a real /lists/ folder — no browser, no extension install,
+ * just Node. Built so an agent (or CI) editing site files directly can
+ * check what actually ships, instead of just guessing from the template
+ * placeholders.
  *
  * This file lives in two places, and works unmodified in both:
  *   1. this repo's own cli/compose.js — the extension's own dev-tool copy,
@@ -38,9 +40,9 @@
  *   --packaged  Headless equivalent of the extension's "Packaged" deployment
  *               target: rewrites root-relative paths ("/about.html") to
  *               "../"-relative ones so the output works when opened straight
- *               from disk (file://), and embeds search data and any Lottie
- *               animation JSON per page instead of fetching either at
- *               runtime (both are blocked by CORS under file://).
+ *               from disk (file://), and embeds search data, Lottie
+ *               animation JSON, and List data per page instead of fetching
+ *               any of them at runtime (all blocked by CORS under file://).
  *               sitemap.xml/robots.txt/404.html are omitted, since none are
  *               meaningful without a real domain/server.
  *
@@ -174,8 +176,8 @@ function parseArgs(argv) {
         "  --out       Output folder, relative to siteDir (default: deployDirectory\n" +
         "              from .webhaste/site.config.json, or \"dist\")\n" +
         "  --packaged  Render for opening straight from disk (file://) instead of a\n" +
-        "              server — rewrites root-relative paths, embeds search/Lottie\n" +
-        "              data per page, and omits sitemap.xml/robots.txt/404.html"
+        "              server — rewrites root-relative paths, embeds search/Lottie/\n" +
+        "              List data per page, and omits sitemap.xml/robots.txt/404.html"
     );
     process.exit(0);
   }
@@ -351,6 +353,31 @@ function main() {
           out = out.replace(/<head[^>]*>/i, (match) => `${match}\n${lottieScript}`);
         }
       }
+      // Same fetch()-blocked-under-file:// reasoning as the search/Lottie
+      // embeds above — embed each referenced list's actual JSON so list.js
+      // can use it directly instead of its own fetch(). A src whose list
+      // is missing, or isn't valid JSON, is silently left out — list.js
+      // falls back to its normal fetch for that one, which fails the same
+      // way it would have without this embedding (leaving that block's
+      // placeholder in place).
+      const listSrcs = WebhasteCompose.findListSrcs(composed);
+      if (listSrcs.length) {
+        const listDataBySrc = {};
+        for (const src of listSrcs) {
+          const match = /^\/lists\/([^/]+)\.json$/.exec(src);
+          if (!match) continue;
+          try {
+            const text = fs.readFileSync(path.join(cfgDir, "lists", `${match[1]}.json`), "utf8");
+            listDataBySrc[WebhasteCompose.relativizeRootPath(src, depth)] = JSON.parse(text);
+          } catch {
+            // Missing file or invalid JSON — leave it out, see comment above.
+          }
+        }
+        const listScript = WebhasteCompose.buildListDataScript(listDataBySrc);
+        if (listScript) {
+          out = out.replace(/<head[^>]*>/i, (match) => `${match}\n${listScript}`);
+        }
+      }
     }
     const dest = path.join(distDir, relPath);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -361,6 +388,41 @@ function main() {
   const assetCount = copyDirRecursive(path.join(root, "assets"), path.join(distDir, "assets"));
   const scriptCount = copyDirRecursive(path.join(root, "scripts"), path.join(distDir, "scripts"));
   const elementCount = copyDirRecursive(path.join(root, "elements"), path.join(distDir, "elements"));
+  // .webhaste/lists/*.json -> a real /lists/ folder — .webhaste/ itself is
+  // never published, so without this copy, every List block's
+  // scripts/list.js fetch("/lists/<slug>.json") would 404 on a real
+  // Cloudflare/Netlify/Render-to-Local-Folder site. Skipped for --packaged
+  // — that target doesn't use this folder at all, since a real file still
+  // can't be fetch()'d under file:// (CORS); each page's list data is
+  // embedded inline instead (window.CS_LIST_DATA, see the --packaged
+  // branch in the page-writing loop above).
+  //
+  // Only copies lists actually referenced by a data-list-src on some
+  // composed page (WebhasteCompose.findListSrcs(), same extraction
+  // findLottieSrcs() uses for Lottie) — a list an admin has filled in but
+  // hasn't placed on a page yet shouldn't still land at a public URL
+  // nobody links to.
+  let listCount = 0;
+  if (!packaged) {
+    const referencedSlugs = new Set();
+    for (const { composed } of pageEntries) {
+      for (const src of WebhasteCompose.findListSrcs(composed)) {
+        const match = /^\/lists\/([^/]+)\.json$/.exec(src);
+        if (match) referencedSlugs.add(match[1]);
+      }
+    }
+    const listsSrcDir = path.join(cfgDir, "lists");
+    if (referencedSlugs.size && fs.existsSync(listsSrcDir)) {
+      const listsDistDir = path.join(distDir, "lists");
+      fs.mkdirSync(listsDistDir, { recursive: true });
+      for (const slug of referencedSlugs) {
+        const srcFile = path.join(listsSrcDir, `${slug}.json`);
+        if (!fs.existsSync(srcFile)) continue;
+        fs.copyFileSync(srcFile, path.join(listsDistDir, `${slug}.json`));
+        listCount++;
+      }
+    }
+  }
 
   const extras = [
     sitemap && "sitemap.xml",
@@ -371,7 +433,7 @@ function main() {
     .filter(Boolean)
     .join(", ");
   console.log(
-    `Rendered ${writtenPageCount} page(s), ${assetCount} asset(s), ${scriptCount} script(s), and ${elementCount} element(s)${extras ? `, plus ${extras},` : ""} to ${path.join(path.relative(root, distDir) || ".", "/")}`
+    `Rendered ${writtenPageCount} page(s), ${assetCount} asset(s), ${scriptCount} script(s), ${elementCount} element(s), and ${listCount} list(s)${extras ? `, plus ${extras},` : ""} to ${path.join(path.relative(root, distDir) || ".", "/")}`
   );
 }
 

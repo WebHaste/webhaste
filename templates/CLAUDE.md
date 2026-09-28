@@ -271,6 +271,72 @@ page gets its referenced animation's actual JSON embedded inline instead of
 Nothing to configure for this; it's automatic whenever a page has a Lottie
 block, same as the search embedding above.
 
+## Lists
+
+The Blocks dialog's "List: Links" and "List: Directory" blocks render an
+admin-managed list — set up from the toolbar's Site Admin → 🗂️ Lists
+dialog (fields, sort order, optional pagination, and the entries
+themselves) — into a page. Each inserted block is a placeholder wired to
+one specific list via a `data-list-src="/lists/<slug>.json"` attribute
+(set from the block's own 🗂️ toolbar button, not hand-typed), plus
+`data-list-view="links"` or `"directory"`.
+
+**A site's template must load `scripts/list.js` for a List block to
+render at all** — same never-auto-injected pattern as
+`search.js`/`lottie-init.js` above, and the single most common way this
+feature looks broken: the placeholder (icon + list name) is exactly what
+renders on the live, published site if this script tag is missing, not
+just a symptom you'd only see in the editor. Add it to the template's
+`<head>` (the default `simple-layout.html` starter already includes it):
+
+```html
+<script src="/scripts/list.js"></script>
+```
+
+Field types drive how a value renders, in both block placements: a `link`
+field becomes a real `<a href>` (its value supplies the destination — for
+"List: Links" specifically, it's also what makes the *whole entry*
+clickable, with every other non-image field's value as the link text), an
+`image` field becomes a real `<img src>`, and a `date`/`text` field renders
+as plain, human-readable text — a `date` value (stored as `yyyy-mm-dd`) is
+reformatted for display as e.g. "Sept. 28, 2026", never shown in its raw
+stored form. Every rendered field gets a `cs-list-field cs-list-field--
+<type>` class (plus `cs-list-item` on each entry's wrapper, and
+`cs-list--links`/`cs-list--directory` on the container) to style from
+site CSS, same `cs-*` convention as site search's result classes.
+
+**Only lists actually placed on some page get published** — an admin can
+fill in a list's entries well before deciding where, or whether, to place
+it on a page, so an unreferenced list's data deliberately never gets
+copied out to a public `/lists/<slug>.json` URL at Publish/Render time.
+Placing a block, publishing, then later removing that block from every
+page stops that list from being republished on the *next* publish — it
+isn't retroactively deleted from a deployment that already shipped it.
+
+**The block only ever shows a static placeholder in the WebHaste editor**
+— in Visual view and in live Preview alike — same reasoning as the Lottie
+block above (`scripts/*.js` can't execute inside the preview iframe's
+`script-src 'self'` CSP). Check a real list's rendering on the published
+site, or a "Render to Local Folder"/"Packaged" build opened in a normal
+browser tab.
+
+Lists still work fully offline under the **Packaged** deployment target
+(no server, opened straight from disk) — same as site search and Lottie: a
+real `/lists/<slug>.json` file can't be `fetch()`'d under `file://`
+(blocked by CORS regardless of path form), so each page gets its
+referenced list's actual data embedded inline instead of `list.js`
+fetching it. Nothing to configure for this; it's automatic whenever a page
+has a List block.
+
+Pagination (when turned on for a list) is entirely client-side — there's
+no separate URL/page-number per page of results, by design, not as a
+current limitation: a generated static page per page-number would need
+its own SEO handling (a list's real "page 2" isn't a page anything should
+link to or index), and `sitemap.xml` already covers whatever real pages
+link into a list. The current page is tracked as a `?list_<slug>_page=N`
+query parameter (via `history.replaceState`, so it's still bookmarkable)
+rather than changing what's actually served.
+
 ## Open Graph / Twitter Card tags are automatic
 
 Every page gets `og:title`, `og:description`, `og:type`, `og:site_name`,
