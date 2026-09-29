@@ -1442,7 +1442,7 @@ newFileSaveBtn.addEventListener("click", async () => {
       // Flush first in case sourceName is the page currently open with
       // unsaved edits — same ordering flushPendingSave()'s other callers use
       // to avoid reading stale disk content out from under an in-progress edit.
-      await flushPendingSave();
+      await queueFlush();
       const sourceHandle = await getNestedFileHandle(dirHandle, sourceName, { create: false });
       content = await (await sourceHandle.getFile()).text();
     }
@@ -1737,7 +1737,7 @@ document.getElementById("pagePropsSave").addEventListener("click", async () => {
   // write "undefined" over the currently-open page. renderPreview() must
   // run before that clear too, since it reads the current page straight out
   // of fileCache.
-  await flushPendingSave();
+  await queueFlush();
   renderPreview();
   await refreshFileList();
   setStatus(`Saved properties for ${pagePropsFileName}.`);
@@ -1792,10 +1792,10 @@ async function openFile(name, handle) {
       filesWithBackup.add(outgoing.name);
       setStatus(`"${outgoing.name}" changed elsewhere — your edit there is backed up and queued, and will be resolved next time you open it.`);
     } else {
-      await flushPendingSave();
+      await queueFlush();
     }
   } else {
-    await flushPendingSave();
+    await queueFlush();
   }
   clearTimeout(saveTimer);
   currentFileHandle = handle;
@@ -3665,12 +3665,34 @@ imagePropsDialog.addEventListener("close", () => {
 let saveTimer = null;
 let pendingSave = null; // { handle, name } or null
 
+// Serializes every flushPendingSave() run behind one promise chain, so two
+// invocations — the debounce timer below firing again while an earlier flush
+// for the same file is still awaiting slow disk I/O (a Dropbox/OneDrive-
+// synced project folder is the realistic trigger, since the sync client
+// itself competes for the file) — can never execute concurrently. Without
+// this, a second overlapping flush could call handle.getFile() in the narrow
+// window after the first flush's writable.close() lands on disk but before
+// that first flush's own recordFileMeta() call runs, read back the write we
+// JUST made ourselves, and misread it as an outside edit — the false
+// "changed elsewhere" warning reported while typing in Code view (a
+// type-pause-type rhythm there produces far more separate debounce firings
+// per session than Visual view's more continuous prose typing, so it has
+// many more chances to land in that window). Every caller of
+// flushPendingSave() — this timer, plus openFile()/Page Properties/New
+// File's direct calls below — goes through queueFlush() instead of calling
+// flushPendingSave() directly, for the same reason.
+let flushChain = Promise.resolve();
+function queueFlush() {
+  flushChain = flushChain.then(flushPendingSave);
+  return flushChain;
+}
+
 function scheduleSave() {
   syncFromActiveView();
   renderPreview();
   pendingSave = { handle: currentFileHandle, name: currentFileName };
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(flushPendingSave, 400);
+  saveTimer = setTimeout(queueFlush, 400);
 }
 
 // Cross-user/cross-tab conflict guard for shared-drive projects (Dropbox,
