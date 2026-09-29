@@ -52,11 +52,19 @@ pages can't fetch anything. Nothing to configure for this.
 
 ## Lists
 
-The built-in "List: Links" and "List: Directory" blocks render an
-admin-managed list — set up from Site Admin → 🗂️ Lists (fields, sort
-order, optional pagination, entries) — into a page, via a
+The built-in "List: Links", "List: Directory", and "List: Table" blocks
+render an admin-managed list — set up from Site Admin → 🗂️ Lists (fields,
+sort order, optional pagination, entries) — into a page, via a
 `data-list-src="/lists/<slug>.json"` placeholder wired to one specific
 list through the block's own 🗂️ toolbar button.
+
+"List: Table"'s placeholder is a real `<table>` (list.js only repopulates
+its `<thead>`/`<tbody>`), pre-filled with that framework's default table
+class — `table` (Bootstrap 5) or `table-auto` (Tailwind) — as plain markup
+you can edit in Code view like any other block's classes, since there's no
+dedicated dialog for it (the ⚙ cog only edits `<div>` wrappers). Its
+pagination controls render as a sibling right after `</table>`, not inside
+it — a `<div>` can never be a valid direct child of `<table>`.
 
 **The template must load `scripts/list.js`** (already scaffolded; add the
 tag by hand, same as `lottie-init.js`/`search.js` above — nothing
@@ -73,7 +81,10 @@ Links", makes the whole entry clickable), `image` → real `<img src>`,
 (e.g. "Sept. 28, 2026") rather than shown as its raw stored `yyyy-mm-dd`.
 Every rendered piece gets a `cs-list-field cs-list-field--<type>` /
 `cs-list-item` / `cs-list--links`/`cs-list--directory` class to style —
-same `cs-*` convention as search's result classes.
+same `cs-*` convention as search's result classes — except "List: Table",
+which renders plain `<th>`/`<td>` with no extra classes (a field's label
+becomes the `<th>` text; a real `<table>`'s own semantics are already
+what you'd style directly).
 
 Only a list actually referenced by a `data-list-src` on some page gets
 published to `/lists/<slug>.json` — one an admin filled in but hasn't

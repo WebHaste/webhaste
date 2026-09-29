@@ -273,13 +273,27 @@ block, same as the search embedding above.
 
 ## Lists
 
-The Blocks dialog's "List: Links" and "List: Directory" blocks render an
-admin-managed list — set up from the toolbar's Site Admin → 🗂️ Lists
-dialog (fields, sort order, optional pagination, and the entries
-themselves) — into a page. Each inserted block is a placeholder wired to
-one specific list via a `data-list-src="/lists/<slug>.json"` attribute
-(set from the block's own 🗂️ toolbar button, not hand-typed), plus
-`data-list-view="links"` or `"directory"`.
+The Blocks dialog's "List: Links", "List: Directory", and "List: Table"
+blocks render an admin-managed list — set up from the toolbar's Site Admin
+→ 🗂️ Lists dialog (fields, sort order, optional pagination, and the
+entries themselves) — into a page. Each inserted block is a placeholder
+wired to one specific list via a `data-list-src="/lists/<slug>.json"`
+attribute (set from the block's own 🗂️ toolbar button, not hand-typed),
+plus `data-list-view="links"`, `"directory"`, or `"table"`.
+
+**"List: Table" is structurally different from the other two**: its
+placeholder *is* a real `<table>` element (with real `<thead>`/`<tbody>`
+inside), not a `<div>` — list.js only ever repopulates the head/body rows,
+never touches the `<table>` tag's own attributes. That's what makes the
+table's `class` genuinely yours to edit: it starts out as `class="table"`
+(Bootstrap 5) or `class="table-auto"` (Tailwind) — that framework's own
+default table styling, picked automatically to match `cssFramework` — but
+it's plain markup in the block's source, editable in Code view exactly
+like any other block's classes (add `table-striped`/`table-hover`, swap it
+for something else, or remove it entirely). There's no dedicated dialog
+for this one, the same way hand-tuning a block's wrapper classes elsewhere
+in this doc is "still a Code view edit" — the ⚙ cog only edits `<div>`
+wrappers, not a `<table>` itself.
 
 **A site's template must load `scripts/list.js` for a List block to
 render at all** — same never-auto-injected pattern as
@@ -293,9 +307,9 @@ just a symptom you'd only see in the editor. Add it to the template's
 <script src="/scripts/list.js"></script>
 ```
 
-Field types drive how a value renders, in both block placements: a `link`
-field becomes a real `<a href>` (its value supplies the destination — for
-"List: Links" specifically, it's also what makes the *whole entry*
+Field types drive how a value renders, across all three placements: a
+`link` field becomes a real `<a href>` (its value supplies the destination
+— for "List: Links" specifically, it's also what makes the *whole entry*
 clickable, with every other non-image field's value as the link text), an
 `image` field becomes a real `<img src>`, and a `date`/`text` field renders
 as plain, human-readable text — a `date` value (stored as `yyyy-mm-dd`) is
@@ -303,7 +317,12 @@ reformatted for display as e.g. "Sept. 28, 2026", never shown in its raw
 stored form. Every rendered field gets a `cs-list-field cs-list-field--
 <type>` class (plus `cs-list-item` on each entry's wrapper, and
 `cs-list--links`/`cs-list--directory` on the container) to style from
-site CSS, same `cs-*` convention as site search's result classes.
+site CSS, same `cs-*` convention as site search's result classes — except
+"List: Table", which renders plain `<th>`/`<td>` with no extra classes at
+all, since a real `<table>`'s own row/cell semantics are already what
+you'd style directly (a field's label becomes the `<th>` text, in field
+order; link/image fields still render as a real `<a>`/`<img>` inside their
+`<td>`, just without a wrapping class to hook).
 
 **Only lists actually placed on some page get published** — an admin can
 fill in a list's entries well before deciding where, or whether, to place
@@ -335,7 +354,11 @@ its own SEO handling (a list's real "page 2" isn't a page anything should
 link to or index), and `sitemap.xml` already covers whatever real pages
 link into a list. The current page is tracked as a `?list_<slug>_page=N`
 query parameter (via `history.replaceState`, so it's still bookmarkable)
-rather than changing what's actually served.
+rather than changing what's actually served. For "List: Table" specifically,
+the Previous/Next controls render as a sibling element right after the
+`</table>` rather than inside it — a `<div>` can never be a valid direct
+child of `<table>`, so there's nowhere inside the table itself for them to
+go.
 
 ## Open Graph / Twitter Card tags are automatic
 

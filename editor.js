@@ -3833,12 +3833,36 @@ function lottieBlockMarkup(name) {
 // getProjectLists()). Nothing in this markup renders a real list — same
 // placeholder-only scope as Lottie, for the identical reason (list.js
 // can't run inside the preview iframe's script-src 'self' CSP).
-function listBlockMarkup(view, slug, name) {
+// tableClass is only meaningful for view === "table" — the framework's
+// default table styling ("table" for Bootstrap, "table-auto" for Tailwind,
+// "" for no framework), written as a literal class="..." attribute on the
+// <table> itself rather than injected by list.js at render time. That's
+// deliberate: a real, visible class attribute is editable in Code view
+// like any other block's markup (add table-striped/table-hover, swap it
+// for something else entirely), where a JS-injected class wouldn't be.
+function listBlockMarkup(view, slug, name, tableClass) {
   const label = slug
     ? `🗂️ ${name || slug}`
     : "🗂️ Click this block's 🗂️ toolbar button to choose a list";
+  const src = slug ? `/lists/${slug}.json` : "";
+  if (view === "table") {
+    // <thead>/<tbody> are real elements here, not something list.js has to
+    // create — it only ever repopulates their contents (see renderTableView()
+    // in list.js) — since a <table>'s only valid direct children are
+    // caption/colgroup/thead/tbody/tfoot/tr, not an arbitrary wrapper <div>
+    // the way the Links/Directory placeholder below uses. The placeholder
+    // row lives inside <tbody> for the same reason.
+    return `
+      <table class="${tableClass || ""}" data-list-src="${src}" data-list-view="table">
+  <thead></thead>
+  <tbody>
+    <tr><td class="cs-list-placeholder-cell"><span class="cs-list-placeholder__icon">🗂️</span> <span class="cs-list-placeholder__label">${label}</span></td></tr>
+  </tbody>
+</table>
+`;
+  }
   return `
-      <div class="cs-list-placeholder" data-list-src="${slug ? `/lists/${slug}.json` : ""}" data-list-view="${view}">
+      <div class="cs-list-placeholder" data-list-src="${src}" data-list-view="${view}">
   <span class="cs-list-placeholder__icon">🗂️</span>
   <span class="cs-list-placeholder__label">${label}</span>
 </div>
@@ -4094,6 +4118,22 @@ tailwind: `
     icon: "🗂️",
     frameworks: {
       bootstrap5: listBlockMarkup("directory", null, null),
+    },
+  },
+  {
+    id: "list-table",
+    label: "List: Table",
+    icon: "🗂️",
+    frameworks: {
+      // Unlike Links/Directory above, this block IS framework-specific —
+      // the whole point is a real <table> with that framework's own default
+      // styling class already applied ("table" for Bootstrap 5, "table-auto"
+      // for Tailwind), so all three cssFramework options get an entry
+      // (including "none", with no class at all) rather than showing
+      // disabled for two of them.
+      bootstrap5: listBlockMarkup("table", null, null, "table"),
+      tailwind: listBlockMarkup("table", null, null, "table-auto"),
+      none: listBlockMarkup("table", null, null, ""),
     },
   },
 ];
