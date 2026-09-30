@@ -778,6 +778,10 @@ dialog label.checkbox-label input[type="checkbox"] { width: auto; }
 .list-edit-panel.hidden { display: none; }
 .list-fields-rows, .list-entries-rows { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 400px; overflow-y: auto; }
 .list-entries-toolbar { display: flex; gap: 8px; }
+/* Auto margin separates this from Add/Import/Export the same way #linkRemove
+   splits off from Cancel/Save — destructive and easy to mis-click if it sat
+   flush against the others. */
+.list-entries-remove-all { margin-left: auto; color: #f87171; }
 .list-field-row { display: flex; align-items: center; gap: 6px; }
 .list-field-row input { flex: 1; width: auto; font-size: 12px; }
 .list-field-row select { width: auto; font-size: 12px; padding: 5px; }

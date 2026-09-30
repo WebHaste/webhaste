@@ -312,6 +312,7 @@
       }
 
       el.innerHTML = "";
+      el.classList.remove("cs-list-placeholder"); // real content now — drop the placeholder look
       var container = document.createElement("div");
       if (view === "directory") {
         renderDirectoryView(container, fields, pageEntries);

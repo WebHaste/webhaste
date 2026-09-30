@@ -5377,6 +5377,17 @@ document.getElementById("listEntriesAddRow").addEventListener("click", () => {
   renderListEntriesRows();
 });
 
+// Requested alongside CSV import (GitHub #10 follow-up) — re-importing the
+// same CSV without clearing first would otherwise just append duplicates.
+// Only touches the in-memory working copy; still gated by Cancel/Save like
+// every other edit in this dialog, so it's not the last line of defense.
+document.getElementById("listEntriesRemoveAll").addEventListener("click", () => {
+  if (listWorkingData.entries.length === 0) return;
+  if (!confirm(`Remove all ${listWorkingData.entries.length} entries? This can't be undone once you Save.`)) return;
+  listWorkingData.entries = [];
+  renderListEntriesRows();
+});
+
 // ---- CSV import/export (GitHub #10) — a convenience for building/editing
 // entries in bulk outside the row-by-row form, not a new storage format:
 // entries stay the same flat [{key: value}] objects either way. Columns are
