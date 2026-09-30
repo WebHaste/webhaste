@@ -758,15 +758,34 @@ dialog label.checkbox-label input[type="checkbox"] { width: auto; }
 #listsDialog { width: 640px; max-width: 92vw; }
 #listsDialog h4 { margin: 16px 0 6px; font-size: 13px; color: #bbb; }
 .lists-picker-actions { justify-content: flex-start; }
-.list-fields-rows, .list-entries-rows { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 260px; overflow-y: auto; }
+/* Fields/Settings/Entries used to all render at once, pushing Entries off
+   screen for any list with more than a couple of fields — see GitHub #2
+   follow-up. Only one panel shows at a time now, so each gets the vertical
+   room the old shared 260px cap didn't allow. */
+.list-edit-tabs { display: flex; gap: 6px; margin: 14px 0 10px; border-bottom: 1px solid #3d3d3d; }
+.list-edit-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 6px 4px;
+  font-size: 13px;
+  color: #aaa;
+  cursor: pointer;
+}
+.list-edit-tab:hover { color: #ddd; }
+.list-edit-tab.active { color: #fff; border-bottom-color: #2563eb; }
+.list-edit-panel.hidden { display: none; }
+.list-fields-rows, .list-entries-rows { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 400px; overflow-y: auto; }
+.list-entries-toolbar { display: flex; gap: 8px; }
 .list-field-row { display: flex; align-items: center; gap: 6px; }
 .list-field-row input { flex: 1; width: auto; font-size: 12px; }
 .list-field-row select { width: auto; font-size: 12px; padding: 5px; }
-.list-field-remove, .list-entry-remove, .list-entry-up, .list-entry-down { font-size: 12px; padding: 5px 8px; }
+.list-field-remove, .list-entry-remove { font-size: 12px; padding: 5px 8px; }
 .list-entry-row { display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid #3d3d3d; border-radius: 4px; }
+.list-entry-row.sortable-ghost { opacity: 0.35; }
 .list-entry-cells { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
 .list-entry-cells input { flex: 1; min-width: 100px; width: auto; font-size: 12px; }
-.list-entry-toolbar { display: flex; gap: 4px; }
 
 .check-links-results { max-height: 340px; overflow-y: auto; margin: 10px 0; }
 .check-links-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid #3d3d3d; }

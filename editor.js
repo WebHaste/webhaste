@@ -5103,12 +5103,34 @@ const listsDialog = document.getElementById("listsDialog");
 const LIST_FIELD_TYPE_LABELS = { text: "Text", date: "Date", link: "Link", image: "Image" };
 let listWorkingData = null;
 let currentListSlug = null;
+// Maps each rendered entry row's dataset.id to its actual entry object in
+// listWorkingData.entries — same object-identity pattern attachSortable()'s
+// nav-tree callers use (itemsById), so a drag-reorder can rebuild the array
+// from DOM order without needing every row's input listeners to agree on
+// a still-correct numeric index mid-drag.
+let entriesById = new Map();
 
 function showListsView(view) {
   document.getElementById("listsPickerView").classList.toggle("hidden", view !== "picker");
   document.getElementById("listsNewView").classList.toggle("hidden", view !== "new");
   document.getElementById("listsEditView").classList.toggle("hidden", view !== "edit");
 }
+
+// Fields/Settings/Entries used to all render stacked in one scroll, which
+// pushed Entries off screen for any list with more than a couple of fields.
+// Split into tabs instead, one panel visible at a time.
+function showListEditTab(tab) {
+  document.querySelectorAll(".list-edit-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.listTab === tab);
+  });
+  document.getElementById("listFieldsPanel").classList.toggle("hidden", tab !== "fields");
+  document.getElementById("listSettingsPanel").classList.toggle("hidden", tab !== "settings");
+  document.getElementById("listEntriesPanel").classList.toggle("hidden", tab !== "entries");
+}
+
+document.querySelectorAll(".list-edit-tab").forEach((btn) => {
+  btn.addEventListener("click", () => showListEditTab(btn.dataset.listTab));
+});
 
 // Options show each list's own name, not its filename slug — the slug is
 // an implementation detail (also collision-suffixed, e.g. "blog-posts-2"),
@@ -5218,6 +5240,10 @@ function renderListEditView() {
   document.getElementById("listPerPage").value = listWorkingData.pagination.perPage || 10;
   document.getElementById("listSortOrder").value = listWorkingData.sortOrder || "desc";
   renderListEntriesRows();
+  // A blank list has no fields yet to build entries from, so start there;
+  // anything else (starter templates, existing lists) already has fields
+  // defined and is far more often opened just to add/edit entries.
+  showListEditTab(listWorkingData.fields.length === 0 ? "fields" : "entries");
 }
 
 function renderListFieldsRows() {
@@ -5273,12 +5299,27 @@ function renderListSortFieldOptions() {
   select.value = current;
 }
 
+function makeEntryId() {
+  return "e" + Math.random().toString(36).slice(2, 10);
+}
+
 function renderListEntriesRows() {
   const rowsEl = document.getElementById("listEntriesRows");
   rowsEl.innerHTML = "";
-  listWorkingData.entries.forEach((entry, i) => {
+  entriesById.clear();
+  listWorkingData.entries.forEach((entry) => {
+    const id = makeEntryId();
+    entriesById.set(id, entry);
+
     const row = document.createElement("div");
     row.className = "list-entry-row";
+    row.dataset.id = id;
+
+    const handle = document.createElement("span");
+    handle.className = "drag-handle";
+    handle.title = "Drag to reorder";
+    handle.textContent = "⠷";
+
     const cells = document.createElement("div");
     cells.className = "list-entry-cells";
     listWorkingData.fields.forEach((field) => {
@@ -5288,41 +5329,152 @@ function renderListEntriesRows() {
         field.type === "link" ? `${field.label} (/page.html or https://...)` :
         field.type === "image" ? `${field.label} (/assets/...)` : field.label;
       input.value = entry[field.key] || "";
+      // Mutates the entry object directly, not by array index — stays
+      // correct even if a drag reorders listWorkingData.entries afterward.
       input.addEventListener("input", (e) => {
-        listWorkingData.entries[i][field.key] = e.target.value;
+        entry[field.key] = e.target.value;
       });
       cells.appendChild(input);
     });
-    const toolbar = document.createElement("div");
-    toolbar.className = "list-entry-toolbar";
-    toolbar.innerHTML = `
-      <button type="button" class="list-entry-up" title="Move up">↑</button>
-      <button type="button" class="list-entry-down" title="Move down">↓</button>
-      <button type="button" class="list-entry-remove" title="Remove">✕</button>
-    `;
-    toolbar.querySelector(".list-entry-up").addEventListener("click", () => {
-      if (i === 0) return;
-      [listWorkingData.entries[i - 1], listWorkingData.entries[i]] = [listWorkingData.entries[i], listWorkingData.entries[i - 1]];
-      renderListEntriesRows();
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "list-entry-remove";
+    removeBtn.title = "Remove";
+    removeBtn.textContent = "✕";
+    removeBtn.addEventListener("click", () => {
+      row.remove();
+      entriesById.delete(id);
+      syncListEntriesFromDOM();
     });
-    toolbar.querySelector(".list-entry-down").addEventListener("click", () => {
-      if (i === listWorkingData.entries.length - 1) return;
-      [listWorkingData.entries[i + 1], listWorkingData.entries[i]] = [listWorkingData.entries[i], listWorkingData.entries[i + 1]];
-      renderListEntriesRows();
-    });
-    toolbar.querySelector(".list-entry-remove").addEventListener("click", () => {
-      listWorkingData.entries.splice(i, 1);
-      renderListEntriesRows();
-    });
+
+    row.appendChild(handle);
     row.appendChild(cells);
-    row.appendChild(toolbar);
+    row.appendChild(removeBtn);
     rowsEl.appendChild(row);
+  });
+  attachEntriesSortable();
+}
+
+function syncListEntriesFromDOM() {
+  const rowsEl = document.getElementById("listEntriesRows");
+  listWorkingData.entries = Array.from(rowsEl.children).map((row) => entriesById.get(row.dataset.id));
+}
+
+// Single flat list, unlike the nav tree's nested attachSortable() groups —
+// entries have no parent/child concept, so this only ever needs one level.
+function attachEntriesSortable() {
+  new Sortable(document.getElementById("listEntriesRows"), {
+    handle: ".drag-handle",
+    animation: 150,
+    ghostClass: "sortable-ghost",
+    onEnd: syncListEntriesFromDOM,
   });
 }
 
 document.getElementById("listEntriesAddRow").addEventListener("click", () => {
   listWorkingData.entries.push({});
   renderListEntriesRows();
+});
+
+// ---- CSV import/export (GitHub #10) — a convenience for building/editing
+// entries in bulk outside the row-by-row form, not a new storage format:
+// entries stay the same flat [{key: value}] objects either way. Columns are
+// matched to fields by label (case-insensitive, trimmed), not position, so
+// column order in the spreadsheet doesn't have to match the Fields tab.
+
+// RFC4180-ish: handles quoted fields (embedded commas/quotes/newlines via
+// doubled ""), bare CRLF/LF line endings, and a trailing blank line. Good
+// enough for "a list of entries a site owner built in a spreadsheet" —
+// not a general-purpose CSV library.
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  let i = 0;
+  const pushField = () => { row.push(field); field = ""; };
+  const pushRow = () => { pushField(); rows.push(row); row = []; };
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      field += ch; i++; continue;
+    }
+    if (ch === '"') { inQuotes = true; i++; continue; }
+    if (ch === ",") { pushField(); i++; continue; }
+    if (ch === "\r") { i++; continue; } // swallow, let \n (or EOF) end the row
+    if (ch === "\n") { pushRow(); i++; continue; }
+    field += ch; i++;
+  }
+  if (field !== "" || row.length > 0) pushRow();
+  return rows.filter((r) => !(r.length === 1 && r[0] === "")); // drop trailing blank lines
+}
+
+function csvField(value) {
+  const str = value == null ? "" : String(value);
+  return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function buildListEntriesCsv(data) {
+  const header = data.fields.map((f) => csvField(f.label)).join(",");
+  const rows = data.entries.map((entry) =>
+    data.fields.map((f) => csvField(entry[f.key])).join(",")
+  );
+  return [header, ...rows].join("\r\n") + "\r\n";
+}
+
+document.getElementById("listEntriesExport").addEventListener("click", () => {
+  if (listWorkingData.fields.length === 0) {
+    setStatus("Add at least one field before exporting.");
+    return;
+  }
+  const csv = buildListEntriesCsv(listWorkingData);
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${currentListSlug || "list"}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById("listEntriesImport").addEventListener("click", () => {
+  document.getElementById("listEntriesImportInput").click();
+});
+
+document.getElementById("listEntriesImportInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const rows = parseCsv(await file.text());
+  if (rows.length === 0) {
+    setStatus("That CSV file is empty.");
+    return;
+  }
+  const [headerRow, ...dataRows] = rows;
+  const fieldByLabel = new Map(listWorkingData.fields.map((f) => [f.label.trim().toLowerCase(), f.key]));
+  const columnKeys = headerRow.map((h) => fieldByLabel.get(h.trim().toLowerCase()) || null);
+  const skippedColumns = headerRow.filter((h, i) => !columnKeys[i]);
+  if (columnKeys.every((k) => !k)) {
+    setStatus("No CSV columns matched this list's field labels — add the fields first, then import.");
+    return;
+  }
+  let imported = 0;
+  dataRows.forEach((row) => {
+    if (row.every((cell) => cell.trim() === "")) return; // skip blank rows
+    const entry = {};
+    columnKeys.forEach((key, i) => {
+      if (key) entry[key] = row[i] || "";
+    });
+    listWorkingData.entries.push(entry);
+    imported++;
+  });
+  renderListEntriesRows();
+  const skippedNote = skippedColumns.length ? ` Skipped unmatched column(s): ${skippedColumns.join(", ")}.` : "";
+  setStatus(`Imported ${imported} entr${imported === 1 ? "y" : "ies"} from CSV.${skippedNote}`);
 });
 
 document.getElementById("listPaginationEnabled").addEventListener("change", (e) => {

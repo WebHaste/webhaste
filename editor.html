@@ -182,24 +182,38 @@
     <div id="listsEditView" class="hidden">
       <label>List Name <input id="listEditName" type="text" /></label>
 
-      <h4>Fields</h4>
-      <div id="listFieldsRows" class="list-fields-rows"></div>
-      <button id="listFieldsAddRow" type="button">+ Add Field</button>
+      <div class="list-edit-tabs">
+        <button type="button" class="list-edit-tab" data-list-tab="fields">Fields</button>
+        <button type="button" class="list-edit-tab" data-list-tab="settings">Settings</button>
+        <button type="button" class="list-edit-tab" data-list-tab="entries">Entries</button>
+      </div>
 
-      <h4>Settings</h4>
-      <label class="checkbox-label"><input id="listPaginationEnabled" type="checkbox" /> Enable pagination</label>
-      <label>Items Per Page <input id="listPerPage" type="number" min="1" step="1" /></label>
-      <label>Sort By <select id="listSortField"></select></label>
-      <label>Sort Order
-        <select id="listSortOrder">
-          <option value="desc">Descending</option>
-          <option value="asc">Ascending</option>
-        </select>
-      </label>
+      <div id="listFieldsPanel" class="list-edit-panel hidden">
+        <div id="listFieldsRows" class="list-fields-rows"></div>
+        <button id="listFieldsAddRow" type="button">+ Add Field</button>
+      </div>
 
-      <h4>Entries</h4>
-      <div id="listEntriesRows" class="list-entries-rows"></div>
-      <button id="listEntriesAddRow" type="button">+ Add Entry</button>
+      <div id="listSettingsPanel" class="list-edit-panel hidden">
+        <label class="checkbox-label"><input id="listPaginationEnabled" type="checkbox" /> Enable pagination</label>
+        <label>Items Per Page <input id="listPerPage" type="number" min="1" step="1" /></label>
+        <label>Sort By <select id="listSortField"></select></label>
+        <label>Sort Order
+          <select id="listSortOrder">
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="listEntriesPanel" class="list-edit-panel hidden">
+        <div id="listEntriesRows" class="list-entries-rows"></div>
+        <div class="list-entries-toolbar">
+          <button id="listEntriesAddRow" type="button">+ Add Entry</button>
+          <button id="listEntriesImport" type="button">Import CSV</button>
+          <button id="listEntriesExport" type="button">Export CSV</button>
+          <input id="listEntriesImportInput" type="file" accept=".csv,text/csv" class="hidden" />
+        </div>
+      </div>
 
       <div class="dialog-actions">
         <button id="listEditCancel">Cancel</button>
