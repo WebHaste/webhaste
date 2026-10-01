@@ -886,3 +886,48 @@ GitHub issue that requested this (#8) — checking external URLs would need
 a live network request per link, slower and far less reliable than a
 local file-existence check, for a concern (a *third-party* site changing
 or breaking) this extension has no way to fix anyway.
+
+### 17. Live preview scroll preservation
+
+`renderPreview()` reassigns the preview iframe's `srcdoc` on every
+keystroke, which loads a fresh document that would otherwise always start
+at the top of the page. The iframe is sandboxed without `allow-same-origin`
+(its content is user-authored HTML), so the parent can't read or set its
+scroll position directly — `preview-guard.js`, already injected into every
+preview for link-blocking, handles it from inside instead:
+
+- It reports `window.scrollY` up via `postMessage` (`type: "scroll"`,
+  rAF-throttled). The parent's existing `message` listener stores it in
+  `previewScrollY`, keyed `main`/`popout` via `previewFrameKey()` (same
+  `e.source` check the blocked-link notices already used), since the main
+  pane and the popped-out preview window scroll independently.
+- On the next render, the parent hands the position back through a
+  `data-scroll-y` attribute on the guard `<script>` tag — an attribute,
+  not an inline script, since extension pages' CSP blocks inline scripts.
+  `composePage()` builds one composed string for both frames, so
+  `PREVIEW_LINK_GUARD_SCRIPT` carries a placeholder that `withPreviewScroll()`
+  fills in per frame (last occurrence only, so page content containing the
+  same text can't be mistaken for it).
+- The position resets to 0 when a *different* page is opened
+  (`openFile()`), when the project closes, and when a new popped-out
+  window opens — reopening the same file keeps it.
+
+Two details that aren't obvious and each caused a real bug the first time
+through: restoring uses `scrollTo({ behavior: "instant" })`, because a site
+framework's `scroll-behavior: smooth` on `:root` (Bootstrap 5 sets this)
+turns a plain `scrollTo()` into a slow animation, and a reload mid-animation
+on the next keystroke drifted the frame ~50px from the top instead of
+restoring. And reporting is held off until two animation frames *after*
+`load`, not just until `load`: the restore's own scroll events (including
+ones clamped while the page is still too short) are dispatched in the next
+rendering step, and reporting any of them would overwrite the very position
+being restored. The restore runs three times (immediately, `DOMContentLoaded`,
+`load`) since images/fonts/stylesheets can change the page's height after
+parsing.
+
+Only window-level scroll is tracked — a scrollable container inside the
+page (`overflow: auto`) still resets. Scrolling the preview to the block
+currently being edited (rather than just keeping the last position) was
+considered and left out: it would need comment markers around `{{CONTENT}}`
+in preview mode plus a caret-to-block mapping, and the plain position
+restore turned out to be enough.

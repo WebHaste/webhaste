@@ -161,6 +161,7 @@ function clearEditorState() {
   pendingSave = null;
   currentFileHandle = null;
   currentFileName = null;
+  resetPreviewScroll();
   cm.setValue("");
   document.getElementById("visualArea").innerHTML = "";
   document.getElementById("previewFrame").srcdoc = "";
@@ -1799,6 +1800,9 @@ async function openFile(name, handle) {
   }
   clearTimeout(saveTimer);
   currentFileHandle = handle;
+  // A different page starts at the top; reopening the same one (e.g. after a
+  // refresh) keeps wherever the preview was scrolled to.
+  if (name !== currentFileName) resetPreviewScroll();
   currentFileName = name;
   const file = await handle.getFile();
   const text = await file.text();
@@ -4288,7 +4292,14 @@ async function getTemplateText(templateName) {
 // Extension pages get script-src 'self' with no 'unsafe-inline', so this has
 // to be a <script src> pointing at a real vendored file — an inline <script>
 // block here would get CSP-blocked the same way the CDN scripts were.
-const PREVIEW_LINK_GUARD_SCRIPT = `<script src="${chrome.runtime.getURL("preview-guard.js")}"></script>`;
+//
+// data-scroll-y is a placeholder here, not a real value: composePage() builds
+// one composed string that renderPreview() sends to both the main pane and the
+// popped-out window, and each has its own scroll position, so
+// withPreviewScroll() fills it in per frame. preview-guard.js reads it back to
+// restore scroll after the srcdoc reload.
+const PREVIEW_SCROLL_PLACEHOLDER = "__WH_SCROLL_Y__";
+const PREVIEW_LINK_GUARD_SCRIPT = `<script src="${chrome.runtime.getURL("preview-guard.js")}" data-scroll-y="${PREVIEW_SCROLL_PLACEHOLDER}"></script>`;
 
 // Same underlying problem as PREVIEW_LINK_GUARD_SCRIPT's comment above:
 // <img src="assets/x.jpg"> is the correct, published-site-relative path, but
@@ -4627,10 +4638,31 @@ const PREVIEW_WINDOW_SHELL = `<!doctype html>
 </body>
 </html>`;
 
+// Last scroll position each preview frame reported (see preview-guard.js),
+// kept separately since the main pane and the popped-out window can be
+// scrolled independently. Reloading a frame's srcdoc would otherwise always
+// land it back at the top.
+const previewScrollY = { main: 0, popout: 0 };
+
+function resetPreviewScroll() {
+  previewScrollY.main = 0;
+  previewScrollY.popout = 0;
+}
+
+// Fills in the guard script's data-scroll-y placeholder for one frame. The
+// guard script is always appended last (see composePage()), so replacing the
+// *last* occurrence can't be fooled by page content that happens to contain
+// the same placeholder text.
+function withPreviewScroll(composed, y) {
+  const i = composed.lastIndexOf(PREVIEW_SCROLL_PLACEHOLDER);
+  if (i === -1) return composed;
+  return composed.slice(0, i) + String(Math.max(0, Math.round(y))) + composed.slice(i + PREVIEW_SCROLL_PLACEHOLDER.length);
+}
+
 async function renderPreview() {
   const raw = fileCache.get(currentFileName) || "";
   const composed = await composePage(raw, currentFileName, true);
-  document.getElementById("previewFrame").srcdoc = composed;
+  document.getElementById("previewFrame").srcdoc = withPreviewScroll(composed, previewScrollY.main);
 
   // Every edit/save/settings-change already funnels through this one
   // function to refresh the iframe, so piggybacking here is what keeps the
@@ -4640,7 +4672,7 @@ async function renderPreview() {
   // survive every re-render.
   if (previewWindow && !previewWindow.closed) {
     const frame = previewWindow.document.getElementById("cs-preview-frame");
-    if (frame) frame.srcdoc = composed;
+    if (frame) frame.srcdoc = withPreviewScroll(composed, previewScrollY.popout);
   }
 }
 
@@ -4649,6 +4681,7 @@ document.getElementById("openPreviewWindowBtn").addEventListener("click", () => 
   // OS window rather than spawning duplicates, even if our `previewWindow`
   // reference above is stale (e.g. the user closed it without us noticing).
   const isNewWindow = !previewWindow || previewWindow.closed;
+  if (isNewWindow) previewScrollY.popout = 0; // stale position from a window that's since closed
   previewWindow = window.open("", "webhaste-preview-window", "width=1280,height=900");
   if (!previewWindow) {
     setStatus("Preview window was blocked — allow pop-ups for this extension to use it.");
@@ -6580,18 +6613,30 @@ function setStatus(msg) {
 // window's #cs-preview-frame) is what actually verifies this came from our
 // own preview and not some other page that happened to get a reference to
 // this tab and forged the same {source, type} shape.
-function isKnownPreviewFrameWindow(win) {
+// Returns "main" or "popout" for a known preview frame, null otherwise —
+// the scroll-position messages need to know *which* frame sent them.
+function previewFrameKey(win) {
   const mainFrame = document.getElementById("previewFrame");
-  if (mainFrame && win === mainFrame.contentWindow) return true;
+  if (mainFrame && win === mainFrame.contentWindow) return "main";
   if (previewWindow && !previewWindow.closed) {
     const popoutFrame = previewWindow.document.getElementById("cs-preview-frame");
-    if (popoutFrame && win === popoutFrame.contentWindow) return true;
+    if (popoutFrame && win === popoutFrame.contentWindow) return "popout";
   }
-  return false;
+  return null;
+}
+
+function isKnownPreviewFrameWindow(win) {
+  return previewFrameKey(win) !== null;
 }
 
 window.addEventListener("message", (e) => {
-  if (!e.data || e.data.source !== "webhaste-preview" || e.data.type !== "blocked-link") return;
+  if (!e.data || e.data.source !== "webhaste-preview") return;
+  if (e.data.type === "scroll") {
+    const key = previewFrameKey(e.source);
+    if (key && Number.isFinite(e.data.y)) previewScrollY[key] = e.data.y;
+    return;
+  }
+  if (e.data.type !== "blocked-link") return;
   if (!isKnownPreviewFrameWindow(e.source)) return;
   setStatus(`Preview: links aren't navigable here (would have opened "${e.data.href}") — open that file directly to preview it.`);
 });
