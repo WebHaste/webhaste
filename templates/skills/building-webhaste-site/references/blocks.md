@@ -96,4 +96,16 @@ for this. Pagination, when enabled, is entirely client-side
 (`?list_<slug>_page=N` in the URL) — there's no separate crawlable page
 per page-number.
 
+**Optional DataTables on "List: Table"** (not bundled — site adds it
+itself): CDN `<link>`/`<script>` for DataTables 2.x in the template's
+`<head>` (jQuery's `<script>` first — the standard build depends on it), an `id` on the block's `<table>`, and an init
+script that waits via a `MutationObserver` on the `<tbody>` until the
+`.cs-list-placeholder-cell` row is gone before calling
+`new DataTable(table, { order: [] })` — list.js fetches its data
+asynchronously and fires no "done" event, so initializing on page load
+hits the placeholder row. Turn the list's own pagination off (it conflicts
+with DataTables' paging). Doesn't run in editor preview (CSP); a Packaged
+build needs DataTables vendored into `scripts/` to work fully offline. See
+`CLAUDE.md`, "Optional: DataTables on a List: Table", for the full snippets.
+
 See this project's `CLAUDE.md`, "Lists" section, for the full story.

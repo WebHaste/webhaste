@@ -360,6 +360,54 @@ the Previous/Next controls render as a sibling element right after the
 child of `<table>`, so there's nowhere inside the table itself for them to
 go.
 
+### Optional: DataTables on a "List: Table"
+
+WebHaste doesn't bundle or inject DataTables (same no-framework-injection
+rule as everything else here), but a "List: Table" block is a real
+`<table>` with real `<thead>`/`<tbody>`, so a site that wants client-side
+search/sort/paging can add it itself. Three pieces, all in the site, none
+in WebHaste:
+
+1. DataTables' CSS + JS in the template's `<head>`, after `list.js`
+   (the standard `<script>` build of DataTables depends on jQuery, so
+   jQuery must load first — `defer` preserves order; check datatables.net
+   for the current version):
+   ```html
+   <link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css">
+   <script src="https://code.jquery.com/jquery-3.7.1.min.js" defer></script>
+   <script src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js" defer></script>
+   ```
+2. An `id` on the block's `<table>` in Code view (e.g. `id="shows-table"`);
+   leave `data-list-src`/`data-list-view` alone.
+3. An init script that waits for list.js to finish — **don't** call
+   `new DataTable()` on page load, since list.js `fetch()`es its JSON
+   asynchronously and has no "done" event, so DataTables would initialize
+   against the one-row placeholder:
+   ```html
+   <script>
+   document.addEventListener("DOMContentLoaded", function () {
+     var table = document.getElementById("shows-table");
+     var tbody = table.querySelector("tbody");
+     var obs = new MutationObserver(function () {
+       if (tbody.querySelector(".cs-list-placeholder-cell")) return;
+       obs.disconnect();
+       new DataTable(table, { order: [] }); // [] keeps the list's own sort
+     });
+     obs.observe(tbody, { childList: true });
+   });
+   </script>
+   ```
+
+Turn **off** the list's own pagination when doing this — list.js's
+Previous/Next controls and DataTables' paging would both render, and
+list.js rebuilding `<tbody>` on a page change would break DataTables'
+internal state. As with every other `scripts/*.js` here, none of this runs
+in the editor's preview iframe (CSP blocks external scripts) — check it in
+a Render to Local Folder build or on the published site. A Packaged
+(`file://`) build still renders the list, but a CDN-hosted DataTables
+needs internet access; vendor the files into `scripts/` for a truly
+offline hand-off.
+
 ## Open Graph / Twitter Card tags are automatic
 
 Every page gets `og:title`, `og:description`, `og:type`, `og:site_name`,
