@@ -97,9 +97,9 @@ for this. Pagination, when enabled, is entirely client-side
 per page-number.
 
 **Optional DataTables on "List: Table"** (not bundled — site adds it
-itself): CDN `<link>`/`<script>` for DataTables 2.x in the template's
-`<head>` (jQuery's `<script>` first — the standard build depends on it), an `id` on the block's `<table>`, and an init
-script that waits via a `MutationObserver` on the `<tbody>` until the
+itself): CDN `<link>`/`<script>` for DataTables 3.x in the template's
+`<head>` (no jQuery needed in 3.x — a 2.x script build would require it), an
+`id` on the block's `<table>`, and an init script that waits via a `MutationObserver` on the `<tbody>` until the
 `.cs-list-placeholder-cell` row is gone before calling
 `new DataTable(table, { order: [] })` — list.js fetches its data
 asynchronously and fires no "done" event, so initializing on page load

@@ -375,13 +375,12 @@ search/sort/paging can add it itself. Three pieces, all in the site, none
 in WebHaste:
 
 1. DataTables' CSS + JS in the template's `<head>`, after `list.js`
-   (the standard `<script>` build of DataTables depends on jQuery, so
-   jQuery must load first — `defer` preserves order; check datatables.net
-   for the current version):
+   (DataTables 3.x needs no jQuery — the 3.1.2 build's UMD wrapper has no
+   dependencies; the 2.x line's standard `<script>` build did require it, so
+   don't copy a 2.x snippet. Check datatables.net for the current version):
    ```html
-   <link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css">
-   <script src="https://code.jquery.com/jquery-3.7.1.min.js" defer></script>
-   <script src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js" defer></script>
+   <link rel="stylesheet" href="https://cdn.datatables.net/3.1.2/css/dataTables.dataTables.min.css">
+   <script src="https://cdn.datatables.net/3.1.2/js/dataTables.min.js" defer></script>
    ```
 2. An `id` on the block's `<table>` in Code view (e.g. `id="shows-table"`);
    leave `data-list-src`/`data-list-view` alone.
