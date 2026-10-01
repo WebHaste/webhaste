@@ -32,6 +32,12 @@ below for where its value comes from. Any CSS framework
 the template's `<head>`, same as `scripts/styles.css`/`main.js`; WebHaste
 doesn't inject or manage them.
 
+Site owners can also edit the template and the files in `scripts/` right
+inside the WebHaste editor, from Templates/Styles/Scripts tabs that appear
+once "Enable template, style & script editing" is turned on in Site
+Settings. That's a per-device setting stored in the browser, not in any
+project file, so there's nothing for you to set or commit.
+
 ## Read `.webhaste/site.config.json` before writing markup
 
 Don't assume Bootstrap, `<p>` paragraphs, etc. — they're configurable per

@@ -18,6 +18,11 @@ framework `<link>`/`<script>` tags are NOT a placeholder — they're literal
 markup in the template's `<head>`, same as `scripts/styles.css`/`main.js`;
 WebHaste doesn't inject or manage them.
 
+Site owners can also edit the template and the files in `scripts/` inside
+the WebHaste editor itself, from Templates/Styles/Scripts tabs shown once
+"Enable template, style & script editing" is on in Site Settings — a
+per-device browser setting, not a project file, so nothing to set or commit.
+
 ## Per-page template override
 
 Every page uses `site.config.json` → `activeTemplate` by default, but a

@@ -32,6 +32,12 @@
 
   <main class="workspace">
     <nav class="file-list">
+      <div id="fileTabs" class="file-tabs hidden">
+        <button type="button" class="file-tab active" data-tab="pages">Pages</button>
+        <button type="button" class="file-tab" data-tab="templates">Templates</button>
+        <button type="button" class="file-tab" data-tab="styles">Styles</button>
+        <button type="button" class="file-tab" data-tab="scripts">Scripts</button>
+      </div>
       <button id="newFile" class="new-file-btn">📄 New File</button>
       <div id="fileList">
         <p class="hint">Files in your project folder will show up here.</p>
@@ -42,7 +48,7 @@
 
     <section class="editor-pane">
       <div class="preview-label">
-        <span>✒️ Page Editor</span>
+        <span id="editorPaneLabel">✒️ Page Editor</span>
         <button type="button" id="togglePreviewBtn" title="Hide the live preview pane to give the editor more room — handy on small/ChromeOS screens">👁️ Hide Preview</button>
       </div>
       <div class="editor-toolbar">
@@ -97,6 +103,7 @@
     <section class="preview-pane">
       <div class="preview-label">
         <span>📷 Live Preview</span>
+        <span id="previewNotice" class="preview-notice hidden"></span>
         <button type="button" id="openPreviewWindowBtn" title="Open a live, resizable preview window — handy on a second monitor for checking responsive widths">↗ Open in Window</button>
       </div>
       <iframe id="previewFrame" sandbox="allow-scripts"></iframe>
@@ -272,6 +279,8 @@
     <p class="hint">Defaults to "dist" for SFTP/manual deploys — use "docs" for GitHub Pages' /docs convention, or whatever your host's publish directory expects.</p>
     <label>Image Resize Max Dimension (px) <input id="cfgImageResizeMaxDimension" type="number" min="100" step="10" placeholder="1920" /></label>
     <p class="hint">Longest edge when "Resize large images" is used. Defaults to 1920px; adjust as needed for your site template.</p>
+    <label class="checkbox-label"><input id="cfgTemplateEditing" type="checkbox" /> Enable template, style &amp; script editing</label>
+    <p class="hint">Adds Templates, Styles and Scripts tabs to the file list for editing those files in code view. Off by default so content editors don't stumble into them. This setting applies to this device only — it isn't saved in the project or shared with anyone else who opens it.</p>
 
     <h4>Schema Markup (Homepage)</h4>
     <p class="hint">Adds JSON-LD structured data to index.html. For other schema types (Article, Product, FAQPage, etc.) or for per-page control, use page's "Header code" field instead.</p>

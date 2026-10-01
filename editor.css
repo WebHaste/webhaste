@@ -131,6 +131,26 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   min-height: 0; /* same reasoning as .editor-pane/.preview-pane below */
 }
 .new-file-btn { width: 100%; margin-bottom: 8px; flex-shrink: 0; }
+/* Pages / Templates / Styles / Scripts — only shown once "Enable template,
+   style & script editing" is turned on for this device (Site Settings). */
+.file-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.file-tab {
+  flex: 1 1 auto;
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: #2d2d2d;
+}
+.file-tab.active { background: #2563eb; }
+/* Template/CSS/JS files open in Code view only — no Visual/Code toggle, rich
+   text controls or asset buttons apply to them. */
+.editor-pane.code-only .editor-toolbar { display: none; }
 #fileList {
   overflow-y: auto;
   font-size: 13px;
@@ -589,6 +609,21 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   padding: 3px 8px;
 }
 #previewFrame { flex: 1; border: none; background: #fff; }
+/* Shown while a template/script is open that the preview can't reflect (see
+   setPreviewNotice() in editor.js) — dims the frame, still scrollable, and
+   says why in the label bar. */
+.preview-notice {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  text-transform: none;
+  font-weight: normal;
+  color: #e0a030;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preview-pane.preview-inactive #previewFrame { opacity: 0.35; }
 
 /* Custom scrollbar for file list */
 #fileList {

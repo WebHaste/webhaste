@@ -104,7 +104,8 @@ project — content, template, menus, and settings — travels with the repo
 when cloned to another machine. `chrome.storage.local` mostly just
 remembers which folder you last had open; the one piece of real project
 data it does hold is deployment credentials (Cloudflare/Netlify account +
-token, see "Publishing" below) — deliberately *not* written into
+token, see "Publishing" below), plus a per-device on/off flag for the
+Templates/Styles/Scripts editing tabs (see section 18) — deliberately *not* written into
 `site.config.json`, since that file is meant to be committed to git. Those
 credentials are namespaced per project via `site.config.json` →
 `projectId`, a random id `ensureScaffold()` generates and writes back the
@@ -931,3 +932,90 @@ currently being edited (rather than just keeping the last position) was
 considered and left out: it would need comment markers around `{{CONTENT}}`
 in preview mode plus a caret-to-block mapping, and the plain position
 restore turned out to be enough.
+
+### 18. Template / style / script editing — optional tabs
+
+Site Settings has an "Enable template, style & script editing" checkbox, off
+by default. When on, the file list gets Pages / Templates / Styles / Scripts
+tabs (`#fileTabs`); everything below is code-only editing of files that
+otherwise need a code editor outside WebHaste. Templates lists
+`.webhaste/templates/*.html`; Styles and Scripts are `scripts/` split by
+extension (that folder is flat and holds both), with `*.min.*` left out so the
+scaffolded vendor libraries (`lunr.min.js`, `lottie.min.js`) don't show up.
+`assets/` and `elements/` are deliberately not listed — assets already have
+their own dialog, and `elements/` holds template-only resources not meant to
+be hand-edited from here.
+
+**The setting is per-device, not in `site.config.json`.** It lives in
+`chrome.storage.local` under `projectStorageKey(config, "templateEditing")`,
+the same per-project namespacing deployment credentials use
+(`isTemplateEditingEnabled()`/`setTemplateEditingEnabled()`). `site.config.json`
+is committed and shared, and the point of the setting is that one person on a
+shared project can turn it on without turning it on for everyone else who
+opens it — many content editors shouldn't be nudged toward template files at
+all. Same caveat as "Remember these details on this device": a convenience
+gate, not access control; anyone can re-enable it. With it off, the tab strip
+is hidden entirely (not a lone "Pages" tab), so the default UI is unchanged.
+
+**Same editor and save path as pages, keyed by full path.** `openCodeFile()`
+reuses the one CodeMirror instance, `fileCache`, the debounced
+`scheduleSave()`/`flushPendingSave()`, and `knownFileMeta`'s shared-drive
+conflict check, but keys everything by project-relative path
+(`scripts/styles.css`, `.webhaste/templates/x.html`) instead of a bare
+filename — so a template can never collide with a page of the same name, and
+conflict backups under `.webhaste/backups/` get distinct nested paths.
+`codeOnlyKind` (`"template"`/`"style"`/`"script"`/`null`) is the one flag that
+says which mode the editor is in; `syncFromActiveView()` and `renderPreview()`
+branch on it, and `enterCodeOnlyMode()`/`leaveCodeOnlyMode()` swap the pane
+class, CodeMirror mode, and the options below. `openFile()` calls
+`leaveCodeOnlyMode()`, so opening a page restores whichever of Visual/Code it
+was last in. The flush-before-navigating logic was pulled out of `openFile()`
+into `flushOutgoingSave()` so pages and code files leave a file identically.
+
+CodeMirror's `lint` and `autoCloseTags` are turned **off** for CSS and JS and
+restored for templates and pages: the lint is a home-grown HTML tag-balance
+check (`htmlTagLint()`) that would flag every `<` in a JS comparison, and
+auto-close-tags would close a `<` typed in a script. The vendored build
+already includes the `css`, `javascript` and `htmlmixed` modes — nothing had
+to be added.
+
+`refreshFileList({ keepCache })` gained a `keepCache` option used by tab
+switches: switching tabs only changes which list the sidebar shows, and
+clearing `fileCache` there could drop an edit still queued behind a deferred
+conflict check for a page the user already navigated away from. Even without
+it, the Pages branch re-stores the open code file's entry after clearing, since
+a template can be open while the Pages tab is showing and a cleared cache
+would make the next save write `undefined` over it. `refreshFileItemPublishStatus()`
+skips `.file-item--code` rows — they're not pages, so they have no publish
+state and would otherwise all look permanently "new".
+
+**Live preview of templates and stylesheets** works against `previewPage` — a
+`{ name, text }` snapshot of the last page that was open (falling back to
+`index.html` if none was), kept separately from `fileCache` since
+`refreshFileList()` clears that. `scheduleSave()` re-renders the preview on
+every keystroke but only writes to disk 400ms later, and preview *reads
+templates and stylesheets from disk*, so on its own it would always show the
+previous save. `composePage()`/`getTemplateText()`/`rewriteScriptsForPreview()`
+take an optional `override: { kind, path, text }` that substitutes the open
+file's unsaved text. It's threaded through as a parameter rather than a
+module-level variable so Publish — which calls the same functions — can never
+pick up a half-typed edit by accident. Scripts get no preview at all (the
+`script-src 'self'` CSP blocks them in the iframe, same as everywhere else),
+so `renderPreview()` returns early for them.
+
+When the open template isn't the one the previewed page actually uses (a
+per-page `template` override in `pages.json` ignores a change to the site
+default, or the fallback `index.html` uses a different one), an edit would
+silently appear to do nothing. `setPreviewNotice()` dims the preview frame to
+35% opacity and shows an amber reason in the preview label bar; the same
+message also goes to the status bar. It does *not* switch the preview to a
+page that does use that template — that would jump to a page the user didn't
+open — and the same notice is shown for an open script, since the preview
+can't reflect one either. Cleared whenever a page, stylesheet or matching
+template is opened.
+
+Not included: creating or deleting templates/styles/scripts from these tabs,
+a tab for `.webhaste/blocks/`, and any special handling of Tailwind sites —
+there `scripts/styles.css` is generated build output (source is
+`tailwind-input.css` at the project root), so hand-edits to it are overwritten
+by the next `npm run build:css`.

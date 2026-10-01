@@ -111,6 +111,37 @@ cm.on("change", (instance, changeObj) => {
   scheduleSave();
 });
 
+// ---- Template / style / script editing (optional, per-device) ----
+// Site Settings' "Enable template, style & script editing" adds Templates/
+// Styles/Scripts tabs to the file list. Those files open in Code view only —
+// no Visual view, no Page Properties — through the same CodeMirror instance,
+// fileCache and debounced save path pages use, keyed by *full path*
+// ("scripts/styles.css", ".webhaste/templates/x.html") rather than a bare
+// filename so they can never collide with a page of the same name, and so
+// knownFileMeta's shared-drive conflict check keeps working for them too.
+//
+// The setting itself lives in chrome.storage.local (namespaced per project via
+// projectStorageKey(), like deployment credentials), not site.config.json:
+// that file is committed and shared, and the point of this setting is that
+// one person on a shared project can turn it on without turning it on for
+// everyone else who opens it. It's a convenience gate, not access control —
+// anyone can re-enable it, same as the "Remember these details" checkboxes.
+const CODE_TAB_KINDS = { templates: "template", styles: "style", scripts: "script" };
+const CODE_MODES = { template: "htmlmixed", style: "css", script: "javascript" };
+// The same options the editor is created with above — restored whenever a
+// page is opened again after a template/style/script, since those disable
+// both for the file types they'd misfire on (HTML tag-balance lint flags
+// every "<" in a JS comparison; auto-close-tags closes "<" typed in a script).
+const HTML_LINT_OPTION = { getAnnotations: htmlTagLint, delay: 400 };
+
+let sidebarTab = "pages"; // "pages" | "templates" | "styles" | "scripts"
+let codeOnlyKind = null; // "template" | "style" | "script" while one is open, else null
+// The page the live preview is rendering. While a template or stylesheet is
+// open the preview keeps showing the last page that was open (that's what an
+// edit to either one should be previewed against); text is snapshotted here
+// rather than read from fileCache, which refreshFileList() clears.
+let previewPage = null; // { name, text }
+
 // ---- Site Admin dropdown (Site Settings/Menus/Redirects/Check Links) ----
 // Purely visual grouping — the four buttons inside keep their own existing
 // ids/click handlers (registered elsewhere in this file) untouched. Closes
@@ -162,6 +193,8 @@ function clearEditorState() {
   currentFileHandle = null;
   currentFileName = null;
   resetPreviewScroll();
+  previewPage = null;
+  if (codeOnlyKind) leaveCodeOnlyMode();
   cm.setValue("");
   document.getElementById("visualArea").innerHTML = "";
   document.getElementById("previewFrame").srcdoc = "";
@@ -1476,10 +1509,110 @@ newFileSaveBtn.addEventListener("click", async () => {
   setStatus(sourceName ? `Cloned ${sourceName} to ${path}` : `Created ${path}`);
 });
 
-async function refreshFileList() {
+// Reads this device's per-project "Enable template, style & script editing"
+// flag (see the comment above CODE_TAB_KINDS).
+async function isTemplateEditingEnabled() {
+  if (!dirHandle) return false;
+  const key = projectStorageKey(await getSiteConfig(), "templateEditing");
+  const stored = await chrome.storage.local.get(key);
+  return !!stored[key];
+}
+
+async function setTemplateEditingEnabled(enabled) {
+  const key = projectStorageKey(await getSiteConfig(), "templateEditing");
+  if (enabled) await chrome.storage.local.set({ [key]: true });
+  else await chrome.storage.local.remove(key);
+}
+
+// Shows/hides the tab strip to match the setting, and falls back to the Pages
+// tab if the setting got turned off (or the project switched to one where it
+// was never on) while a code tab was selected.
+async function syncFileTabs() {
+  const enabled = await isTemplateEditingEnabled();
+  if (!enabled) sidebarTab = "pages";
+  document.getElementById("fileTabs").classList.toggle("hidden", !enabled);
+  document.querySelectorAll("#fileTabs .file-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === sidebarTab);
+  });
+  document.getElementById("newFile").classList.toggle("hidden", sidebarTab !== "pages");
+}
+
+// Template/style/script files for the Templates/Styles/Scripts tabs. scripts/
+// is one flat folder holding both CSS and JS, so Styles and Scripts are just
+// that one listing split by extension. *.min.* files are left out — the
+// scaffolded vendor libraries (lunr.min.js, lottie.min.js) aren't meant to be
+// hand-edited, and a minified file is unusable in the editor anyway.
+async function listCodeFiles(tab) {
+  const out = [];
+  if (tab === "templates") {
+    const templatesDir = await (await getConfigDir(true)).getDirectoryHandle("templates", { create: true });
+    for await (const [name, handle] of templatesDir.entries()) {
+      if (handle.kind === "file" && name.endsWith(".html")) {
+        out.push({ path: `.webhaste/templates/${name}`, label: name, handle });
+      }
+    }
+  } else {
+    const scriptsDir = await getScriptsDirHandle(false);
+    const wanted = tab === "styles" ? /\.css$/i : /\.js$/i;
+    if (scriptsDir) {
+      for await (const [name, handle] of scriptsDir.entries()) {
+        if (handle.kind === "file" && wanted.test(name) && !/\.min\.(css|js)$/i.test(name)) {
+          out.push({ path: `scripts/${name}`, label: name, handle });
+        }
+      }
+    }
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function buildCodeFileItem({ path, label, handle }, kind) {
+  const item = document.createElement("div");
+  item.className = "file-item file-item--code";
+  item.dataset.name = path;
+  const nameEl = document.createElement("span");
+  nameEl.className = "file-item-name";
+  nameEl.textContent = label;
+  item.appendChild(nameEl);
+  item.addEventListener("click", () => openCodeFile(kind, path, handle));
+  return item;
+}
+
+async function renderCodeFileList(listEl, tab) {
+  const files = await listCodeFiles(tab);
+  if (!files.length) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent =
+      tab === "templates" ? "No templates in .webhaste/templates/ yet."
+      : tab === "styles" ? "No .css files in scripts/ yet."
+      : "No .js files in scripts/ yet.";
+    listEl.appendChild(empty);
+    return;
+  }
+  for (const file of files) listEl.appendChild(buildCodeFileItem(file, CODE_TAB_KINDS[tab]));
+  highlightActiveFile(currentFileName);
+}
+
+// keepCache: the Pages/Templates/Styles/Scripts tab switch only changes which
+// list the sidebar shows — it must not drop fileCache, which can still hold an
+// edit queued behind a deferred conflict check (see openFile()'s comment) for
+// a page that's since been navigated away from.
+async function refreshFileList({ keepCache = false } = {}) {
   const listEl = document.getElementById("fileList");
   listEl.innerHTML = "";
-  fileCache.clear();
+  await syncFileTabs();
+  if (sidebarTab !== "pages") {
+    await renderCodeFileList(listEl, sidebarTab);
+    return;
+  }
+  // A template/style/script can still be open in the editor while the Pages
+  // tab is showing — its text lives in fileCache too, and clearing it would
+  // make the next save write "undefined" over the file.
+  const openCodeFileEntry = codeOnlyKind ? [currentFileName, fileCache.get(currentFileName)] : null;
+  if (!keepCache) {
+    fileCache.clear();
+    if (openCodeFileEntry) fileCache.set(...openCodeFileEntry);
+  }
 
   const exclude = await getPageExcludeSet();
   const pagesData = await getPagesData();
@@ -1557,6 +1690,10 @@ async function refreshFileList() {
 
     listEl.appendChild(details);
   }
+  // The list was just rebuilt from scratch — a tab switch or settings save can
+  // run this while a page is still open, and that page's row shouldn't lose
+  // its "active" highlight just because the sidebar redrew.
+  highlightActiveFile(currentFileName);
 }
 
 // "New" (never published) vs "modified since publish" mirrors VS Code's
@@ -1596,7 +1733,9 @@ async function refreshFileItemPublishStatus(name, mtime) {
       break;
     }
   }
-  if (!item) return;
+  // Template/style/script rows aren't pages, so they have no publish state
+  // to color by — without this they'd all look permanently "new".
+  if (!item || item.classList.contains("file-item--code")) return;
   const publishState = await getPublishState();
   applyPublishStatusClass(item.querySelector(".file-item-name"), classifyPublishStatus(name, mtime, publishState));
 }
@@ -1767,7 +1906,11 @@ async function deletePage(name) {
   setStatus(`Deleted ${name}.`);
 }
 
-async function openFile(name, handle) {
+// Flushes whatever edit is still queued for the file that was open before
+// `name` is opened (a page, or a template/style/script — they share one save
+// path). Shared by openFile() and openCodeFile() so both navigate away from
+// the outgoing file identically.
+async function flushOutgoingSave(name) {
   // Flush any edit still queued for whatever was open before this — this
   // read below is a fresh handle.getFile(), and if that's the same file
   // being reopened with a save still in flight, reading now would win the
@@ -1798,11 +1941,17 @@ async function openFile(name, handle) {
   } else {
     await queueFlush();
   }
+}
+
+async function openFile(name, handle) {
+  await flushOutgoingSave(name);
   clearTimeout(saveTimer);
   currentFileHandle = handle;
   // A different page starts at the top; reopening the same one (e.g. after a
-  // refresh) keeps wherever the preview was scrolled to.
-  if (name !== currentFileName) resetPreviewScroll();
+  // refresh, or coming back from editing a template/style while it was the
+  // page being previewed) keeps wherever the preview was scrolled to.
+  if (!previewPage || name !== previewPage.name) resetPreviewScroll();
+  if (codeOnlyKind) leaveCodeOnlyMode();
   currentFileName = name;
   const file = await handle.getFile();
   const text = await file.text();
@@ -1816,6 +1965,126 @@ async function openFile(name, handle) {
   highlightActiveFile(name);
   setEditorEnabled(true);
 }
+
+// Opens a template, stylesheet or script from the Templates/Styles/Scripts
+// tabs — Code view only, through the same CodeMirror instance and save path as
+// a page (see the comment above CODE_TAB_KINDS). `path` is the full
+// project-relative path, which is also its fileCache/knownFileMeta key.
+// Dims the live preview and shows `message` in its label bar, for when the
+// open template/script isn't something the preview can reflect. Passing no
+// message clears it.
+function setPreviewNotice(message = "") {
+  const notice = document.getElementById("previewNotice");
+  notice.textContent = message;
+  notice.title = message;
+  notice.classList.toggle("hidden", !message);
+  document.querySelector(".preview-pane").classList.toggle("preview-inactive", !!message);
+}
+
+async function openCodeFile(kind, path, handle) {
+  setPreviewNotice();
+  await flushOutgoingSave(path);
+  clearTimeout(saveTimer);
+  currentFileHandle = handle;
+  currentFileName = path;
+  const file = await handle.getFile();
+  const text = await file.text();
+  fileCache.set(path, text);
+  recordFileMeta(path, file);
+  enterCodeOnlyMode(kind);
+  cm.setValue(text);
+  // Otherwise Ctrl+Z could step back into whatever file was open before.
+  cm.clearHistory();
+  highlightActiveFile(path);
+  setEditorEnabled(true);
+  cm.refresh();
+  cm.focus();
+  // Scripts can't run in the preview iframe (script-src 'self' CSP), so
+  // there's nothing for it to show for one — leave it as it was.
+  if (kind === "script") {
+    setPreviewNotice("Scripts don't run in the preview");
+    setStatus(`Editing ${path} — scripts don't run in the live preview; check them on the published site or a Render to Local Folder build.`);
+    return;
+  }
+  await ensurePreviewPage();
+  if (previewPage && kind === "template") await warnIfTemplateNotInPreview(path);
+  renderPreview();
+}
+
+// A template/stylesheet edit is previewed against the last page that was open.
+// If none ever was this session (the Templates tab was the first thing
+// clicked), fall back to index.html rather than showing an empty preview.
+async function ensurePreviewPage() {
+  if (previewPage) return;
+  try {
+    const handle = await dirHandle.getFileHandle("index.html");
+    previewPage = { name: "index.html", text: await (await handle.getFile()).text() };
+  } catch {
+    // No index.html either — nothing sensible to preview against.
+  }
+}
+
+// Preview can only show an edit to a template on a page that actually uses it
+// — a page with a per-page template override ignores a change to the site
+// default, which would otherwise just look like the edit did nothing.
+async function warnIfTemplateNotInPreview(path) {
+  const templateName = path.split("/").pop();
+  const [config, pagesData] = await Promise.all([getSiteConfig(), getPagesData()]);
+  const used = (pagesData[previewPage.name] && pagesData[previewPage.name].template) || config.activeTemplate;
+  if (used !== templateName) {
+    setPreviewNotice(`Not previewing ${templateName} — ${previewPage.name} uses ${used || "no template"}`);
+  }
+  setStatus(
+    used === templateName
+      ? `Editing ${templateName} — the preview shows ${previewPage.name}.`
+      : `Editing ${templateName} — but ${previewPage.name} (shown in the preview) uses ${used || "no template"}. Open a page that uses ${templateName} to see changes.`
+  );
+}
+
+// Puts the editor into code-only mode for a template/style/script: toolbar
+// (Visual/Code toggle, rich text, asset buttons) hidden, CodeMirror forced
+// visible, and its mode/lint/auto-close options matched to the file type.
+function enterCodeOnlyMode(kind) {
+  codeOnlyKind = kind;
+  document.querySelector(".editor-pane").classList.add("code-only");
+  document.getElementById("editorPaneLabel").textContent =
+    kind === "template" ? "✒️ Template Editor" : kind === "style" ? "✒️ Style Editor" : "✒️ Script Editor";
+  document.getElementById("visualArea").classList.add("hidden");
+  cm.getWrapperElement().classList.remove("hidden");
+  hideLinkBubble();
+  cm.setOption("mode", CODE_MODES[kind]);
+  // The home-grown lint only knows HTML tag balance — it would flag every "<"
+  // in CSS/JS — and auto-close-tags would close a "<" typed in a script.
+  const isHtml = kind === "template";
+  cm.setOption("lint", isHtml ? HTML_LINT_OPTION : false);
+  cm.setOption("autoCloseTags", isHtml);
+}
+
+// Undoes enterCodeOnlyMode() — called when a page is opened again, or when
+// the editor is cleared — restoring whichever of Visual/Code view the page
+// editor was last in.
+function leaveCodeOnlyMode() {
+  codeOnlyKind = null;
+  setPreviewNotice();
+  document.querySelector(".editor-pane").classList.remove("code-only");
+  document.getElementById("editorPaneLabel").textContent = "✒️ Page Editor";
+  cm.setOption("mode", "htmlmixed");
+  cm.setOption("lint", HTML_LINT_OPTION);
+  cm.setOption("autoCloseTags", true);
+  const visualEl = document.getElementById("visualArea");
+  const cmEl = cm.getWrapperElement();
+  visualEl.classList.toggle("hidden", currentView !== "visual");
+  cmEl.classList.toggle("hidden", currentView === "visual");
+  document.getElementById("richControls").style.visibility = currentView === "visual" ? "visible" : "hidden";
+  if (currentView !== "visual") cm.refresh();
+}
+
+document.getElementById("fileTabs").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".file-tab");
+  if (!btn || btn.dataset.tab === sidebarTab) return;
+  sidebarTab = btn.dataset.tab;
+  await refreshFileList({ keepCache: true });
+});
 
 // ---- Visual / Code view toggle ----
 // Both views edit the SAME underlying HTML string in fileCache; switching
@@ -2514,7 +2783,9 @@ function serializeVisualArea() {
 
 function syncFromActiveView() {
   if (!currentFileName) return;
-  if (currentView === "visual") {
+  if (codeOnlyKind) {
+    fileCache.set(currentFileName, cm.getValue());
+  } else if (currentView === "visual") {
     fileCache.set(currentFileName, serializeVisualArea());
   } else {
     fileCache.set(currentFileName, cm.getValue());
@@ -3762,9 +4033,12 @@ async function flushPendingSave() {
         recordFileMeta(name, diskFile);
         if (currentFileName === name) {
           cm.setValue(text);
-          document.getElementById("visualArea").innerHTML = text;
-          decorateVisualArea();
-          hideLinkBubble();
+          // A template/style/script has no Visual view to refresh.
+          if (!codeOnlyKind) {
+            document.getElementById("visualArea").innerHTML = text;
+            decorateVisualArea();
+            hideLinkBubble();
+          }
           renderPreview();
         }
         // The user explicitly chose to discard their edit in favor of the
@@ -4272,8 +4546,16 @@ async function getPagesData() {
   return readJSONFile(cfgDir, "pages.json", {});
 }
 
-async function getTemplateText(templateName) {
+// override: { kind, path, text } — preview-only, the unsaved text of a
+// template/stylesheet being edited right now (see renderPreview()), used in
+// place of that file on disk. Needed because scheduleSave() re-renders the
+// preview on every keystroke but only writes to disk 400ms later, so reading
+// the file would always show the previous save.
+async function getTemplateText(templateName, override = null) {
   if (!templateName) return null;
+  if (override && override.kind === "template" && override.path === `.webhaste/templates/${templateName}`) {
+    return override.text;
+  }
   const cfgDir = await getConfigDir(true);
   const templatesDir = await cfgDir.getDirectoryHandle("templates", { create: true });
   const handle = await templatesDir.getFileHandle(templateName);
@@ -4479,7 +4761,7 @@ async function rewriteCssUrlsForPreview(css) {
   });
 }
 
-async function rewriteScriptsForPreview(html) {
+async function rewriteScriptsForPreview(html, override = null) {
   const names = new Set();
   html.replace(SCRIPTS_CSS_HREF_RE, (match, name) => {
     names.add(name);
@@ -4493,8 +4775,13 @@ async function rewriteScriptsForPreview(html) {
   const cssByName = {};
   for (const name of names) {
     try {
-      const fileHandle = await scriptsDir.getFileHandle(name);
-      const rawCss = await (await fileHandle.getFile()).text();
+      let rawCss;
+      if (override && override.kind === "style" && override.path === `scripts/${name}`) {
+        rawCss = override.text;
+      } else {
+        const fileHandle = await scriptsDir.getFileHandle(name);
+        rawCss = await (await fileHandle.getFile()).text();
+      }
       cssByName[name] = await rewriteCssUrlsForPreview(rawCss);
     } catch {
       // File genuinely missing from scripts/ — leave the link broken in preview too.
@@ -4506,7 +4793,7 @@ async function rewriteScriptsForPreview(html) {
   );
 }
 
-async function composePage(rawContent, title, isPreview = false) {
+async function composePage(rawContent, title, isPreview = false, override = null) {
   // Page Properties' per-page "Template" override, checked before the site
   // default — see populatePagePropsTemplateDropdown()'s comment. Needs
   // pagesData/config fetched up front (rather than after the raw-HTML/
@@ -4514,7 +4801,7 @@ async function composePage(rawContent, title, isPreview = false) {
   // on knowing whether a template actually applies to this page.
   const [config, pagesData] = await Promise.all([getSiteConfig(), getPagesData()]);
   const templateName = (pagesData[title] && pagesData[title].template) || config.activeTemplate;
-  const templateText = await getTemplateText(templateName);
+  const templateText = await getTemplateText(templateName, override);
   if (!templateText || WebhasteCompose.isFullDocument(rawContent)) {
     // "raw HTML" mode, no wrapping — either no template resolved for this
     // page, or it's already a complete document (e.g. the scaffolded
@@ -4522,7 +4809,7 @@ async function composePage(rawContent, title, isPreview = false) {
     if (!isPreview) return rawContent;
     let out = await rewriteAssetSrcsForPreview(rawContent);
     out = await rewriteElementsSrcsForPreview(out);
-    out = await rewriteScriptsForPreview(out);
+    out = await rewriteScriptsForPreview(out, override);
     return out + PREVIEW_LINK_GUARD_SCRIPT;
   }
 
@@ -4555,7 +4842,7 @@ async function composePage(rawContent, title, isPreview = false) {
     .replace(/{{YEAR}}/g, String(new Date().getFullYear()));
   out = await rewriteAssetSrcsForPreview(out);
   out = await rewriteElementsSrcsForPreview(out);
-  out = await rewriteScriptsForPreview(out);
+  out = await rewriteScriptsForPreview(out, override);
   out += PREVIEW_LINK_GUARD_SCRIPT;
   return out;
 }
@@ -4660,8 +4947,23 @@ function withPreviewScroll(composed, y) {
 }
 
 async function renderPreview() {
-  const raw = fileCache.get(currentFileName) || "";
-  const composed = await composePage(raw, currentFileName, true);
+  // Scripts can't run in the preview iframe, so there's nothing to re-render
+  // for one — see openCodeFile().
+  if (codeOnlyKind === "script") return;
+  let pageName, raw, override = null;
+  if (codeOnlyKind) {
+    // A template/stylesheet is open: keep previewing the last page, with the
+    // open file's unsaved text swapped in for what's on disk.
+    if (!previewPage) return;
+    pageName = previewPage.name;
+    raw = previewPage.text;
+    override = { kind: codeOnlyKind, path: currentFileName, text: fileCache.get(currentFileName) || "" };
+  } else {
+    pageName = currentFileName;
+    raw = fileCache.get(currentFileName) || "";
+    if (pageName) previewPage = { name: pageName, text: raw };
+  }
+  const composed = await composePage(raw, pageName, true, override);
   document.getElementById("previewFrame").srcdoc = withPreviewScroll(composed, previewScrollY.main);
 
   // Every edit/save/settings-change already funnels through this one
@@ -5657,6 +5959,7 @@ document.getElementById("siteSettingsBtn").addEventListener("click", async () =>
   document.getElementById("cfgSchemaPostal").value = schemaAddr.postalCode || "";
   document.getElementById("cfgSchemaCountry").value = schemaAddr.addressCountry || "";
   document.getElementById("cfgSchemaSameAs").value = (schema.sameAs || []).join("\n");
+  document.getElementById("cfgTemplateEditing").checked = await isTemplateEditingEnabled();
   toggleSchemaFields();
   siteSettingsDialog.showModal();
 });
@@ -5729,6 +6032,17 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
   // framework-specific markup and compose.js/compose-core.js in sync
   // immediately, rather than only on the next folder open.
   await ensureScaffold();
+  // Per-device, not part of site.config.json (see CODE_TAB_KINDS' comment).
+  // Turning it off while a template/style/script is open closes it first —
+  // flushing its pending save, so nothing typed is lost — since its tab is
+  // about to disappear.
+  const editingEnabled = document.getElementById("cfgTemplateEditing").checked;
+  if (!editingEnabled && codeOnlyKind) {
+    await queueFlush();
+    clearEditorState();
+  }
+  await setTemplateEditingEnabled(editingEnabled);
+  await refreshFileList({ keepCache: true });
   siteSettingsDialog.close();
   renderPreview();
   setStatus("Site settings saved (.webhaste/site.config.json).");
