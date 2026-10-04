@@ -16,6 +16,9 @@ body {
   background: linear-gradient(180deg, #2b6f6d 1%, #2a3c3b 35%);
   border-bottom: 1px solid #cccccc;
 }
+.brand-icon {
+  max-width: 140px;
+}
 .spacer { flex: 1; }
 .folder-name { font-size: 13px; }
 button {
