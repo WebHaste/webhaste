@@ -2,3 +2,7 @@
 # Safe to edit/extend; WebHaste only ever creates this once and never
 # overwrites it after that (same as CLAUDE.md, robots.txt, etc).
 .webhaste/publish-state.json
+
+# Safety-net copies WebHaste writes into .webhaste/backups/ (conflict backups,
+# and the previous version of a skill when it's refreshed). Never part of the site.
+.webhaste/backups/
