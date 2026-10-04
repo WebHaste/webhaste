@@ -121,6 +121,36 @@ Prefer inserting blocks with the editor's Blocks dialog and its 🗂️ toolbar
 button when the owner is working there; writing the markup by hand is the
 route when you're editing files directly.
 
+## Running JavaScript after a list renders
+
+`list.js` builds the rows in the visitor's browser, so a script that wants to
+act on the finished list (DataTables, a map, analytics, highlighting a row,
+re-styling, a count) must wait for it. After **every** draw, for all three
+views, `list.js` fires a bubbling `cs-list-rendered` `CustomEvent` on the
+list's `[data-list-src]` element (for `table`, the `<table>` itself) and sets
+`data-list-rendered="true"` on it:
+
+```js
+document.addEventListener("cs-list-rendered", function (e) {
+  var el = e.target;            // the list element
+  var d = e.detail;             // { src, view, page, pageCount, entries, list }
+  // d.entries: the rows just drawn (this page); d.list: the whole parsed list
+});
+```
+
+- It fires again on each Previous/Next redraw, so a one-time setup should
+  guard itself (e.g. a `data-` flag on the element).
+- Register the listener from a script that runs before `DOMContentLoaded` (in
+  the `<head>`, at the end of the body, or `defer`). In a Packaged build the
+  data is embedded, so the **first render happens synchronously at
+  `DOMContentLoaded`**; a listener attached after that misses it. A script
+  that may load later should first check `el.hasAttribute("data-list-rendered")`
+  and then listen for redraws.
+- A list that fails to load never fires the event or sets the attribute.
+- Needs a `scripts/list.js` that has the event (copy-once; older projects
+  have an older copy). `grep -c cs-list-rendered scripts/list.js` returns `0`
+  for one that doesn't.
+
 ## Packaged (`file://`) builds
 
 Lists still work: the Packaged target embeds each referenced list's data into

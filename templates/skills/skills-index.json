@@ -1,7 +1,7 @@
 {
   "skills": {
     "building-webhaste-site": {
-      "version": 3,
+      "version": 4,
       "files": [
         "SKILL.md",
         "references/pages-and-templates.md",
@@ -28,7 +28,7 @@
       ]
     },
     "using-webhaste-lists": {
-      "version": 1,
+      "version": 3,
       "files": [
         "SKILL.md",
         "references/list-format.md",

@@ -99,11 +99,16 @@ per page-number.
 **Optional DataTables on "List: Table"** (not bundled — site adds it
 itself): CDN `<link>`/`<script>` for DataTables 3.x in the template's
 `<head>` (no jQuery needed in 3.x — a 2.x script build would require it), an
-`id` on the block's `<table>`, and an init script that waits via a `MutationObserver` on the `<tbody>` until the
-`.cs-list-placeholder-cell` row is gone before calling
-`new DataTable(table, { order: [] })` — list.js fetches its data
-asynchronously and fires no "done" event, so initializing on page load
-hits the placeholder row. Turn the list's own pagination off (it conflicts
+`id` on the block's `<table>` (only to target one table), and an init script
+that waits for the list to render — don't initialize on page load, the rows
+aren't there yet. `list.js` fires a bubbling `cs-list-rendered` event on each
+list element after every draw (and sets `data-list-rendered="true"`), so
+`document.addEventListener("cs-list-rendered", e => new DataTable(e.target, { order: [] }))`
+(guarded to run once per table) works in served and Packaged builds. That
+needs a current `scripts/list.js` (copy-once; `grep -c cs-list-rendered
+scripts/list.js` is `0` on an older copy); the older fallback is a check-first
+`MutationObserver` on the `<tbody>`, because an observer alone never fires in a
+Packaged build (rows already exist at `DOMContentLoaded`). Turn the list's own pagination off (it conflicts
 with DataTables' paging). Doesn't run in editor preview (CSP); a Packaged
 build needs DataTables vendored into `scripts/` to work fully offline. See
 `CLAUDE.md`, "Optional: DataTables on a List: Table", for the full snippets.

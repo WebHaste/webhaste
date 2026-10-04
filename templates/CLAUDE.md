@@ -383,6 +383,29 @@ the Previous/Next controls render as a sibling element right after the
 child of `<table>`, so there's nowhere inside the table itself for them to
 go.
 
+### Running your own JavaScript after a list renders
+
+Rows are built in the visitor's browser, so a script that acts on a finished
+list must wait for it. After every draw, for all three views, `list.js`
+fires a bubbling `cs-list-rendered` event on the list's `[data-list-src]`
+element (for "List: Table", the `<table>`) and sets
+`data-list-rendered="true"` on it. `event.detail` is `{ src, view, page,
+pageCount, entries, list }` — `entries` are the rows just drawn, `list` the
+whole parsed list.
+
+```js
+document.addEventListener("cs-list-rendered", function (e) { /* e.target, e.detail */ });
+```
+
+It fires again on every Previous/Next redraw, so guard one-time setup.
+Register the listener before `DOMContentLoaded` (a `<head>` script, an
+end-of-body script, or `defer`): in a Packaged build the data is embedded, so
+the first render is synchronous at `DOMContentLoaded` and a later listener
+misses it — a late script should check
+`el.hasAttribute("data-list-rendered")` first. Needs a `scripts/list.js` that
+has the event; it's copy-once, so a project scaffolded earlier has an older
+copy (`grep -c cs-list-rendered scripts/list.js` returns `0`).
+
 ### Optional: DataTables on a "List: Table"
 
 WebHaste doesn't bundle or inject DataTables (same no-framework-injection
@@ -401,24 +424,47 @@ in WebHaste:
    ```
 2. An `id` on the block's `<table>` in Code view (e.g. `id="shows-table"`);
    leave `data-list-src`/`data-list-view` alone.
-3. An init script that waits for list.js to finish — **don't** call
-   `new DataTable()` on page load, since list.js `fetch()`es its JSON
-   asynchronously and has no "done" event, so DataTables would initialize
-   against the one-row placeholder:
+3. An init script that waits for the list to render — **don't** call
+   `new DataTable()` on page load: on a served site the rows aren't there
+   yet, so DataTables would initialize against the one-row placeholder. With
+   a current `scripts/list.js`, use the `cs-list-rendered` event (see
+   "Running your own JavaScript after a list renders" above); it works in
+   served and Packaged builds and needs no `id`:
+   ```html
+   <script>
+   document.addEventListener("cs-list-rendered", function (e) {
+     var table = e.target;
+     if (table.tagName !== "TABLE" || table.dataset.dt) return;
+     table.dataset.dt = "1"; // draw can fire again; init once
+     new DataTable(table, { order: [] }); // [] keeps the list's own sort
+   });
+   </script>
+   ```
+   For an older `scripts/list.js` with no event, check first and then watch
+   instead:
    ```html
    <script>
    document.addEventListener("DOMContentLoaded", function () {
      var table = document.getElementById("shows-table");
+     if (!table) return;
      var tbody = table.querySelector("tbody");
-     var obs = new MutationObserver(function () {
-       if (tbody.querySelector(".cs-list-placeholder-cell")) return;
-       obs.disconnect();
+     function start() {
+       if (tbody.querySelector(".cs-list-placeholder-cell")) return false;
        new DataTable(table, { order: [] }); // [] keeps the list's own sort
-     });
-     obs.observe(tbody, { childList: true });
+       return true;
+     }
+     if (!start()) {
+       var obs = new MutationObserver(function () {
+         if (start()) obs.disconnect();
+       });
+       obs.observe(tbody, { childList: true });
+     }
    });
    </script>
    ```
+   Check first, then watch: in a Packaged (`file://`) build the list's data
+   is embedded, so the rows already exist at `DOMContentLoaded` and an
+   observer alone would never fire.
 
 Turn **off** the list's own pagination when doing this — list.js's
 Previous/Next controls and DataTables' paging would both render, and

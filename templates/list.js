@@ -24,6 +24,20 @@
    matters (a <table>'s only valid direct children are
    caption/colgroup/thead/tbody/tfoot/tr — never an arbitrary <div>).
 
+   Reacting to a rendered list: after every draw — the first render and each
+   Previous/Next redraw — this script fires a bubbling "cs-list-rendered"
+   CustomEvent on the [data-list-src] element, and sets
+   data-list-rendered="true" on it. event.target is that element (for
+   "table", the <table> itself); event.detail is { src, view, page,
+   pageCount, entries (the rows just drawn), list (the whole parsed list) }.
+     document.addEventListener("cs-list-rendered", function (e) { ... });
+   Listen from a script that loads before DOMContentLoaded (head, end of
+   body, or defer). With the Packaged target the data is embedded, so the
+   first render happens synchronously at DOMContentLoaded — a listener
+   attached later than that misses it, so a late-loading script should check
+   el.hasAttribute("data-list-rendered") first and then listen for redraws.
+   A list that fails to load (fetch error) never fires the event.
+
    Nothing about this runs inside the WebHaste editor's own preview — same
    script-src 'self' CSP that already blocks scripts/main.js/search.js/
    lottie-init.js there (see editor.js's rewriteScriptsForPreview()) — the
@@ -294,6 +308,26 @@
       el.parentNode.insertBefore(paginationHost, el.nextSibling);
     }
 
+    // Tells the rest of the page this list's real content is now in the DOM —
+    // see the "cs-list-rendered" notes in the header comment. Called at the
+    // end of every draw(), for every view, including pagination redraws.
+    function notify(page, pageEntries) {
+      el.setAttribute("data-list-rendered", "true");
+      el.dispatchEvent(
+        new CustomEvent("cs-list-rendered", {
+          bubbles: true,
+          detail: {
+            src: src,
+            view: view,
+            page: page,
+            pageCount: totalPages,
+            entries: pageEntries,
+            list: data,
+          },
+        })
+      );
+    }
+
     function draw(page) {
       page = Math.min(Math.max(1, page), totalPages);
       var start = (page - 1) * perPage;
@@ -308,6 +342,7 @@
             draw(newPage);
           });
         }
+        notify(page, pageEntries);
         return;
       }
 
@@ -326,6 +361,7 @@
           draw(newPage);
         });
       }
+      notify(page, pageEntries);
     }
 
     draw(pageFromQuery(key));

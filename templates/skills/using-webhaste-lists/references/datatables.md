@@ -41,30 +41,81 @@ and leave everything else on it alone:
 <table id="shows-table" class="table" data-list-src="/lists/shows.json" data-list-view="table">
 ```
 
-(The multi-table version below needs no ids.)
+(The `cs-list-rendered` event version below needs no id unless you want to
+target one table, and neither does the multi-table fallback.)
 
 ## 4. Start DataTables only after the rows exist
 
-`list.js` fetches its JSON asynchronously and has no "done" event. **Don't
-call `new DataTable()` on page load**: DataTables would initialize against
-the one-row placeholder and never notice the real data. Watch `<tbody>`
-until the placeholder cell is gone, then initialize. Put this at the bottom
-of the page fragment, or in that page's `headCode` in `pages.json`:
+**Don't call `new DataTable()` on page load.** The rows aren't there yet on a
+served site (`list.js` fetches its JSON asynchronously), and DataTables would
+initialize against the one-row placeholder and never notice the real data.
+Wait for the list to finish rendering.
+
+### Preferred: the `cs-list-rendered` event
+
+`list.js` fires a bubbling `cs-list-rendered` event on each list element
+after it draws (see list-format.md, "Running JavaScript after a list
+renders"). This one script, at the bottom of the page fragment or in that
+page's `headCode` in `pages.json` (or once in the template `<head>` or
+`scripts/main.js` to cover every page), starts DataTables on every List:
+Table, with no ids needed, in both served and Packaged builds:
+
+```html
+<script>
+document.addEventListener("cs-list-rendered", function (e) {
+  var table = e.target;
+  if (table.tagName !== "TABLE" || table.dataset.dt) return;
+  table.dataset.dt = "1"; // draw can fire again (pagination); init once
+  new DataTable(table, { order: [] }); // [] keeps the list's own sort
+});
+</script>
+```
+
+To limit it to one table, add `if (table.id !== "shows-table") return;`
+(this is what step 3's `id` is for). The listener must be registered before
+`DOMContentLoaded`, which any script in the page or the `<head>` is.
+
+**This needs a `scripts/list.js` that fires the event.** It's copy-once, so a
+project scaffolded before the event existed has an older copy. Check:
+`grep -c cs-list-rendered scripts/list.js` — if it's `0`, either replace
+`scripts/list.js` with the current WebHaste version (diff first; don't
+overwrite a hand-edited copy blindly) or use the fallback below.
+
+### Fallback for an older `scripts/list.js` (no event)
+
+Watch `<tbody>` until the placeholder cell is gone, then initialize. Put this
+at the bottom of the page fragment, or in that page's `headCode`:
 
 ```html
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   var table = document.getElementById("shows-table");
+  if (!table) return;
   var tbody = table.querySelector("tbody");
-  var obs = new MutationObserver(function () {
-    if (tbody.querySelector(".cs-list-placeholder-cell")) return;
-    obs.disconnect();
+  function start() {
+    if (tbody.querySelector(".cs-list-placeholder-cell")) return false;
     new DataTable(table, { order: [] }); // [] keeps the list's own sort
-  });
-  obs.observe(tbody, { childList: true });
+    return true;
+  }
+  if (!start()) {
+    var obs = new MutationObserver(function () {
+      if (start()) obs.disconnect();
+    });
+    obs.observe(tbody, { childList: true });
+  }
 });
 </script>
 ```
+
+**Check first, then watch.** The rows may already exist when this runs, and an
+observer alone then never fires, so DataTables silently never starts. That is
+exactly what happens in a **Packaged (`file://`) build**: the list's data is
+embedded in the page, so `list.js` renders the rows synchronously at
+`DOMContentLoaded`, before this handler's observer is attached (a served
+site fetches the JSON asynchronously, which is why an observer-only version
+appears to work there). `start()` handles both orders: it initializes
+immediately if the placeholder is already gone, and otherwise waits for the
+rows to appear.
 
 `order: []` keeps the sort order configured on the list rather than
 re-sorting by the first column; remove it to let DataTables sort by column
@@ -81,12 +132,17 @@ To apply DataTables to every "List: Table" on the page without ids, loop over
 document.addEventListener("DOMContentLoaded", function () {
   document.querySelectorAll("table[data-list-src]").forEach(function (table) {
     var tbody = table.querySelector("tbody");
-    var obs = new MutationObserver(function () {
-      if (tbody.querySelector(".cs-list-placeholder-cell")) return;
-      obs.disconnect();
+    function start() {
+      if (tbody.querySelector(".cs-list-placeholder-cell")) return false;
       new DataTable(table, { order: [] });
-    });
-    obs.observe(tbody, { childList: true });
+      return true;
+    }
+    if (!start()) {
+      var obs = new MutationObserver(function () {
+        if (start()) obs.disconnect();
+      });
+      obs.observe(tbody, { childList: true });
+    }
   });
 });
 </script>

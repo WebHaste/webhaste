@@ -12,7 +12,8 @@ it through a **placeholder** in the page markup that a scaffolded script,
 conventions see `building-webhaste-site`; this skill only covers Lists.
 
 Read [references/list-format.md](references/list-format.md) before writing a
-list file or block markup. Read
+list file or block markup, or any script that must act on a rendered list
+(it documents the `cs-list-rendered` event). Read
 [references/datatables.md](references/datatables.md) only when the owner wants
 a searchable/sortable table.
 
@@ -46,6 +47,9 @@ Don't use one for:
    `data-list-view="table"` like the Links view instead of erroring. If a
    table renders as a bulleted list, compare `scripts/list.js` with the
    current WebHaste version (supported views: `links`, `directory`, `table`).
+   The same applies to the `cs-list-rendered` event: a copy without it
+   (`grep -c cs-list-rendered scripts/list.js` is `0`) never fires it, so use
+   the DataTables fallback recipe or refresh the file (diff first).
 3. **`data-list-src` is the published path** `/lists/<slug>.json`, not
    `.webhaste/lists/…` (`.webhaste/` is never published). WebHaste copies each
    *referenced* list to `/lists/` at publish/render time.
