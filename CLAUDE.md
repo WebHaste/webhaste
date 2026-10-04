@@ -92,15 +92,17 @@ deliberately not kept byte-identical — a site owner editing one isn't
 expected to mirror the change into the other.
 
 **Unlike `CLAUDE.md`, skills are versioned and refreshed, not copy-once**
-(`syncSkills()` in `editor.js`). `templates/skills/manifest.json` lists
-every shipped skill with a `version` and its file list — **bump a skill's
+(`syncSkills()` in `editor.js`). `templates/skills/skills-index.json` (never
+name it `manifest.json`: the Chrome Web Store rejects any package with more
+than one file of that name, at any depth — `scripts/package-extension.ps1`
+now checks for this) lists every shipped skill with a `version` and its file list — **bump a skill's
 `version` whenever you change any of its files, or existing projects never
-see the change**, and add new skills/files there too (the manifest, not a
+see the change**, and add new skills/files there too (the index file, not a
 hardcoded list, drives scaffolding). Each installed skill folder holds a
 `.webhaste-skill.json` marker: the installed version plus a SHA-256 of every
 file as shipped. When the shipped version is newer, a file whose hash still
 matches the marker is unedited and gets overwritten (a file dropped from the
-manifest is deleted if unedited); a file that differs was hand-edited and is
+index is deleted if unedited); a file that differs was hand-edited and is
 left alone, with a `console.info` noting it. A skill folder with `SKILL.md`
 but no marker predates versioning, so its edits can't be told from stale
 content — those files are copied to `.webhaste/backups/_skills/<skill>/`

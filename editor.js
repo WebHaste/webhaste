@@ -1258,7 +1258,7 @@ async function ensureScaffold() {
 // Skills are tuned often after release, and a plain copy-once scaffold left
 // every existing project stuck on whatever version it was first opened with
 // (see CLAUDE.md "Lottie" for the same problem with scripts/). The shipped
-// templates/skills/manifest.json gives each skill a `version` and file list;
+// templates/skills/skills-index.json gives each skill a `version` and file list;
 // each installed skill folder carries a `.webhaste-skill.json` recording the
 // installed version plus a SHA-256 of every file as shipped. On folder open,
 // when the shipped version is newer:
@@ -1297,7 +1297,7 @@ async function writeNestedText(rootDir, relPath, text) {
 }
 
 async function syncSkills(dirHandle) {
-  const manifestRes = await fetch(chrome.runtime.getURL("templates/skills/manifest.json"));
+  const manifestRes = await fetch(chrome.runtime.getURL("templates/skills/skills-index.json"));
   const manifest = await manifestRes.json();
   const claudeDir = await dirHandle.getDirectoryHandle(".claude", { create: true });
   const skillsDir = await claudeDir.getDirectoryHandle("skills", { create: true });

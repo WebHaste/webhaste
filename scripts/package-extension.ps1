@@ -70,6 +70,21 @@ $includePaths = @(
     "cli"
 )
 
+# The Chrome Web Store rejects a package containing more than one file named
+# manifest.json ("More than one manifest found in package"), at any depth —
+# so nothing under the included folders may use that name. Fail here, before
+# bumping the version or writing a zip, rather than at upload time.
+$strayManifests = foreach ($p in $includePaths) {
+    $full = Join-Path $repoRoot $p
+    if ((Test-Path $full -PathType Container)) {
+        Get-ChildItem -Path $full -Recurse -File -Filter "manifest.json"
+    }
+}
+if ($strayManifests) {
+    $names = ($strayManifests | ForEach-Object { $_.FullName.Substring($repoRoot.Length).TrimStart('\') }) -join ", "
+    throw "The Chrome Web Store rejects packages with more than one manifest.json. Rename: $names"
+}
+
 $manifestText = Get-Content -Path $manifestPath -Raw
 $versionPattern = '"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)"'
 $match = [regex]::Match($manifestText, $versionPattern)
