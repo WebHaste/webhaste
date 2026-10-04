@@ -307,6 +307,9 @@ function main() {
 
   // Pass 2: write each page, applying the packaged rewrite/embed if requested.
   let writtenPageCount = 0;
+  // Output paths of every page being written, so an extensionless link
+  // ("/blog/my-post") can be resolved to the real file under file://.
+  const pagePaths = new Set(pageEntries.map((entry) => entry.relPath));
   for (const { relPath, composed } of pageEntries) {
     // 404.html is a "full document" (isFullDocument()) that Cloudflare/
     // Netlify serve directly for unmatched paths — meaningless (and
@@ -319,7 +322,7 @@ function main() {
       // still the plain "/assets/name.json" form — see findLottieSrcs()'s
       // comment in compose-core.js for why that matters below.
       const lottieSrcs = WebhasteCompose.findLottieSrcs(composed);
-      out = WebhasteCompose.rewriteRootRelativePaths(out, depth);
+      out = WebhasteCompose.rewriteRootRelativePaths(out, depth, pagePaths);
       if (searchEntries && out.includes("search.js")) {
         const pageIndex = searchEntries.map((entry) => ({
           ...entry,
@@ -327,7 +330,7 @@ function main() {
         }));
         out = out.replace(
           /<head[^>]*>/i,
-          (match) => `${match}\n<script>window.CS_SEARCH_INDEX = ${JSON.stringify(pageIndex)};</script>`
+          (match) => `${match}\n${WebhasteCompose.buildSearchDataScript(pageIndex)}`
         );
       }
       if (lottieSrcs.length) {
@@ -368,7 +371,11 @@ function main() {
           if (!match) continue;
           try {
             const text = fs.readFileSync(path.join(cfgDir, "lists", `${match[1]}.json`), "utf8");
-            listDataBySrc[WebhasteCompose.relativizeRootPath(src, depth)] = JSON.parse(text);
+            listDataBySrc[WebhasteCompose.relativizeRootPath(src, depth)] = WebhasteCompose.relativizeListData(
+              JSON.parse(text),
+              depth,
+              pagePaths
+            );
           } catch {
             // Missing file or invalid JSON — leave it out, see comment above.
           }

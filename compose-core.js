@@ -310,6 +310,64 @@
     return prefix + rest;
   }
 
+  // Packaged-target counterpart of relativizeRootPath() for a *link as an
+  // author or a List entry typed it*, not one WebHaste generated. Two things
+  // break such a link under file://, and both are fixed here:
+  //   1. A leading "/" resolves against the filesystem root (the usual
+  //      packaged problem, handled by relativizeRootPath()).
+  //   2. An extensionless URL ("/blog/my-post") only works on a real server,
+  //      where Cloudflare/Netlify strip ".html" — on disk the file is
+  //      my-post.html, so the extension has to be put back. The Link
+  //      Checker and Redirects both treat the extensionless form as valid,
+  //      so authors do write it. `pagePaths` is the set of this site's
+  //      output page paths ("blog/index.html"); the extension (or
+  //      "/index.html" for a folder URL) is only added when that page
+  //      really exists, so a link to anything else is left as typed.
+  // Anything that isn't a root-relative path (https:, mailto:, "#frag",
+  // already-relative) is returned untouched. A ?query/#fragment is kept.
+  function resolvePackagedLink(value, depth, pagePaths) {
+    const text = String(value == null ? "" : value);
+    if (!text.startsWith("/") || text.startsWith("//")) return text;
+    const cut = text.search(/[?#]/);
+    const pathPart = cut === -1 ? text : text.slice(0, cut);
+    const suffix = cut === -1 ? "" : text.slice(cut);
+    let resolved = pathPart;
+    const bare = pathPart.replace(/^\/+|\/+$/g, "");
+    if (bare && pagePaths) {
+      const lastSegment = bare.split("/").pop();
+      const hasExtension = /\.[A-Za-z0-9]+$/.test(lastSegment);
+      if (!hasExtension) {
+        if (pagePaths.has(`${bare}.html`)) resolved = `/${bare}.html`;
+        else if (pagePaths.has(`${bare}/index.html`)) resolved = `/${bare}/index.html`;
+      }
+    }
+    return relativizeRootPath(resolved, depth) + suffix;
+  }
+
+  // Returns a copy of a parsed list (.webhaste/lists/<slug>.json) whose
+  // `link` and `image` entry values have been run through
+  // resolvePackagedLink() for a page `depth` folders deep. The embedded
+  // window.CS_LIST_DATA is plain JSON that list.js turns into <a href>/<img
+  // src> at runtime, so rewriteRootRelativePaths() — which only sees
+  // attributes already present in the composed HTML — never reaches it.
+  // Values are relativized per page (depth differs), which is why the same
+  // list embedded on two pages at different depths carries different links.
+  function relativizeListData(listData, depth, pagePaths) {
+    if (!listData || !Array.isArray(listData.entries) || !Array.isArray(listData.fields)) return listData;
+    const linkKeys = listData.fields.filter((f) => f && (f.type === "link" || f.type === "image")).map((f) => f.key);
+    if (!linkKeys.length) return listData;
+    return {
+      ...listData,
+      entries: listData.entries.map((entry) => {
+        const copy = { ...entry };
+        for (const key of linkKeys) {
+          if (typeof copy[key] === "string") copy[key] = resolvePackagedLink(copy[key], depth, pagePaths);
+        }
+        return copy;
+      }),
+    };
+  }
+
   // Rewrites every href="/..."/src="/..." in composed HTML to a path relative
   // to a page `depth` folders deep — covers nav links (from nav.json), image/
   // file srcs (assetSnippet() in editor.js), and anything an author hand-typed
@@ -322,9 +380,13 @@
   // external URLs — the negative lookahead) or paths without a leading slash
   // (already page-relative, left alone). Out of scope: inline CSS url(/...) —
   // nothing WebHaste generates produces that today.
-  function rewriteRootRelativePaths(html, depth) {
+  // `pagePaths` (optional Set of this site's output page paths) also lets a
+  // hand-typed extensionless link ("/about") resolve to the real file
+  // ("about.html") — see resolvePackagedLink(). Omitted, behavior is the
+  // plain relativize it always was.
+  function rewriteRootRelativePaths(html, depth, pagePaths) {
     return html.replace(/\b(href|src)=(["'])\/(?!\/)([^"']*)\2/gi, (match, attr, quote, rest) => {
-      return `${attr}=${quote}${relativizeRootPath("/" + rest, depth)}${quote}`;
+      return `${attr}=${quote}${resolvePackagedLink("/" + rest, depth, pagePaths)}${quote}`;
     });
   }
 
@@ -482,6 +544,29 @@
     return Array.from(srcs);
   }
 
+  // JSON.stringify() output is not safe to drop straight into an inline
+  // <script>: any "</script>" inside a string value ends the script element
+  // early, and the HTML parser then renders the rest of the JSON as page text
+  // and runs nothing. Real data hits this — a search-index entry's text comes
+  // from pages that *document* script tags (stripHtmlToText() decodes
+  // "&lt;script&gt;" back into a literal "<script>"), and a list entry or
+  // Lottie JSON could contain it too. Escaping every "<" as \u003c is valid
+  // JSON/JS, decodes to the identical string, and also defuses "<!--". The
+  // two line separators are escaped because older engines treat them as
+  // line terminators inside a script string literal.
+  function jsonForInlineScript(value) {
+    return JSON.stringify(value)
+      .replace(/</g, "\\u003c")
+      .replace(/\u2028/g, "\\u2028")
+      .replace(/\u2029/g, "\\u2029");
+  }
+
+  // The per-page search-index embed for the Packaged (file://) target; see
+  // jsonForInlineScript() for why this isn't a bare JSON.stringify().
+  function buildSearchDataScript(pageIndex) {
+    return `<script>window.CS_SEARCH_INDEX = ${jsonForInlineScript(pageIndex)};</script>`;
+  }
+
   // dataBySrc is { [finalAttributeValue]: parsedAnimationJson }, already
   // resolved and relativized by the caller (reading each asset file is
   // environment-specific — browser File System Access vs. Node fs — so it
@@ -491,7 +576,7 @@
   // <head> insertion entirely, same as buildSitemap()/buildSearchIndex().
   function buildLottieDataScript(dataBySrc) {
     if (!dataBySrc || !Object.keys(dataBySrc).length) return null;
-    return `<script>window.CS_LOTTIE_DATA = ${JSON.stringify(dataBySrc)};</script>`;
+    return `<script>window.CS_LOTTIE_DATA = ${jsonForInlineScript(dataBySrc)};</script>`;
   }
 
   // Same idea as buildLottieDataScript() above, for Lists under the
@@ -503,7 +588,7 @@
   // reasons as buildLottieDataScript().
   function buildListDataScript(dataBySrc) {
     if (!dataBySrc || !Object.keys(dataBySrc).length) return null;
-    return `<script>window.CS_LIST_DATA = ${JSON.stringify(dataBySrc)};</script>`;
+    return `<script>window.CS_LIST_DATA = ${jsonForInlineScript(dataBySrc)};</script>`;
   }
 
   // Builds a _redirects file from .webhaste/redirects.json's entries —
@@ -558,6 +643,10 @@
     buildLottieDataScript,
     findListSrcs,
     buildListDataScript,
+    buildSearchDataScript,
+    resolvePackagedLink,
+    relativizeListData,
+    jsonForInlineScript,
     buildRedirectsFile,
   };
 });

@@ -6788,6 +6788,9 @@ async function renderToLocalFolder(packaged = false) {
   // non-packaged mode writes it as search-index.json further down.
   const searchIndexJson = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
   const searchEntries = searchIndexJson ? JSON.parse(searchIndexJson) : null;
+  // Output paths of every page being written, so an extensionless link
+  // ("/blog/my-post") can be resolved to the real file under file://.
+  const pagePaths = new Set(Object.keys(pages));
 
   setStatus(`Writing ${folderName}/ folder...`);
   const distDir = await dirHandle.getDirectoryHandle(folderName, { create: true });
@@ -6803,7 +6806,7 @@ async function renderToLocalFolder(packaged = false) {
       // still the plain "/assets/name.json" form — see findLottieSrcs()'s
       // comment for why that matters for the lookup below.
       const lottieSrcs = WebhasteCompose.findLottieSrcs(content);
-      out = WebhasteCompose.rewriteRootRelativePaths(out, depth);
+      out = WebhasteCompose.rewriteRootRelativePaths(out, depth, pagePaths);
       if (searchEntries && out.includes("search.js")) {
         const pageIndex = searchEntries.map((entry) => ({
           ...entry,
@@ -6811,7 +6814,7 @@ async function renderToLocalFolder(packaged = false) {
         }));
         out = out.replace(
           /<head[^>]*>/i,
-          (match) => `${match}\n<script>window.CS_SEARCH_INDEX = ${JSON.stringify(pageIndex)};</script>`
+          (match) => `${match}\n${WebhasteCompose.buildSearchDataScript(pageIndex)}`
         );
       }
       if (lottieSrcs.length) {
@@ -6856,7 +6859,11 @@ async function renderToLocalFolder(packaged = false) {
           const buf = lists[`${match[1]}.json`];
           if (!buf) continue;
           try {
-            listDataBySrc[WebhasteCompose.relativizeRootPath(src, depth)] = JSON.parse(new TextDecoder().decode(buf));
+            listDataBySrc[WebhasteCompose.relativizeRootPath(src, depth)] = WebhasteCompose.relativizeListData(
+              JSON.parse(new TextDecoder().decode(buf)),
+              depth,
+              pagePaths
+            );
           } catch {
             // Not valid JSON — leave it out, see comment above.
           }

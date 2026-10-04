@@ -357,6 +357,38 @@ Set under Site Settings → Deployment Target (`site.config.json` →
   it). `cli/compose.js --packaged` is the headless equivalent, for testing
   or CI without the extension installed.
 
+  **Every `window.CS_*` inline-script embed (search, Lottie, Lists) must go
+  through `WebhasteCompose.jsonForInlineScript()`**, never a bare
+  `JSON.stringify()` — `buildSearchDataScript()`/`buildLottieDataScript()`/
+  `buildListDataScript()` already do. A literal `</script>` inside any string
+  value ends the inline `<script>` early, and the browser then renders the
+  rest of the JSON as page text and runs none of it (every packaged page
+  looked "borked", nothing worked). It really happens: search-index text
+  comes from pages that *document* `<script>` tags, since
+  `stripHtmlToText()` decodes `&lt;script&gt;` into a literal one. The helper
+  escapes every `<` as `\u003c` (same string once parsed). Found 2026-10-03
+  on chromecms.com's packaged build after its docs gained script-tag
+  examples.
+
+  **Links the author typed need two fixes under `file://`, not one**
+  (`resolvePackagedLink()`, used by `rewriteRootRelativePaths()` and
+  `relativizeListData()`): the leading `/` becomes a `../` path, *and* an
+  extensionless URL (`/blog/my-post`) gets its `.html` back, because only a
+  real server strips the extension — on disk the file is `my-post.html`.
+  The extension is added only when that page exists in the build
+  (`pagePaths`, passed in by both callers), so other links are left as
+  typed. The Link Checker and Redirects both treat extensionless as valid,
+  so authors do write it. Lists need this separately because a list's
+  `link`/`image` values live in the embedded `window.CS_LIST_DATA` JSON,
+  not in HTML attributes, so the attribute rewrite never sees them —
+  `relativizeListData()` runs per page (depth differs per page) over every
+  `link`/`image` field's values. Found 2026-10-03 when a Lists-built blog
+  index's links were all broken in a packaged build; the same extensionless
+  problem was also breaking ordinary page links (77 in chromecms.com's
+  build). Known leftover: the rewrite is a regex over the composed HTML, so
+  an `href="/x"` shown as *text* (e.g. `&lt;a href="/pricing.html"&gt;`
+  inside a `<code>` example) gets rewritten too.
+
 `publishSite()` reads every `.html` file, runs it through the same
 composition step used for preview (so what you see really is what ships),
 and POSTs the result as multipart form data to Cloudflare's Direct Upload
