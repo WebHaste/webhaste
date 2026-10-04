@@ -439,6 +439,11 @@ output, matching `renderToLocalFolder()`. The same file is also what
 context it's running in (`require("./compose-core.js")` succeeds when
 scaffolded next to a sibling copy, falls back to `require("../compose-core.js")`
 for the repo's own `cli/` copy) and defaults its target folder accordingly.
+It skips both the folder it's writing to *and* `site.config.json`'s
+`deployDirectory` when walking for pages: with `--out .agent-preview` (what
+`templates/CLAUDE.md` tells agents to use), an existing `dist/` otherwise got
+walked as source and re-composed into `.agent-preview/dist/` — matching
+`editor.js`, whose own walk always skips the configured deploy folder.
 The point: a site is composable with just Node, with no dependency on this
 extension's source repo being checked out anywhere — see `templates/CLAUDE.md`'s
 "Testing your changes" section, which is what actually points agents at it.

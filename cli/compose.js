@@ -234,7 +234,20 @@ function main() {
   const distDir = path.join(root, distName);
   fs.mkdirSync(distDir, { recursive: true });
 
-  const exclude = new Set(["assets", "scripts", "elements", ".webhaste", distName]);
+  // Both the folder being written to AND the configured deploy folder are
+  // build output, never source pages. They differ when --out points at a
+  // scratch folder (what templates/CLAUDE.md tells agents to do): without
+  // excluding the configured one, an existing dist/ full of already-composed
+  // pages was walked as content and re-composed into <out>/dist/, matching
+  // editor.js's own walk (which always skips the configured deploy folder).
+  const exclude = new Set([
+    "assets",
+    "scripts",
+    "elements",
+    ".webhaste",
+    distName,
+    sanitizeDeployDirectory(config.deployDirectory),
+  ]);
   // Drafts (pages.json status: "draft", set via the extension's Page
   // Properties dialog) are skipped here the same way Publish/Render to
   // Local Folder skip them — WebhasteCompose.isDraftPage() is the single
