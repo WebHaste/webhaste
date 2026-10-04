@@ -1,7 +1,7 @@
 {
   "skills": {
     "building-webhaste-site": {
-      "version": 4,
+      "version": 5,
       "files": [
         "SKILL.md",
         "references/pages-and-templates.md",

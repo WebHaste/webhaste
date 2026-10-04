@@ -568,11 +568,18 @@ way to render a page outside the extension itself.
 ## Do not hand-edit
 
 - `dist/` (or whatever `deployDirectory` points at) — build output from
-  "Render to Local Folder," overwritten on every render. WebHaste doesn't
-  scaffold a `.gitignore`, so some projects end up committing `dist/` to
-  version control anyway — if so, expect its diffs to show up in `git
-  status` after every render; that's expected noise from the build, not
-  something to investigate or hand-fix.
+  "Render to Local Folder," overwritten on every render. WebHaste's
+  scaffolded `.gitignore` only covers `.webhaste/publish-state.json` and
+  `.webhaste/backups/` — it deliberately does **not** ignore the render
+  folder, because whether that folder belongs in the repo depends on how the
+  site ships: one that is the deploy source (`docs/` for GitHub Pages, or a
+  folder a CI/CD job or git-integrated host serves) must be committed, while
+  a plain local test render shouldn't be. So a project may or may not commit
+  it; if it does, expect its diffs in `git status` after every render —
+  that's expected noise from the build, not something to investigate or
+  hand-fix. If the folder shouldn't be committed, add it to `.gitignore`,
+  and **if the Local Render Folder is changed in Site Settings, update that
+  `.gitignore` line to match** (unless it's meant to be committed).
 - `.webhaste/compose.js`, `.webhaste/compose-core.js`, and
   `.webhaste/block-library.md` — regenerated every time the project
   folder is opened in the editor, so hand edits won't stick. (Unlike this

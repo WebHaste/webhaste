@@ -1161,9 +1161,15 @@ async function ensureScaffold() {
   // .gitignore — scaffolded from templates/gitignore (stored there without
   // the leading dot so it doesn't act as a real ignore file inside *this*
   // repo's own templates/ folder — only at a project's root once copied).
-  // Currently just excludes publish-state.json (see
-  // writePublishStateSnapshot()) — a per-machine "what did I last ship"
-  // cache, not project state a clone should inherit. Copy-once, same as
+  // Excludes publish-state.json (see writePublishStateSnapshot()) — a
+  // per-machine "what did I last ship" cache, not project state a clone
+  // should inherit — and .webhaste/backups/ (conflict backups and replaced
+  // skill files). It deliberately does NOT ignore the Local Render Folder
+  // (dist/ by default): whether that belongs in the repo depends on how the
+  // site ships (docs/ for GitHub Pages or a CI/CD-served folder must be
+  // committed; a plain local test render shouldn't be), so that's the site
+  // owner's call, and they must keep it in sync if they change
+  // deployDirectory. Copy-once, same as
   // robots.txt above: a site owner's own .gitignore (pre-existing or
   // hand-edited afterward) is never touched.
   try {
