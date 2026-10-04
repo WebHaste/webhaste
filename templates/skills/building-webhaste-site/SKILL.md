@@ -31,11 +31,16 @@ fits the task, and prefer `CLAUDE.md` if the two ever appear to disagree
    (`p` / `div`) are configurable per site and drift over time — don't
    assume Bootstrap classes or `<p>` paragraphs are correct for this site.
 4. **Some files are regenerated and will silently discard hand edits:**
-   `.webhaste/compose.js`, `.webhaste/compose-core.js`,
-   `.webhaste/block-library.md`, `sitemap.xml`, and `search-index.json`.
-   Edit `.webhaste/templates/`, `nav.json`, `pages.json`,
-   `site.config.json`, `.webhaste/blocks/*.html`, or page files themselves
-   instead — see references/site-config-and-testing.md for the full list.
+   `.webhaste/compose.js`, `.webhaste/compose-core.js`, and
+   `.webhaste/block-library.md`. Edit `.webhaste/templates/`, `nav.json`,
+   `pages.json`, `site.config.json`, `.webhaste/blocks/*.html`, or page
+   files themselves instead — see references/site-config-and-testing.md for
+   the full list.
+   **`sitemap.xml` and `search-index.json` are generated at publish/render
+   time and never exist as project files — don't create them.** A copy at
+   the project root is ignored (never published), so it only looks like the
+   job is done. The sitemap needs `domain` set in `site.config.json`; with no
+   domain, none is produced at all.
 5. **You can't preview a page by opening it in a browser.** It's a
    fragment, not a document — there's no `<head>`/nav/footer without the
    template substitution applied. Use `.webhaste/compose.js` (needs Node);

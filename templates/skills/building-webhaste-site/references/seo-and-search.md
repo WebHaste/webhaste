@@ -77,6 +77,14 @@ the file(s) named:
   rather than indexing, which works against a `noindex` tag a crawler
   can't see on a page it's blocked from fetching in the first place.
 
+## Canonical tags are not generated
+
+WebHaste emits no `<link rel="canonical">`. For duplicate or near-duplicate
+pages, add one to the *non-preferred* page through its `headCode` (Page
+Properties' "Header code"): an absolute URL in the same form the sitemap
+uses (`https://<domain>/page.html`; bare domain for `index.html`). See the
+`optimizing-seo-and-accessibility` skill for details.
+
 ## Open Graph / Twitter Card tags are automatic
 
 Every page gets `og:title`, `og:description`, `og:type`, `og:site_name`,

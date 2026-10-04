@@ -78,7 +78,7 @@ project shouldn't be templateless," never "this specific file must exist."
 
 
 
-`.claude/skills/building-webhaste-site/` is scaffolded the same way, from
+`.claude/skills/building-webhaste-site/` is scaffolded from
 `templates/skills/building-webhaste-site/` in this repo, and for the same
 reason `CLAUDE.md` lives at the project root instead of `.webhaste/` — it's
 where Claude Code's own skill discovery looks. It exists alongside
@@ -87,10 +87,26 @@ self-contained document (useful to any agent, skill-aware or not), while
 the skill's `SKILL.md` is a short workflow index fanning out to
 topic-scoped `references/*.md` files (pages/templates, nav/pages.json,
 blocks, SEO/search, site config/testing) — the same content, reorganized
-for a tool that can load just the section it needs. Both are copied in
-once and never overwritten, same as `CLAUDE.md`/`simple-layout.html`, and
+for a tool that can load just the section it needs. The two are
 deliberately not kept byte-identical — a site owner editing one isn't
 expected to mirror the change into the other.
+
+**Unlike `CLAUDE.md`, skills are versioned and refreshed, not copy-once**
+(`syncSkills()` in `editor.js`). `templates/skills/manifest.json` lists
+every shipped skill with a `version` and its file list — **bump a skill's
+`version` whenever you change any of its files, or existing projects never
+see the change**, and add new skills/files there too (the manifest, not a
+hardcoded list, drives scaffolding). Each installed skill folder holds a
+`.webhaste-skill.json` marker: the installed version plus a SHA-256 of every
+file as shipped. When the shipped version is newer, a file whose hash still
+matches the marker is unedited and gets overwritten (a file dropped from the
+manifest is deleted if unedited); a file that differs was hand-edited and is
+left alone, with a `console.info` noting it. A skill folder with `SKILL.md`
+but no marker predates versioning, so its edits can't be told from stale
+content — those files are copied to `.webhaste/backups/_skills/<skill>/`
+and then replaced. Hashes normalize CRLF to LF so a Windows checkout isn't
+mistaken for an edit. When the version matches (the usual case) the cost is
+one marker read per skill.
 
 Both `assets/` and `scripts/` are lazy — created on first use, not scaffolded
 up front like `.webhaste/`. A template references its own scripts directly

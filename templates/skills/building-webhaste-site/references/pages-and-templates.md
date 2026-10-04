@@ -73,6 +73,24 @@ icon font's `@font-face` pointing at `../fonts/name.woff2`) — rewrite those
 too. Page files themselves don't have this restriction — `blog/post.html`
 is fine.
 
+## Where template-level files go: `elements/` vs `assets/`
+
+`assets/` is for content the site owner inserts into pages through the
+editor's Assets dialog — it lists everything in that folder, so anything
+dumped there shows up as something an editor might pick. Files that only the
+*template or stylesheets* use belong in **`elements/`** instead: a published,
+flat folder with no editor UI, meant to be populated on disk. That means web
+fonts (`.woff2`, `.woff`, `.ttf`), icon-font files, the site logo, favicon,
+CSS background images, and decorative shapes/textures the stylesheet or
+template references. Reference them as `/elements/<name>` (from a stylesheet:
+`url(/elements/<name>)`; in the template: `<img src="/elements/logo.png">`).
+Like `assets/` and `scripts/` it is flat, and it's created when you first
+add a file — no scaffolding step. CSS and JS stay in `scripts/`.
+
+Rule of thumb: if a person would reasonably pick it from a media library
+while writing a page, it's `assets/`; if removing it would break the *design*
+rather than a page's content, it's `elements/`.
+
 ## Multi-language content
 
 `{{LANG}}` in the layout template resolves per page as: this page's

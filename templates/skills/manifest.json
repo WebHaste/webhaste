@@ -1,0 +1,39 @@
+{
+  "skills": {
+    "building-webhaste-site": {
+      "version": 3,
+      "files": [
+        "SKILL.md",
+        "references/pages-and-templates.md",
+        "references/navigation-and-metadata.md",
+        "references/blocks.md",
+        "references/seo-and-search.md",
+        "references/site-config-and-testing.md"
+      ]
+    },
+    "migrating-wordpress-to-webhaste": {
+      "version": 3,
+      "files": [
+        "SKILL.md",
+        "references/theme-conversion.md",
+        "references/content-migration.md"
+      ]
+    },
+    "optimizing-seo-and-accessibility": {
+      "version": 3,
+      "files": [
+        "SKILL.md",
+        "references/seo-audit.md",
+        "references/accessibility-audit.md"
+      ]
+    },
+    "using-webhaste-lists": {
+      "version": 1,
+      "files": [
+        "SKILL.md",
+        "references/list-format.md",
+        "references/datatables.md"
+      ]
+    }
+  }
+}

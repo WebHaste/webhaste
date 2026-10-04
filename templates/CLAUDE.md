@@ -158,6 +158,22 @@ paths need rewriting too once the file they're relative to moves.
 (Page files themselves don't have this restriction — `blog/post.html` is
 fine — this only applies to `assets/`/`scripts/`.)
 
+## Template-level files go in `elements/`, not `assets/`
+
+`assets/` is what the editor's Assets dialog lists — it's for content a site
+owner inserts into pages, so anything dumped there looks like something an
+editor might pick. Files that only the *template or stylesheets* use belong
+in **`elements/`**: a published, flat folder with no editor UI. That means
+web fonts (`.woff2`, `.woff`, `.ttf`), icon-font files, the site logo,
+favicon, CSS background images, and decorative shapes/textures referenced by
+a stylesheet or the template. Reference them as `/elements/<name>` (CSS:
+`url(/elements/<name>)`; template: `<img src="/elements/logo.png">`). CSS and
+JS stay in `scripts/`. It's created when you add the first file.
+
+Rule of thumb: if a person would reasonably pick it from a media library
+while writing a page, it's `assets/`; if removing it would break the
+*design* rather than a page's content, it's `elements/`.
+
 ## Multi-language content
 
 `{{LANG}}` in the layout template resolves per page as: this page's
@@ -174,7 +190,8 @@ them.
 
 `sitemap.xml` is generated automatically at publish/render time from
 `site.config.json`'s `domain` and every non-draft page — don't create or
-hand-edit one in the project root, it plays no part in composing it. For
+hand-edit one in the project root, it plays no part in composing it (a root
+copy is ignored and never published). For
 "Render to Local Folder" it lands inside the deploy folder (`dist/` by
 default — see that folder's own "don't hand-edit" note below); for
 Cloudflare/Netlify Publish it's uploaded straight to the live site and

@@ -1227,38 +1227,9 @@ async function ensureScaffold() {
   // of CLAUDE.md at once. Lives at the project root under .claude/, not
   // .webhaste/, for the same reason CLAUDE.md does — that's where Claude
   // Code's own skill discovery looks, without being told where to find it.
-  // Same copied-in-once-then-left-alone pattern as CLAUDE.md above — never
-  // overwritten once it exists, so a site owner's edits (or a deliberate
-  // deletion) stick.
-  const skillFiles = [
-    "SKILL.md",
-    "references/pages-and-templates.md",
-    "references/navigation-and-metadata.md",
-    "references/blocks.md",
-    "references/seo-and-search.md",
-    "references/site-config-and-testing.md",
-  ];
-  const claudeDir = await dirHandle.getDirectoryHandle(".claude", { create: true });
-  const skillsDir = await claudeDir.getDirectoryHandle("skills", { create: true });
-  const skillDir = await skillsDir.getDirectoryHandle("building-webhaste-site", { create: true });
-  for (const relPath of skillFiles) {
-    const parts = relPath.split("/");
-    const fileName = parts.pop();
-    let targetDir = skillDir;
-    for (const part of parts) {
-      targetDir = await targetDir.getDirectoryHandle(part, { create: true });
-    }
-    try {
-      await targetDir.getFileHandle(fileName);
-    } catch {
-      const res = await fetch(chrome.runtime.getURL(`templates/skills/building-webhaste-site/${relPath}`));
-      const text = await res.text();
-      const handle = await targetDir.getFileHandle(fileName, { create: true });
-      const writable = await handle.createWritable();
-      await writable.write(text);
-      await writable.close();
-    }
-  }
+  // Unlike CLAUDE.md above, skills are versioned and refreshed — see
+  // syncSkills().
+  await syncSkills(dirHandle);
 
   // compose-core.js + compose.js — a self-contained, dependency-free Node
   // CLI for headlessly rendering this site (see cli/compose.js's own header
@@ -1281,6 +1252,105 @@ async function ensureScaffold() {
   await populateTemplateDropdown();
   applyParagraphMode(config.paragraphMode);
   await writeBlockLibraryDoc(cfgDir, config.cssFramework || "bootstrap5");
+}
+
+// ---- .claude/skills/ — versioned scaffolding.
+// Skills are tuned often after release, and a plain copy-once scaffold left
+// every existing project stuck on whatever version it was first opened with
+// (see CLAUDE.md "Lottie" for the same problem with scripts/). The shipped
+// templates/skills/manifest.json gives each skill a `version` and file list;
+// each installed skill folder carries a `.webhaste-skill.json` recording the
+// installed version plus a SHA-256 of every file as shipped. On folder open,
+// when the shipped version is newer:
+//   - a file whose on-disk hash still matches the recorded one is untouched
+//     by the site owner, so it's overwritten (and a file dropped from the
+//     manifest is deleted);
+//   - a file that differs was hand-edited, so it's left alone;
+//   - no marker at all means an install from before versioning existed — its
+//     edits can't be told apart from stale content, so the old files are
+//     copied to .webhaste/backups/_skills/ and then replaced.
+// Same version (the common case) costs one small file read per skill.
+const SKILL_MARKER = ".webhaste-skill.json";
+
+async function sha256Text(text) {
+  // Line endings normalized so a CRLF checkout/editor doesn't look like an edit.
+  const bytes = new TextEncoder().encode(text.replace(/\r\n/g, "\n"));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function readTextIfExists(rootDir, relPath) {
+  try {
+    const handle = await getNestedFileHandle(rootDir, relPath);
+    return await (await handle.getFile()).text();
+  } catch (err) {
+    if (err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
+async function writeNestedText(rootDir, relPath, text) {
+  const handle = await getNestedFileHandle(rootDir, relPath, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+
+async function syncSkills(dirHandle) {
+  const manifestRes = await fetch(chrome.runtime.getURL("templates/skills/manifest.json"));
+  const manifest = await manifestRes.json();
+  const claudeDir = await dirHandle.getDirectoryHandle(".claude", { create: true });
+  const skillsDir = await claudeDir.getDirectoryHandle("skills", { create: true });
+
+  for (const [skillName, skill] of Object.entries(manifest.skills)) {
+    const skillDir = await skillsDir.getDirectoryHandle(skillName, { create: true });
+    let marker = null;
+    try {
+      marker = JSON.parse(await readTextIfExists(skillDir, SKILL_MARKER));
+    } catch {
+      marker = null;
+    }
+    if (marker && marker.version >= skill.version) continue;
+
+    const legacy = !marker && (await readTextIfExists(skillDir, "SKILL.md")) !== null;
+    if (legacy) {
+      const backups = await getBackupsDirHandle(true);
+      for (const relPath of skill.files) {
+        const old = await readTextIfExists(skillDir, relPath);
+        if (old !== null) await writeNestedText(backups, `_skills/${skillName}/${relPath}`, old);
+      }
+    }
+
+    const oldHashes = (marker && marker.files) || {};
+    const newHashes = {};
+    const keptEdited = [];
+    for (const relPath of skill.files) {
+      const current = await readTextIfExists(skillDir, relPath);
+      const pristine = current === null || legacy || (await sha256Text(current)) === oldHashes[relPath];
+      const res = await fetch(chrome.runtime.getURL(`templates/skills/${skillName}/${relPath}`));
+      const shipped = await res.text();
+      if (pristine) {
+        await writeNestedText(skillDir, relPath, shipped);
+        newHashes[relPath] = await sha256Text(shipped);
+      } else {
+        keptEdited.push(relPath);
+        if (oldHashes[relPath]) newHashes[relPath] = oldHashes[relPath];
+      }
+    }
+    // Files the new version no longer ships: remove only if unedited.
+    for (const [relPath, hash] of Object.entries(oldHashes)) {
+      if (skill.files.includes(relPath)) continue;
+      const current = await readTextIfExists(skillDir, relPath);
+      if (current !== null && (await sha256Text(current)) === hash) {
+        const { dir, name } = await getNestedParentDirHandle(skillDir, relPath);
+        await dir.removeEntry(name);
+      }
+    }
+    await writeNestedText(skillDir, SKILL_MARKER, JSON.stringify({ version: skill.version, files: newHashes }, null, 2));
+    if (keptEdited.length) {
+      console.info(`Skill ${skillName} updated to v${skill.version}; kept hand-edited: ${keptEdited.join(", ")}`);
+    }
+  }
 }
 
 async function writeJSONFile(dir, name, obj) {
