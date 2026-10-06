@@ -13,6 +13,8 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-06
+
 ### Added
 - **`</> Code` toolbar button** wraps the selected text in `<code>`; click inside existing code to remove it.
 - **`⚓ Anchor` toolbar button** sets an ID on the paragraph or heading you're in, so links can jump to it. The Link dialog suggests the page's IDs as `#id` entries.
