@@ -83,7 +83,9 @@
             <option value="outdent">Outdent</option>
           </select>
           <button data-cmd="insertHorizontalRule" title="Horizontal rule">― HR</button>
+          <button data-cmd="inlineCode" title="Inline code — wrap the selection in &lt;code&gt;, or click inside code to remove it">&lt;/&gt; Code</button>
           <button data-cmd="createLink" title="Insert link">🔗 Link</button>
+          <button data-cmd="anchor" title="Anchor — give the current paragraph/heading an ID that links can jump to (#id)">⚓ Anchor</button>
         </div>
         <div class="asset-controls" id="assetControls">
           <button id="insertImageBtn">🖼️ Image</button>
@@ -404,7 +406,8 @@
 
   <dialog id="linkDialog">
     <h3 id="linkDialogTitle">Insert Link</h3>
-    <label>URL <input type="text" id="linkUrlInput" placeholder="https://" /></label>
+    <label>URL <input type="text" id="linkUrlInput" list="linkAnchorList" placeholder="https:// or #anchor" /></label>
+    <datalist id="linkAnchorList"></datalist>
     <label>Opens in
       <select id="linkTargetSelect">
         <option value="_self">Same Window</option>
@@ -415,6 +418,17 @@
       <button id="linkRemove" class="hidden">Remove Link</button>
       <button id="linkCancel">Cancel</button>
       <button id="linkSave" class="primary">Insert</button>
+    </div>
+  </dialog>
+
+  <dialog id="anchorDialog">
+    <h3 id="anchorDialogTitle">Add Anchor</h3>
+    <p class="hint" id="anchorDialogHint">Sets an ID on the paragraph or heading the cursor is in. Link to it with <code>#id</code> from the Link dialog.</p>
+    <label>ID <input type="text" id="anchorIdInput" placeholder="e.g. pricing" /></label>
+    <div class="dialog-actions">
+      <button id="anchorRemove" class="hidden">Remove Anchor</button>
+      <button id="anchorCancel">Cancel</button>
+      <button id="anchorSave" class="primary">Save</button>
     </div>
   </dialog>
 

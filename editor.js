@@ -2921,8 +2921,101 @@ document.getElementById("richControls").addEventListener("click", (e) => {
     const sel = document.getSelection();
     const anchorLink = sel.rangeCount ? getEnclosingLink(sel.getRangeAt(0).commonAncestorContainer) : null;
     openLinkDialog(anchorLink);
+  } else if (cmd === "inlineCode") {
+    toggleInlineCode();
+  } else if (cmd === "anchor") {
+    openAnchorDialog();
+    return; // saving happens from the dialog
   } else {
     document.execCommand(cmd, false, btn.dataset.value || undefined);
+  }
+  scheduleSave();
+});
+
+// ---- Inline <code> — toggles on the selection. Caret/selection inside an
+// existing <code> unwraps it; otherwise the selected text is wrapped via
+// insertHTML so it stays on the browser's undo stack. Only plain text within
+// one block is wrapped: a selection spanning paragraphs would be flattened
+// into a single run, so that case is refused instead. ----
+const BLOCK_SELECTOR = "p, h1, h2, h3, h4, h5, h6, li, pre, blockquote, td, th, div";
+
+function closestInVisual(node, selector) {
+  const el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+  const found = el ? el.closest(selector) : null;
+  return found && document.getElementById("visualArea").contains(found) ? found : null;
+}
+
+function toggleInlineCode() {
+  const sel = document.getSelection();
+  if (!sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const existing = closestInVisual(range.commonAncestorContainer, "code");
+  if (existing) {
+    existing.replaceWith(...existing.childNodes);
+    return;
+  }
+  if (range.collapsed) {
+    setStatus("Select some text first to turn it into code.");
+    return;
+  }
+  if (closestInVisual(range.startContainer, BLOCK_SELECTOR) !== closestInVisual(range.endContainer, BLOCK_SELECTOR)) {
+    setStatus("Inline code works within a single paragraph — select text in one block.");
+    return;
+  }
+  const text = range.toString();
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  document.execCommand("insertHTML", false, `<code>${escaped}</code>`);
+}
+
+// ---- Anchor dialog — sets/removes an id on the block containing the caret.
+// An id on the block itself (rather than an empty <a id> dropped into the
+// text) keeps the anchor visible/removable in Visual view and is what
+// modern "#fragment" links resolve against anyway. ----
+const anchorDialog = document.getElementById("anchorDialog");
+let anchorTargetEl = null;
+
+function openAnchorDialog() {
+  const sel = document.getSelection();
+  if (!sel.rangeCount) return;
+  const block = closestInVisual(sel.getRangeAt(0).startContainer, BLOCK_SELECTOR);
+  if (!block) {
+    setStatus("Click inside a paragraph or heading first, then add the anchor.");
+    return;
+  }
+  anchorTargetEl = block;
+  const existingId = block.getAttribute("id") || "";
+  document.getElementById("anchorDialogTitle").textContent = existingId ? "Edit Anchor" : "Add Anchor";
+  document.getElementById("anchorIdInput").value = existingId;
+  document.getElementById("anchorRemove").classList.toggle("hidden", !existingId);
+  anchorDialog.showModal();
+}
+
+document.getElementById("anchorCancel").addEventListener("click", () => anchorDialog.close());
+
+document.getElementById("anchorRemove").addEventListener("click", () => {
+  const el = anchorTargetEl;
+  anchorDialog.close();
+  if (!el) return;
+  el.removeAttribute("id");
+  scheduleSave();
+});
+
+document.getElementById("anchorSave").addEventListener("click", () => {
+  const el = anchorTargetEl;
+  // IDs can't contain whitespace; swap runs of it for hyphens and drop a
+  // leading "#" since people type the link form.
+  const id = document.getElementById("anchorIdInput").value.trim().replace(/^#/, "").replace(/\s+/g, "-");
+  anchorDialog.close();
+  if (!el) return;
+  if (id) {
+    const clash = document.getElementById("visualArea").querySelector(`[id="${CSS.escape(id)}"]`);
+    if (clash && clash !== el) {
+      setStatus(`The ID "${id}" is already used elsewhere on this page — pick a different one.`);
+      return;
+    }
+    el.setAttribute("id", id);
+  } else {
+    el.removeAttribute("id");
   }
   scheduleSave();
 });
@@ -2970,6 +3063,15 @@ function openLinkDialog(existingLink) {
     document.getElementById("linkUrlInput").value = "";
     document.getElementById("linkTargetSelect").value = "_self";
   }
+  // Offer this page's IDs as "#id" suggestions so anchors are linkable
+  // without remembering what they were called.
+  const anchorList = document.getElementById("linkAnchorList");
+  anchorList.replaceChildren();
+  document.querySelectorAll("#visualArea [id]").forEach((el) => {
+    const opt = document.createElement("option");
+    opt.value = `#${el.id}`;
+    anchorList.appendChild(opt);
+  });
   linkDialog.showModal();
 }
 
@@ -7141,15 +7243,36 @@ function startColumnResizerDrag(startEvent, resizer) {
   resizer.classList.add("resizing");
   document.body.classList.add("resizing-columns");
 
+  // Pointer capture routes every move/up to the resizer itself, even while
+  // the pointer is over the preview iframe. With plain document-level mouse
+  // listeners, the iframe (a separate document) swallowed the moves and the
+  // final mouseup whenever a rightward drag outran the 6px bar, leaving the
+  // drag stuck "on" with nothing ending it.
+  const pointerId = startEvent.pointerId;
+  try {
+    resizer.setPointerCapture(pointerId);
+  } catch {
+    // pointer already gone — the up/cancel handlers below still clean up
+  }
+
   function onUp() {
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
+    resizer.removeEventListener("pointermove", onMove);
+    resizer.removeEventListener("pointerup", onUp);
+    resizer.removeEventListener("pointercancel", onUp);
+    resizer.removeEventListener("lostpointercapture", onUp);
+    try {
+      resizer.releasePointerCapture(pointerId);
+    } catch {
+      // already released
+    }
     resizer.classList.remove("resizing");
     document.body.classList.remove("resizing-columns");
     saveColumnWidths();
   }
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
+  resizer.addEventListener("pointermove", onMove);
+  resizer.addEventListener("pointerup", onUp);
+  resizer.addEventListener("pointercancel", onUp);
+  resizer.addEventListener("lostpointercapture", onUp);
 }
 
 function initColumnResizers() {
@@ -7160,7 +7283,10 @@ function initColumnResizers() {
     btn.title = "Show the live preview pane";
   }
   document.querySelectorAll(".col-resizer").forEach((resizer) => {
-    resizer.addEventListener("mousedown", (e) => startColumnResizerDrag(e, resizer));
+    resizer.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      startColumnResizerDrag(e, resizer);
+    });
   });
   document.getElementById("togglePreviewBtn").addEventListener("click", () => setPreviewHidden(!columnState.previewHidden));
 }

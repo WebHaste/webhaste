@@ -116,12 +116,17 @@ button.primary:hover { background: #1d4ed8; }
 .col-resizer {
   cursor: col-resize;
   background: transparent;
+  touch-action: none;
 }
 .col-resizer:hover, .col-resizer.resizing { background: #2563eb; }
 /* Preview pane hidden via the "Hide Preview" toggle — see setPreviewHidden()
    in editor.js. Its resizer hides alongside it since there's nothing left
    to drag against. */
 .pane-hidden { display: none !important; }
+/* Visual-view-only cues (pseudo-elements never reach the saved HTML): inline
+   code gets a code look, and a block with an id shows a small anchor mark. */
+#visualArea code { background: #eef0f2; border-radius: 3px; padding: 0 3px; font-family: monospace; font-size: 0.92em; }
+#visualArea :is(p, h1, h2, h3, h4, h5, h6, li, pre, blockquote)[id]::before { content: "⚓"; font-size: 0.7em; opacity: 0.45; margin-right: 4px; }
 /* Applied to body only while a drag is in progress, so text elsewhere on
    the page doesn't get selected as the mouse crosses over it mid-drag. */
 body.resizing-columns { cursor: col-resize; user-select: none; }
