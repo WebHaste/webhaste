@@ -679,6 +679,9 @@ dialog {
   width: 360px;
 }
 dialog label { display: block; margin: 8px 0 4px; font-size: 13px; }
+/* Browser-default link blues/purples are unreadable on the dark dialog. */
+dialog a, dialog a:visited { color: #e5e7eb; }
+dialog a:hover { color: #fff; }
 dialog input, dialog textarea {
   width: 100%;
   background: #1e1e1e;

@@ -165,6 +165,23 @@ let previewPage = null; // { name, text }
   });
 }
 
+// ---- About dialog — shows the installed version, read from the manifest so
+// it can never drift from what package-extension.ps1 stamped into the build. ----
+{
+  const aboutDialog = document.getElementById("aboutDialog");
+  document.getElementById("aboutBtn").addEventListener("click", () => {
+    let version = "unknown";
+    try {
+      version = chrome.runtime.getManifest().version;
+    } catch {
+      // not running as an installed extension (e.g. a test harness)
+    }
+    document.getElementById("aboutVersion").textContent = version;
+    aboutDialog.showModal();
+  });
+  document.getElementById("aboutClose").addEventListener("click", () => aboutDialog.close());
+}
+
 // ---- Editor enabled/disabled state ----
 // No file is open until the user opens or creates one; until then the
 // visual/code panes must not look interactable, since flushPendingSave()
@@ -328,6 +345,7 @@ document.getElementById("recentProjects").addEventListener("change", async (e) =
   await saveHandle("projectDir", dirHandle);
   document.getElementById("folderName").textContent = dirHandle.name;
   clearEditorState();
+  resetStatus(`Switched project to ${dirHandle.name}`);
   await ensureScaffold();
   await refreshFileList();
   await recordRecentProject(dirHandle, await getSiteConfig());
@@ -341,6 +359,7 @@ document.getElementById("pickFolder").addEventListener("click", async () => {
     await saveHandle("projectDir", dirHandle);
     document.getElementById("folderName").textContent = dirHandle.name;
     clearEditorState();
+    resetStatus(`Switched project to ${dirHandle.name}`);
     await ensureScaffold();
     await refreshFileList();
     await recordRecentProject(dirHandle, await getSiteConfig());
@@ -7092,13 +7111,24 @@ async function renderToLocalFolder(packaged = false) {
 const STATUS_HISTORY_LIMIT = 10;
 const statusHistory = [];
 
-function setStatus(msg) {
+function addStatusHistory(msg) {
   statusHistory.unshift(`${new Date().toLocaleTimeString()}  ${msg}`);
   statusHistory.length = Math.min(statusHistory.length, STATUS_HISTORY_LIMIT);
+  document.getElementById("statusBar").title = statusHistory.join("\n");
+}
 
-  const statusBar = document.getElementById("statusBar");
-  statusBar.textContent = '🔔 ' + msg;
-  statusBar.title = statusHistory.join("\n");
+// Back to the idle message — used when switching projects so the previous
+// site's last message doesn't linger. The optional note goes into the hover
+// history only, so the history shows where one site's messages end and the
+// next one's begin.
+function resetStatus(historyNote) {
+  document.getElementById("statusBar").textContent = "✅ Ready...";
+  if (historyNote) addStatusHistory(historyNote);
+}
+
+function setStatus(msg) {
+  document.getElementById("statusBar").textContent = '🔔 ' + msg;
+  addStatusHistory(msg);
 }
 
 // Surfaces the PREVIEW_LINK_GUARD_SCRIPT's blocked-link notices in the
