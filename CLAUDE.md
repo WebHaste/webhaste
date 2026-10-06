@@ -1074,3 +1074,36 @@ a tab for `.webhaste/blocks/`, and any special handling of Tailwind sites —
 there `scripts/styles.css` is generated build output (source is
 `tailwind-input.css` at the project root), so hand-edits to it are overwritten
 by the next `npm run build:css`.
+
+### 19. Releases — `CHANGELOG.md`
+
+`CHANGELOG.md` at the repo root is the single source of truth for what
+changed in each version (Keep a Changelog layout, written for users rather
+than as commit messages). **When you ship a user-visible change, add a line
+under `## [Unreleased]`** — that's the whole day-to-day job.
+`scripts/package-extension.ps1` then refuses to package a new version with
+nothing under `[Unreleased]` (override with `-SkipChangelog`), moves those
+notes under a dated `## [x.y.z]` heading, leaves a fresh empty Unreleased
+section, and prints the notes at the end for pasting into the GitHub Release
+and the Chrome Web Store "what's new" field. Re-packaging an existing
+version (`-SkipBump`) reuses its section as-is. The script reads/writes the
+file through .NET's UTF-8 APIs, not `Get-Content`: Windows PowerShell 5.1
+reads BOM-less UTF-8 as ANSI, which corrupted the emoji and dashes the first
+time it round-tripped the file.
+
+**Release order:** package, commit + push the bump, then run
+`scripts/create-github-release.ps1`. It's a separate script because the
+release's tag must point at the commit that contains the bumped
+`manifest.json` and promoted changelog, and that commit doesn't exist yet
+when packaging ends. It tags HEAD, uses the `[x.y.z]` section as the release
+notes, and marks it Latest; it refuses to run (or `-DryRun`, which runs the
+same checks and creates nothing) unless the working tree is clean, HEAD is
+pushed, the tag doesn't already exist locally or on origin, and the
+changelog has notes for that version. No zip is attached — GitHub's own
+source archives cover the tagged commit, and the package zip is the Chrome
+Web Store upload. Needs `gh` installed and logged in.
+
+The same notes are also mirrored by hand into the chromecms.com docs site
+(`docs/changelog.html`, in the separate chromecms repo) and pasted into the
+Web Store "what's new" field — the package script's closing checklist lists
+every step. The About WebHaste dialog links to that page.

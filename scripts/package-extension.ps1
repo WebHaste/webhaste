@@ -19,6 +19,11 @@
 .PARAMETER SkipBump
   Package the current manifest.json version as-is, without changing it.
 
+.PARAMETER SkipChangelog
+  Don't require or update CHANGELOG.md. Normally the script refuses to
+  package a new version unless CHANGELOG.md has notes for it, and moves the
+  [Unreleased] section's notes under the new version heading.
+
 .PARAMETER DryRun
   Print what would happen without writing manifest.json or creating a zip.
 
@@ -42,6 +47,8 @@ param(
     [string]$Version,
 
     [switch]$SkipBump,
+
+    [switch]$SkipChangelog,
 
     [switch]$DryRun
 )
@@ -117,9 +124,54 @@ else {
 Write-Host "Current version: $currentVersion"
 Write-Host "New version:     $newVersion"
 
+# CHANGELOG.md check — runs before anything is written, so a release can't be
+# packaged without notes. Releasing a new version promotes "## [Unreleased]"
+# to "## [x.y.z] - date" and leaves a fresh empty Unreleased section on top.
+# Re-packaging a version that already has a section (-SkipBump) just reuses it.
+$changelogPath = Join-Path $repoRoot "CHANGELOG.md"
+$changelogText = $null
+$releaseNotes = $null
+$promoteChangelog = $false
+if (-not $SkipChangelog) {
+    if (-not (Test-Path $changelogPath)) {
+        throw "CHANGELOG.md not found. Create it, or pass -SkipChangelog."
+    }
+    # Not Get-Content: Windows PowerShell 5.1 reads BOM-less UTF-8 as ANSI,
+    # which would mangle the emoji/dashes and write them back corrupted.
+    $changelogText = [System.IO.File]::ReadAllText($changelogPath, (New-Object System.Text.UTF8Encoding($false)))
+    $versionHeading = '(?m)^## \[' + [regex]::Escape($newVersion) + '\][^\r\n]*\r?\n'
+    $sectionBody = '(?s)(.*?)(?=^## \[|\z)'
+    $existing = [regex]::Match($changelogText, $versionHeading + $sectionBody, 'Multiline')
+    if ($existing.Success) {
+        $releaseNotes = $existing.Groups[1].Value.Trim()
+    }
+    else {
+        $unreleased = [regex]::Match($changelogText, '(?m)^## \[Unreleased\][^\r\n]*\r?\n' + $sectionBody, 'Multiline')
+        if (-not $unreleased.Success -or -not $unreleased.Groups[1].Value.Trim()) {
+            throw "CHANGELOG.md has no [$newVersion] section and nothing under [Unreleased]. Add release notes first, or pass -SkipChangelog."
+        }
+        $releaseNotes = $unreleased.Groups[1].Value.Trim()
+        $promoteChangelog = $true
+    }
+}
+
 if ($DryRun) {
-    Write-Host "(dry run - manifest.json and releases\ left untouched)"
+    if ($promoteChangelog) { Write-Host "(dry run - would move [Unreleased] notes into [$newVersion] in CHANGELOG.md)" }
+    Write-Host "(dry run - manifest.json, CHANGELOG.md and releases\ left untouched)"
     exit 0
+}
+
+if ($promoteChangelog) {
+    $today = Get-Date -Format "yyyy-MM-dd"
+    $updatedChangelog = [regex]::Replace(
+        $changelogText,
+        '(?m)^## \[Unreleased\][^\r\n]*',
+        "## [Unreleased]`n`n## [$newVersion] - $today",
+        1
+    )
+    $utf8NoBomChangelog = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($changelogPath, $updatedChangelog, $utf8NoBomChangelog)
+    Write-Host "Updated CHANGELOG.md ([Unreleased] -> [$newVersion])"
 }
 
 if ($newVersion -ne $currentVersion) {
@@ -179,6 +231,17 @@ finally {
 }
 
 Write-Host "Created $zipPath"
+if ($releaseNotes) {
+    Write-Host ""
+    Write-Host "Release notes for v$newVersion (for the GitHub Release and the Web Store 'what's new' field):"
+    Write-Host "------------------------------------------------------------"
+    Write-Host $releaseNotes
+    Write-Host "------------------------------------------------------------"
+}
 Write-Host ""
-Write-Host "Next: upload this zip as a new package version at"
-Write-Host "https://chrome.google.com/webstore/devconsole"
+Write-Host "Next:"
+Write-Host "  1. Commit manifest.json + CHANGELOG.md and push"
+Write-Host "  2. Run scripts\create-github-release.ps1 (tags the commit and creates the GitHub Release)"
+Write-Host "  3. Upload the zip as a new package version at https://chrome.google.com/webstore/devconsole"
+Write-Host "     (paste the notes above into its 'what's new' field)"
+Write-Host "  4. Add the same notes to https://chromecms.com/docs/changelog.html"
