@@ -3282,23 +3282,6 @@ document.getElementById("formatBlockSelect").addEventListener("change", (e) => {
   scheduleSave();
 });
 
-// Align/List dropdowns group several one-shot actions under a single
-// control (like formatBlockSelect above), but unlike paragraph style,
-// "current alignment" and "current list type" aren't tracked, so leaving
-// the picked option displayed would misrepresent the doc as soon as the
-// user clicks elsewhere. Snapping back to the placeholder after firing
-// keeps these read as action menus, not state indicators.
-document.querySelectorAll("select.action-select").forEach((select) => {
-  select.addEventListener("change", (e) => {
-    const cmd = e.target.value;
-    if (!cmd) return;
-    document.getElementById("visualArea").focus();
-    document.execCommand(cmd, false, undefined);
-    e.target.selectedIndex = 0;
-    scheduleSave();
-  });
-});
-
 document.getElementById("visualArea").addEventListener("input", scheduleSave);
 
 // ---- Paste sanitizing ----

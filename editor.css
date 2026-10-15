@@ -232,6 +232,9 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
 }
 .file-item-action:hover { background: #4a4a4a; }
 
+.muted {
+  color: #666666;
+}
 
 .editor-pane, .preview-pane {
   display: flex;
@@ -258,6 +261,28 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
 .toggle-btn.active { background: #2563eb; }
 .rich-controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .rich-controls button { padding: 4px 8px; font-size: 12px; }
+/* SVG icon buttons: the file is used as a mask so the icon takes the
+   button's text color (the SVGs hardcode black, invisible on dark UI). */
+.rich-controls button.icon-btn { padding: 4px; }
+.icon-btn .icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  background-color: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+/* Icon beside a text label. Must be inline-block: width/height are ignored
+   on plain inline elements, which collapsed the mask to nothing. */
+.icon-inline {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background-color: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
 .rich-controls select {
   padding: 4px 6px;
   font-size: 12px;
@@ -276,7 +301,7 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
   padding: 5px 15px;
 }
 .asset-controls { display: flex; gap: 4px; }
-.asset-controls button { padding: 4px 8px; font-size: 12px; }
+.asset-controls button { padding: 4px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 .CodeMirror.hidden, #visualArea.hidden { display: none; }
 .CodeMirror {
   flex: 1;

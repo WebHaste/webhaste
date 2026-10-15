@@ -68,32 +68,29 @@
             <option value="H6">Heading 6</option>
             <option value="PRE">Preformatted</option>
           </select>
-          <button data-cmd="bold" title="Bold"><b>B</b></button>
-          <button data-cmd="italic" title="Italic"><i>I</i></button>
-          <select id="alignSelect" class="action-select" title="Alignment">
-            <option value="" selected disabled hidden>Align</option>
-            <option value="justifyLeft">Left</option>
-            <option value="justifyCenter">Center</option>
-            <option value="justifyRight">Right</option>
-          </select>
-          <select id="listSelect" class="action-select" title="Lists &amp; indent">
-            <option value="" selected disabled hidden>List</option>
-            <option value="insertUnorderedList">Unordered List</option>
-            <option value="insertOrderedList">Ordered List</option>
-            <option value="indent">Indent</option>
-            <option value="outdent">Outdent</option>
-          </select>
-          <button data-cmd="insertHorizontalRule" title="Horizontal rule">― HR</button>
-          <button data-cmd="inlineCode" title="Inline code — wrap the selection in &lt;code&gt;, or click inside code to remove it">&lt;/&gt; Code</button>
-          <button data-cmd="createLink" title="Insert link">🔗 Link</button>
-          <button data-cmd="anchor" title="Anchor — give the current paragraph/heading an ID that links can jump to (#id)">⚓ Anchor</button>
+          <button class="icon-btn" data-cmd="bold" title="Bold" aria-label="Bold"><span class="icon" style="--icon: url('icons/bold.svg')"></span></button>
+          <button class="icon-btn" data-cmd="italic" title="Italic" aria-label="Italic"><span class="icon" style="--icon: url('icons/italic.svg')"></span></button>
+          <span class="muted">|</span>
+          <button class="icon-btn" data-cmd="justifyLeft" title="Align left" aria-label="Align left"><span class="icon" style="--icon: url('icons/align-left.svg')"></span></button>
+          <button class="icon-btn" data-cmd="justifyCenter" title="Align center" aria-label="Align center"><span class="icon" style="--icon: url('icons/align-center.svg')"></span></button>
+          <button class="icon-btn" data-cmd="justifyRight" title="Align right" aria-label="Align right"><span class="icon" style="--icon: url('icons/align-right.svg')"></span></button>
+          <span class="muted">|</span>
+          <button class="icon-btn" data-cmd="insertUnorderedList" title="Unordered list" aria-label="Unordered list"><span class="icon" style="--icon: url('icons/unordered-list.svg')"></span></button>
+          <button class="icon-btn" data-cmd="insertOrderedList" title="Ordered list" aria-label="Ordered list"><span class="icon" style="--icon: url('icons/ordered-list.svg')"></span></button>
+          <button class="icon-btn" data-cmd="indent" title="Indent" aria-label="Indent"><span class="icon" style="--icon: url('icons/indent.svg')"></span></button>
+          <button class="icon-btn" data-cmd="outdent" title="Outdent" aria-label="Outdent"><span class="icon" style="--icon: url('icons/outdent.svg')"></span></button>
+          <span class="muted">|</span>
+          <button class="icon-btn" data-cmd="insertHorizontalRule" title="Horizontal rule" aria-label="Horizontal rule"><span class="icon" style="--icon: url('icons/horizontal-rule.svg')"></span></button>
+          <button class="icon-btn" data-cmd="inlineCode" title="Inline code — wrap the selection in &lt;code&gt;, or click inside code to remove it" aria-label="Inline code"><span class="icon" style="--icon: url('icons/code-sample.svg')"></span></button>
+          <button class="icon-btn" data-cmd="createLink" title="Add/Edit/Remove link" aria-label="Add/Edit/Remove link"><span class="icon" style="--icon: url('icons/link.svg')"></span></button>
+          <button class="icon-btn" data-cmd="anchor" title="Anchor — give the current paragraph/heading an ID that links can jump to (#id)" aria-label="Anchor"><span class="icon" style="--icon: url('icons/anchor.svg')"></span></button>
         </div>
         <div class="asset-controls" id="assetControls">
-          <button id="insertImageBtn">🖼️ Image</button>
-          <button id="insertTableBtn">▦ Table</button>
-          <button id="openAssetsBtn">📎 Assets</button>
-          <button id="openBlocksBtn">🧩 Blocks</button>
-          <button id="openSymbolsBtn">Ω Symbols</button>
+          <button id="insertImageBtn" title="Insert Image"><span class="icon-inline" style="--icon: url('icons/image.svg')"></span> Image</button>
+          <button id="openAssetsBtn" title="Insert Asset"><span class="icon-inline" style="--icon: url('icons/assets.svg')"></span> Assets</button>
+          <button id="insertTableBtn" title="Insert Table"><span class="icon-inline" style="--icon: url('icons/table.svg')"></span> Table</button>
+          <button id="openBlocksBtn" title="Insert Block"><span class="icon-inline" style="--icon: url('icons/blocks.svg')"></span> Blocks</button>
+          <button id="openSymbolsBtn" title="Insert Symbol or Emoji"><span class="icon-inline" style="--icon: url('icons/emoji.svg')"></span> Symbols</button>
         </div>
         <input type="file" id="imageFastPathInput" accept="image/*" class="hidden" />
       </div>

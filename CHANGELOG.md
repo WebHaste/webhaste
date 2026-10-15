@@ -13,6 +13,9 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+### Changed
+- The rich-text toolbar now uses icon buttons (hover for the name). Alignment and list/indent are individual buttons instead of dropdowns.
+
 ## [0.6.3] - 2026-10-06
 
 ### Added
@@ -182,7 +185,7 @@ Settings, Menus, Redirects and Check Links into one dropdown
 ## [0.1.3] - 2026-08-14
 
 ### Added
-- Support for collapsable folders in files panel
+- Support for collapsible folders in files panel
 
 ### Fixed
 - Path issue in sitemap.xml generation
