@@ -13,6 +13,8 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-15
+
 ### Changed
 - The rich-text toolbar now uses icon buttons (hover for the name). Alignment and list/indent are individual buttons instead of dropdowns.
 
