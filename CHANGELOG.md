@@ -18,6 +18,9 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 ### Changed
 - The rich-text toolbar now uses icon buttons (hover for the name). Alignment and list/indent are individual buttons instead of dropdowns.
 
+### Fixed
+- Live preview now shows images that a stylesheet references with a relative path such as `url("../assets/icon.svg")`; they previously showed blank.
+
 ## [0.6.3] - 2026-10-06
 
 ### Added

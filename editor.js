@@ -4905,8 +4905,11 @@ const SCRIPTS_CSS_LINK_RE = /<link[^>]*href="\/?scripts\/([^"]+\.css)"[^>]*>/g;
 // inlined into a <style> block above. Captures which top-level folder it
 // points at so the right directory handle can be picked per match; quote
 // character (or lack of one) is captured too so it can be required to match
-// on the closing side via the \2 backreference.
-const CSS_URL_RE = /url\((["']?)(?:\/)?(assets|elements|scripts)\/([^"')]+?)\1\)/g;
+// on the closing side via the \2 backreference. The optional prefix covers
+// root-relative (`/assets/x`) and the stylesheet-relative form a file in
+// scripts/ naturally uses (`../assets/x`, also `./`) — the latter is the one
+// that keeps working in a Packaged file:// build, so it can't be avoided.
+const CSS_URL_RE = /url\((["']?)(?:\.{1,2}\/|\/)?(assets|elements|scripts)\/([^"')]+?)\1\)/g;
 const CSS_URL_DIR_GETTERS = {
   assets: getAssetsDirHandle,
   elements: getElementsDirHandle,
