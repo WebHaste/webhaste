@@ -7308,5 +7308,162 @@ function initColumnResizers() {
 }
 initColumnResizers();
 
+// ---- First-run tour ----
+// A spotlight + card walkthrough of the major UI areas. Starts once per
+// device (flag in chrome.storage.local, set as soon as the tour *starts* so
+// Exit, a reload, or closing the tab all count as "seen"); Site Admin → Take
+// the Tour replays it. Purely informational — it never drives the app.
+const TOUR_SEEN_KEY = "tourSeen";
+const TOUR_STEPS = [
+  {
+    title: "Welcome to WebHaste!",
+    body: "Hi! I'm Hasty, and I want to give you a quick tour of how to get started with WebHaste.",
+    image: true,
+  },
+  {
+    target: "#pickFolder",
+    body: 'Click "Open Project Folder" and select a pre-downloaded project folder or an empty folder that can be scaffolded with your project files.',
+  },
+  {
+    target: "#siteAdminToggle",
+    body: 'Click "Site Admin" and "Site Settings" to set your site\'s main info, including which CSS framework to use and how you plan to deploy your site.',
+  },
+  {
+    target: "#newFile",
+    body: "Create your first page, typically the site homepage. Enter the Page title and file name (The site homepage should be index.html).",
+  },
+  {
+    target: ".file-list",
+    body: 'Click any page in the file panel to begin editing in the Page Editor panel. You can preview your changes in real time in the "Live Preview" panel.',
+  },
+  {
+    target: "#publishBtn",
+    body: 'When you\'re ready to publish your site, click "Publish" to render it to a local folder or upload to your chosen hosting provider.',
+  },
+  {
+    title: "That's the quick tour!",
+    html: 'For the full WebHaste documentation and video tutorials, visit <a href="https://chromecms.com/docs/" target="_blank" rel="noopener noreferrer">https://chromecms.com/docs/</a>',
+  },
+];
+
+{
+  const tour = document.getElementById("tour");
+  const spotlight = document.getElementById("tourSpotlight");
+  const card = document.getElementById("tourCard");
+  const prevBtn = document.getElementById("tourPrev");
+  const nextBtn = document.getElementById("tourNext");
+  const PAD = 6;
+  const GAP = 14;
+  let stepIdx = 0;
+
+  function placeCard(rect) {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const cw = card.offsetWidth;
+    const ch = card.offsetHeight;
+    let left;
+    let top;
+    if (!rect) {
+      left = (vw - cw) / 2;
+      top = (vh - ch) / 2;
+    } else if (rect.width > vw * 0.5 || rect.bottom + GAP + ch > vh) {
+      // Tall targets (the file panel) or no room below: sit beside it.
+      left = rect.right + GAP;
+      top = rect.top + 20;
+    } else {
+      // Below the target, aligned to whichever edge keeps the card on screen.
+      top = rect.bottom + GAP;
+      left = rect.left + rect.width / 2 > vw / 2 ? rect.right - cw : rect.left;
+    }
+    card.style.left = Math.max(12, Math.min(left, vw - cw - 12)) + "px";
+    card.style.top = Math.max(12, Math.min(top, vh - ch - 12)) + "px";
+  }
+
+  function renderStep() {
+    const step = TOUR_STEPS[stepIdx];
+    const titleEl = document.getElementById("tourTitle");
+    titleEl.textContent = step.title || "";
+    titleEl.classList.toggle("hidden", !step.title);
+    const bodyEl = document.getElementById("tourBody");
+    if (step.html) bodyEl.innerHTML = step.html;
+    else bodyEl.textContent = step.body;
+    document.getElementById("tourImg").classList.toggle("hidden", !step.image);
+    document.getElementById("tourStep").textContent = `${stepIdx + 1} / ${TOUR_STEPS.length}`;
+    prevBtn.classList.toggle("hidden", stepIdx === 0);
+    nextBtn.classList.toggle("hidden", stepIdx === TOUR_STEPS.length - 1);
+
+    // A target that's missing or not laid out falls back to a centered card
+    // rather than a spotlight around nothing.
+    const targetEl = step.target && document.querySelector(step.target);
+    const r = targetEl && targetEl.getBoundingClientRect();
+    const rect = r && r.width > 0 && r.height > 0 ? r : null;
+    if (rect) {
+      spotlight.style.top = rect.top - PAD + "px";
+      spotlight.style.left = rect.left - PAD + "px";
+      spotlight.style.width = rect.width + PAD * 2 + "px";
+      spotlight.style.height = rect.height + PAD * 2 + "px";
+    } else {
+      // A zero-size spotlight still casts the full-window mask.
+      spotlight.style.top = "50%";
+      spotlight.style.left = "50%";
+      spotlight.style.width = "0";
+      spotlight.style.height = "0";
+    }
+    placeCard(rect);
+  }
+
+  function onTourKey(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      endTour();
+    }
+  }
+
+  function endTour() {
+    tour.classList.add("hidden");
+    window.removeEventListener("resize", renderStep);
+    document.removeEventListener("keydown", onTourKey, true);
+  }
+
+  function startTour() {
+    stepIdx = 0;
+    tour.classList.remove("hidden");
+    window.addEventListener("resize", renderStep);
+    document.addEventListener("keydown", onTourKey, true);
+    renderStep();
+    nextBtn.focus();
+  }
+
+  document.getElementById("tourExit").addEventListener("click", endTour);
+  prevBtn.addEventListener("click", () => {
+    if (stepIdx > 0) {
+      stepIdx--;
+      renderStep();
+    }
+  });
+  nextBtn.addEventListener("click", () => {
+    if (stepIdx < TOUR_STEPS.length - 1) {
+      stepIdx++;
+      renderStep();
+    }
+  });
+  document.getElementById("tourBtn").addEventListener("click", () => {
+    document.getElementById("siteAdminMenu").classList.remove("open");
+    startTour();
+  });
+
+  (async () => {
+    try {
+      const stored = await chrome.storage.local.get(TOUR_SEEN_KEY);
+      if (stored[TOUR_SEEN_KEY]) return;
+      await chrome.storage.local.set({ [TOUR_SEEN_KEY]: true });
+    } catch {
+      return; // not running as an installed extension (e.g. a test harness)
+    }
+    startTour();
+  })();
+}
+
 // Kick things off
 tryRestoreFolder();

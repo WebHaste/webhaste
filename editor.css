@@ -1012,3 +1012,37 @@ dialog label.checkbox-label input[type="checkbox"] { width: auto; }
 #imagePropsDialog { width: 420px; max-width: 90vw; }
 .preset-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .preset-group-label { font-size: 11px; color: #888; width: 64px; flex-shrink: 0; }
+
+/* ---- First-run tour ----
+   The spotlight is a transparent box whose enormous box-shadow darkens
+   everything *outside* it, giving the "mask with a cutout" look without any
+   clip-path math. #tour itself swallows clicks so the app underneath can't
+   be poked mid-tour; Exit is always available. */
+.tour { position: fixed; inset: 0; z-index: 10000; }
+.tour.hidden { display: none; }
+.tour-spotlight {
+  position: fixed;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.7), 0 0 0 3px #5eead4;
+  transition: top 0.2s, left 0.2s, width 0.2s, height 0.2s;
+  pointer-events: none;
+}
+.tour-card {
+  position: fixed;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  background: #2d2d2d;
+  color: #ddd;
+  border: 1px solid #5eead4;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.tour-img { display: block; width: 72px; height: 72px; margin: 0 auto 8px; }
+.tour-img.hidden, .tour-title.hidden, .tour-actions button.hidden { display: none; }
+.tour-title { margin: 0 0 8px; font-size: 16px; }
+.tour-body { margin: 0 0 14px; font-size: 14px; line-height: 1.45; }
+.tour-body a { color: #5eead4; }
+.tour-actions { display: flex; align-items: center; gap: 8px; }
+.tour-step { margin-right: auto; font-size: 12px; color: #999; }

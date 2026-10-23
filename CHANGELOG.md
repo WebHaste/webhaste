@@ -13,6 +13,11 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-10-23
+
+### Added
+- A short first-run tour: Hasty walks you through opening a project, Site Settings, creating a page, editing, and publishing, highlighting each part of the screen. It shows once per device; replay it any time from Site Admin → Take the Tour.
+
 ## [0.6.4] - 2026-10-15
 
 ### Changed

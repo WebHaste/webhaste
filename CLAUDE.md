@@ -1075,6 +1075,21 @@ there `scripts/styles.css` is generated build output (source is
 `tailwind-input.css` at the project root), so hand-edits to it are overwritten
 by the next `npm run build:css`.
 
+### 18b. First-run tour (GitHub #9)
+
+`TOUR_STEPS` in `editor.js` drives a spotlight + card walkthrough (`#tour` in
+`editor.html`). The "cutout" is a transparent `.tour-spotlight` box positioned
+over the target's `getBoundingClientRect()` with a huge `box-shadow` darkening
+everything outside it — no clip-path. `#tour` covers the window and swallows
+clicks, so the app can't be driven mid-tour (Exit/Esc always work). A step with
+no `target`, or one that isn't laid out, gets a centered card and a zero-size
+spotlight (full mask). Add/reorder steps by editing the array; targets are CSS
+selectors.
+
+The "seen" flag is `chrome.storage.local` → `tourSeen`, per device and global
+(not per project), written when the tour *starts*, so Exit or a reload both
+count as seen. Site Admin → Take the Tour replays it.
+
 ### 19. Releases — `CHANGELOG.md`
 
 `CHANGELOG.md` at the repo root is the single source of truth for what

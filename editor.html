@@ -24,6 +24,7 @@
         <button id="editRedirects">↪️ Redirects</button>
         <button id="editLists">📋 Lists</button>
         <button id="checkLinksBtn">🔍 Check Links</button>
+        <button id="tourBtn">🧭 Take the Tour</button>
         <button id="aboutBtn">ℹ️ About WebHaste</button>
       </div>
     </div>
@@ -556,6 +557,22 @@
   </div>
 
   <div id="statusBar" class="status-bar">✅ Ready...</div>
+
+  <!-- First-run tour overlay — see the "First-run tour" block in editor.js. -->
+  <div id="tour" class="tour hidden">
+    <div id="tourSpotlight" class="tour-spotlight"></div>
+    <div id="tourCard" class="tour-card" role="dialog" aria-live="polite">
+      <img id="tourImg" src="icons/hasty-head.png" alt="" class="tour-img hidden" />
+      <h3 id="tourTitle" class="tour-title"></h3>
+      <p id="tourBody" class="tour-body"></p>
+      <div class="tour-actions">
+        <span id="tourStep" class="tour-step"></span>
+        <button type="button" id="tourExit">Exit</button>
+        <button type="button" id="tourPrev">Prev</button>
+        <button type="button" id="tourNext" class="primary">Next</button>
+      </div>
+    </div>
+  </div>
 
   <script src="vendor/codemirror/lib/codemirror.js"></script>
   <script src="vendor/codemirror/mode/xml/xml.js"></script>
