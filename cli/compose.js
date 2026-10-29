@@ -301,7 +301,27 @@ function main() {
     lastmod,
     rawContent,
   }));
-  const searchIndexJson = WebhasteCompose.buildSearchIndex({ pageEntries: searchIndexEntries, pagesData });
+  // Every list file is read, not just referenced ones: buildSearchIndex()
+  // only uses a list a page actually places (data-list-src).
+  const listsBySlug = {};
+  const listsSrcDirForSearch = path.join(cfgDir, "lists");
+  if (fs.existsSync(listsSrcDirForSearch)) {
+    for (const name of fs.readdirSync(listsSrcDirForSearch)) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        listsBySlug[name.replace(/\.json$/, "")] = JSON.parse(
+          fs.readFileSync(path.join(listsSrcDirForSearch, name), "utf8")
+        );
+      } catch {
+        // Invalid JSON — leave it out.
+      }
+    }
+  }
+  const searchIndexJson = WebhasteCompose.buildSearchIndex({
+    pageEntries: searchIndexEntries,
+    pagesData,
+    listsBySlug,
+  });
   const searchEntries = searchIndexJson ? JSON.parse(searchIndexJson) : null;
   if (!packaged && searchIndexJson) fs.writeFileSync(path.join(distDir, "search-index.json"), searchIndexJson);
 

@@ -518,6 +518,17 @@ normally:
   works against a `noindex` tag Google can't see on a page it's blocked from
   fetching in the first place.
 
+**List blocks are indexed too.** A page's raw source only holds a List
+block's placeholder (`list.js` draws the entries client-side), so
+`buildSearchIndex()` takes an optional `listsBySlug` (`{ slug: parsedJson }`)
+and, for every `data-list-src` on a page, appends that list's `text`/`date`
+values to the page's `content` — `link`/`image` values are skipped, being
+URLs rather than words. Callers read the list files themselves
+(`parseListsBySlug()` in `editor.js`, a `readdirSync` in `cli/compose.js`),
+same environment split as `lastmod` for the sitemap. Lottie placeholders go
+the other way: `stripHtmlToText()` drops any `data-lottie-src` div, since its
+only text is the editor-facing filename label.
+
 The search *UI* is a separate, opt-in layer on top of the index — WebHaste
 generates the data file for every site automatically, but (consistent with
 never injecting markup into a template on the author's behalf — see

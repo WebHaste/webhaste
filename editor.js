@@ -4274,7 +4274,7 @@ function lottieBlockMarkup(name) {
     ? `🎞️ ${name}`
     : "🎞️ Click this block's 🎞️ toolbar button to choose an animation (.json)";
   return `
-      <div class="lottie-content my-4 cs-lottie-placeholder" data-lottie-src="${name ? `/assets/${name}` : ""}">
+      <div class="lottie-content my-4 cs-lottie-placeholder" data-lottie-src="${name ? `/assets/${name}` : ""}" aria-hidden="true">
   <span class="cs-lottie-placeholder__icon">🎞️</span>
   <span class="cs-lottie-placeholder__label">${label}</span>
 </div>
@@ -6466,6 +6466,22 @@ function filterReferencedLists(lists, pages) {
   return filtered;
 }
 
+// Parses getProjectLists()/filterReferencedLists()'s { "slug.json": buffer }
+// into { slug: parsedJson } for buildSearchIndex()'s listsBySlug, so list
+// entries (drawn client-side, absent from a page's raw source) are
+// searchable. A file that isn't valid JSON is skipped.
+function parseListsBySlug(lists) {
+  const bySlug = {};
+  for (const [name, arrayBuffer] of Object.entries(lists)) {
+    try {
+      bySlug[name.replace(/\.json$/i, "")] = JSON.parse(new TextDecoder().decode(arrayBuffer));
+    } catch {
+      // Not valid JSON — leave it out.
+    }
+  }
+  return bySlug;
+}
+
 // ---- Cloudflare Pages Direct Upload — a content-hash-addressed protocol ----
 // This is NOT a single multipart POST of raw files + a size manifest (an
 // earlier version of this function assumed that, and produced deployments
@@ -6690,7 +6706,7 @@ async function publishSite(account, project, token) {
         contentType: withCharset("application/xml"),
       });
     }
-    const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
+    const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData, listsBySlug: parseListsBySlug(lists) });
     if (searchIndex) {
       files.push({
         path: "/search-index.json",
@@ -6807,7 +6823,7 @@ async function publishToNetlify(siteId, token) {
   }
   const sitemap = WebhasteCompose.buildSitemap({ pageEntries, pagesData, config });
   if (sitemap) fileEntries.push({ path: "/sitemap.xml", content: sitemap });
-  const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
+  const searchIndex = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData, listsBySlug: parseListsBySlug(lists) });
   if (searchIndex) fileEntries.push({ path: "/search-index.json", content: searchIndex });
   const robots = await getRobotsTxtContent();
   if (robots) fileEntries.push({ path: "/robots.txt", content: robots });
@@ -6899,7 +6915,7 @@ async function renderToLocalFolder(packaged = false) {
 
   // Computed up front either way — packaged mode embeds it per page below,
   // non-packaged mode writes it as search-index.json further down.
-  const searchIndexJson = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData });
+  const searchIndexJson = WebhasteCompose.buildSearchIndex({ pageEntries, pagesData, listsBySlug: parseListsBySlug(lists) });
   const searchEntries = searchIndexJson ? JSON.parse(searchIndexJson) : null;
   // Output paths of every page being written, so an extensionless link
   // ("/blog/my-post") can be resolved to the real file under file://.

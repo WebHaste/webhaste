@@ -13,6 +13,15 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-10-29
+
+### Added
+- Site search now covers List blocks: the text and date values of every list placed on a page are added to that page's search entry, so tables and link lists are findable. Link and image values aren't indexed.
+
+### Fixed
+- Site search no longer indexes the "🎞️ filename.json" placeholder text from Lottie animation blocks.
+- New Lottie animation blocks are marked `aria-hidden`, so screen readers skip the placeholder label if the animation script doesn't load. Existing blocks keep their current markup; add `aria-hidden="true"` by hand if you want it.
+
 ## [0.6.5] - 2026-10-23
 
 ### Added

@@ -465,11 +465,15 @@
   // based rather than DOMParser so it behaves identically in the browser
   // extension and under plain Node (compose-core.js has zero dependencies by
   // design, see header comment). <script>/<style> contents are dropped
-  // entirely rather than left as unreadable text.
+  // entirely rather than left as unreadable text. So are Lottie placeholder
+  // blocks (data-lottie-src): their only text is the editor-facing "🎞️
+  // filename.json" label, which isn't page content. The placeholder holds
+  // only <span>s, so the first </div> after the opening tag is its own.
   function stripHtmlToText(html) {
     return decodeEntities(
       String(html || "")
         .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+        .replace(/<div\b[^>]*\bdata-lottie-src\b[^>]*>[\s\S]*?<\/div>/gi, " ")
         .replace(/<!--[\s\S]*?-->/g, " ")
         .replace(/<[^>]+>/g, " ")
     )
@@ -485,8 +489,19 @@
   // same store Page Properties already writes. Drafts, 404.html, and pages
   // marked "Exclude from search" are left out; returns null when nothing's
   // left to index so callers can skip writing the file, same as buildSitemap.
-  function buildSearchIndex({ pageEntries, pagesData }) {
+  //
+  // listsBySlug (optional, { [slug]: parsedListJson }) makes list entries
+  // searchable. A List block's raw source is only a placeholder div —
+  // scripts/list.js draws the entries client-side from /lists/<slug>.json —
+  // so without this a page's table/link list is invisible to search. Each
+  // list a page places (found via its data-list-src) has its entries' text
+  // and date values appended to that page's content. Link and image values
+  // are skipped: they're URLs/paths, not words anyone searches for. Callers
+  // read the list files themselves (File System Access vs. fs, same split as
+  // lastmod in buildSitemap).
+  function buildSearchIndex({ pageEntries, pagesData, listsBySlug }) {
     const data = pagesData || {};
+    const lists = listsBySlug || {};
     const entries = pageEntries
       .filter(
         ({ path }) => path.toLowerCase() !== "404.html" && !isDraftPage(data[path]) && !isSearchExcluded(data[path])
@@ -497,11 +512,30 @@
           url: path === "index.html" ? "/" : `/${path}`,
           title: meta.title || "",
           description: meta.description || "",
-          content: stripHtmlToText(rawContent),
+          content: [stripHtmlToText(rawContent), ...listTextsForPage(rawContent, lists)].filter(Boolean).join(" "),
         };
       });
     if (!entries.length) return null;
     return JSON.stringify(entries);
+  }
+
+  // The searchable text of every list placed on a page, one string per list.
+  function listTextsForPage(rawContent, listsBySlug) {
+    const texts = [];
+    for (const src of findListSrcs(rawContent)) {
+      const match = /^\/lists\/([^/]+)\.json$/.exec(src);
+      const list = match && listsBySlug[match[1]];
+      if (!list || !Array.isArray(list.fields) || !Array.isArray(list.entries)) continue;
+      const keys = list.fields.filter((f) => f && (f.type === "text" || f.type === "date")).map((f) => f.key);
+      const parts = [];
+      for (const entry of list.entries) {
+        for (const key of keys) {
+          if (entry && typeof entry[key] === "string" && entry[key].trim()) parts.push(entry[key].trim());
+        }
+      }
+      texts.push(parts.join(" "));
+    }
+    return texts;
   }
 
   // Finds every data-lottie-src="..." value in a composed page's HTML —
