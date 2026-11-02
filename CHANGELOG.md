@@ -13,6 +13,8 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-11-02
+
 ### Fixed
 - Cloning a page now keeps the source page's template, sitemap/search exclusions, "hide from search engines" setting and header code, not just its description and language. A clone of a draft still starts as active.
 
