@@ -1580,8 +1580,8 @@ newFileSaveBtn.addEventListener("click", async () => {
     await writable.close();
   }
 
-  // Save the page title (and, when cloning, the source page's description/
-  // language) into pages.json right away — same store Page Properties
+  // Save the page title (and, when cloning, the source page's other Page
+  // Properties) into pages.json right away — same store Page Properties
   // writes to — so a clone isn't left blank if the author forgets to revisit
   // Page Properties. Status is deliberately not carried over: a clone of a
   // draft defaults back to active, same as any other new page.
@@ -1592,6 +1592,11 @@ newFileSaveBtn.addEventListener("click", async () => {
       ...pagesData[path],
       ...(sourceMeta?.description ? { description: sourceMeta.description } : {}),
       ...(sourceMeta?.language ? { language: sourceMeta.language } : {}),
+      ...(sourceMeta?.template ? { template: sourceMeta.template } : {}),
+      ...(sourceMeta?.excludeFromSitemap ? { excludeFromSitemap: true } : {}),
+      ...(sourceMeta?.excludeFromSearch ? { excludeFromSearch: true } : {}),
+      ...(sourceMeta?.noindex ? { noindex: true } : {}),
+      ...(sourceMeta?.headCode ? { headCode: sourceMeta.headCode } : {}),
       ...(title ? { title } : {}),
     };
     const cfgDir = await getConfigDir(true);
@@ -1874,13 +1879,19 @@ function buildFileItem(name, handle, pagesData, displayName, publishStatus) {
   cloneBtn.dataset.action = "clone";
   cloneBtn.title = "Clone page";
   cloneBtn.textContent = "⧉";
+  const renameBtn = document.createElement("button");
+  renameBtn.type = "button";
+  renameBtn.className = "file-item-action";
+  renameBtn.dataset.action = "rename";
+  renameBtn.title = "Rename or move page";
+  renameBtn.textContent = "✎";
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "file-item-action file-item-delete";
   deleteBtn.dataset.action = "delete";
   deleteBtn.title = "Delete page";
   deleteBtn.textContent = "🗑";
-  actions.append(propsBtn, cloneBtn, deleteBtn);
+  actions.append(propsBtn, renameBtn, cloneBtn, deleteBtn);
   item.appendChild(actions);
 
   item.addEventListener("click", () => openFile(name, handle));
@@ -1900,6 +1911,8 @@ document.getElementById("fileList").addEventListener("click", async (e) => {
     await openPagePropertiesDialog(name);
   } else if (actionBtn.dataset.action === "clone") {
     await openCloneDialog(name);
+  } else if (actionBtn.dataset.action === "rename") {
+    await openRenameDialog(name);
   } else if (actionBtn.dataset.action === "delete") {
     await deletePage(name);
   }
@@ -1933,6 +1946,14 @@ document.getElementById("pagePropsLanguage").addEventListener("change", (e) => {
 });
 
 document.getElementById("pagePropsCancel").addEventListener("click", () => pagePropertiesDialog.close());
+
+// Renaming changes the published URL and rewrites other files, so it gets its
+// own dialog (with its own confirmation step) rather than being a field here.
+document.getElementById("pagePropsRename").addEventListener("click", async () => {
+  const name = pagePropsFileName;
+  pagePropertiesDialog.close();
+  await openRenameDialog(name);
+});
 
 document.getElementById("pagePropsSave").addEventListener("click", async () => {
   const title = document.getElementById("pagePropsTitle").value.trim();
@@ -1999,6 +2020,534 @@ async function deletePage(name) {
 
   await refreshFileList();
   setStatus(`Deleted ${name}.`);
+}
+
+// ---- Rename / move page ----
+// A page's path is its identity everywhere (pages.json keys, nav.json and
+// redirects.json hrefs, links inside other pages, Lists' link fields), so a
+// rename is a file move plus a fix-up of each of those. The link fix-up is
+// reviewable: the dialog lists every link that would change and the author
+// can untick individual ones (or the whole group) before anything is written.
+
+// Splits an href into its path and trailing "?query"/"#fragment".
+function splitHrefSuffix(href) {
+  const i = href.search(/[?#]/);
+  return i === -1 ? { path: href, suffix: "" } : { path: href.slice(0, i), suffix: href.slice(i) };
+}
+
+// Resolves an internal href as typed on `sourcePath` ("" for nav.json/Lists,
+// whose hrefs are site-root-relative) to the page it names. Returns
+// { resolved, style, relative, suffix } or null when it isn't an internal
+// link. `style` records how the author wrote it so a rewrite can match:
+// "ext" (/about.html), "noext" (/about) or "dir" (/blog/ -> blog/index.html).
+function parseInternalLink(href, sourcePath) {
+  const trimmed = (href || "").trim();
+  if (!looksInternalHref(trimmed) || /^(\/\/|[a-z][a-z0-9+.-]*:)/i.test(trimmed)) return null;
+  const { path, suffix } = splitHrefSuffix(trimmed);
+  if (!path) return null;
+  const relative = !path.startsWith("/");
+  const segs = relative ? sourcePath.split("/").slice(0, -1) : [];
+  for (const seg of path.split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") segs.pop();
+    else segs.push(seg);
+  }
+  let style;
+  if (path.endsWith("/") || !segs.length) {
+    style = "dir";
+    segs.push("index.html");
+  } else if (/\.html?$/i.test(segs[segs.length - 1])) {
+    style = "ext";
+  } else {
+    style = "noext";
+    segs[segs.length - 1] += ".html";
+  }
+  return { resolved: segs.join("/"), style, relative, suffix };
+}
+
+// Inverse of parseInternalLink(): the href, in the author's original style,
+// that points at `targetPath` from the page at `sourcePath`.
+function buildLinkValue(parsed, targetPath, sourcePath) {
+  let display;
+  if (parsed.style === "ext") display = targetPath;
+  else if (parsed.style === "dir" && /(^|\/)index\.html$/i.test(targetPath)) display = targetPath.slice(0, -"index.html".length);
+  else display = targetPath.replace(/\.html$/i, "");
+
+  let value;
+  if (!parsed.relative) {
+    value = "/" + display;
+  } else {
+    const srcFolder = sourcePath.split("/").slice(0, -1);
+    const trailing = display === "" || display.endsWith("/");
+    const segs = display.split("/").filter(Boolean);
+    const targetDir = trailing ? segs : segs.slice(0, -1);
+    const leaf = trailing ? "" : segs[segs.length - 1];
+    let i = 0;
+    while (i < srcFolder.length && i < targetDir.length && srcFolder[i] === targetDir[i]) i++;
+    value = "../".repeat(srcFolder.length - i) + targetDir.slice(i).map((s) => s + "/").join("") + leaf;
+    if (!value) value = "./";
+  }
+  return value + parsed.suffix;
+}
+
+// Every <a href="..."> in raw page text, as { start, end, href, label } where
+// start/end are the offsets of the href value itself. Positions (rather than a
+// DOMParser pass) because the rewrite splices the original string, so a page's
+// formatting is never re-serialized.
+function scanHtmlLinks(text) {
+  const links = [];
+  const lower = text.toLowerCase();
+  const re = /(<a\b[^>]*?\shref\s*=\s*)(["'])(.*?)\2/gis;
+  let m;
+  while ((m = re.exec(text))) {
+    const start = m.index + m[1].length + 1;
+    const end = start + m[3].length;
+    const gt = text.indexOf(">", end);
+    const close = gt === -1 ? -1 : lower.indexOf("</a", gt);
+    const label = close === -1
+      ? ""
+      : text.slice(gt + 1, Math.min(close, gt + 500)).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
+    links.push({ start, end, href: m[3], label: label || "(no text)" });
+  }
+  return links;
+}
+
+// Splices new hrefs into `text`, last offset first so earlier offsets stay
+// valid. A link whose text no longer matches what was scanned (the file
+// changed since) is skipped rather than guessed at.
+function applyHrefEdits(text, edits) {
+  let applied = 0;
+  let skipped = 0;
+  for (const { row, newHref } of [...edits].sort((a, b) => b.row.start - a.row.start)) {
+    if (text.slice(row.start, row.end) !== row.oldHref) {
+      skipped++;
+      continue;
+    }
+    text = text.slice(0, row.start) + newHref + text.slice(row.end);
+    applied++;
+  }
+  return { text, applied, skipped };
+}
+
+// Does a redirects.json path (`from`/`to`, with or without leading "/" or
+// ".html") name this page?
+function redirectPathMatches(value, pagePath) {
+  const n = String(value || "").replace(/^\//, "").toLowerCase();
+  const p = pagePath.toLowerCase();
+  return n === p || n === p.replace(/\.html$/, "");
+}
+
+let renameState = null; // { oldPath, rows, templateHits, redirects, token }
+
+// Finds every link that points at `oldPath` (plus, for the page itself, its
+// relative links — those need rebasing if the page changes folder).
+async function scanRenameLinks(oldPath) {
+  const oldKey = oldPath.toLowerCase();
+  const rows = [];
+  const hitsOld = (parsed) => !!parsed && parsed.resolved.toLowerCase() === oldKey;
+
+  const exclude = await getPageExcludeSet();
+  for await (const { path, handle } of walkPages(dirHandle, exclude)) {
+    const text = await (await handle.getFile()).text();
+    for (const l of scanHtmlLinks(text)) {
+      const parsed = parseInternalLink(l.href, path);
+      if (!parsed) continue;
+      if (!hitsOld(parsed) && !(path === oldPath && parsed.relative)) continue;
+      rows.push({ kind: "page", file: path, start: l.start, end: l.end, oldHref: l.href, label: l.label, parsed, selected: true });
+    }
+  }
+
+  const nav = await getNavData();
+  for (const [menu, items] of Object.entries(nav.menus || {})) {
+    (items || []).forEach((item, i) => {
+      const entries = [[item, [i]], ...(item.children || []).map((c, j) => [c, [i, j]])];
+      for (const [node, idx] of entries) {
+        const parsed = parseInternalLink(node.href, "");
+        if (hitsOld(parsed)) rows.push({ kind: "nav", menu, idx, oldHref: node.href, label: node.label || "(no label)", parsed, selected: true });
+      }
+    });
+  }
+
+  for (const slug of await getListSlugs()) {
+    const data = await getListData(slug);
+    if (!data) continue;
+    const textField = (data.fields || []).find((f) => f.type === "text");
+    (data.entries || []).forEach((entry, entryIndex) => {
+      for (const f of (data.fields || []).filter((f) => f.type === "link")) {
+        const parsed = parseInternalLink(entry[f.key], "");
+        if (!hitsOld(parsed)) continue;
+        const label = (textField && entry[textField.key]) || `Entry ${entryIndex + 1}`;
+        rows.push({ kind: "list", slug, listName: data.name || slug, entryIndex, key: f.key, oldHref: entry[f.key], label, parsed, selected: true });
+      }
+    });
+  }
+
+  // Templates are shared by every page, so a link in one is worth flagging —
+  // but not rewriting without the author looking at it.
+  const templateHits = [];
+  const templatesDir = await (await getConfigDir(true)).getDirectoryHandle("templates", { create: true });
+  for (const name of await listTemplateFiles()) {
+    const text = await (await (await templatesDir.getFileHandle(name)).getFile()).text();
+    if (scanHtmlLinks(text).some((l) => hitsOld(parseInternalLink(l.href, "")))) templateHits.push(name);
+  }
+
+  return { rows, templateHits };
+}
+
+// The links that would actually change if the page ended up at `newPath`.
+function computeRenameChanges(newPath) {
+  const { oldPath, rows } = renameState;
+  const folderOf = (p) => p.split("/").slice(0, -1).join("/");
+  const changes = [];
+  for (const row of rows) {
+    const retargeted = row.parsed.resolved.toLowerCase() === oldPath.toLowerCase();
+    const sourcePath = row.kind === "page" ? (row.file === oldPath ? newPath : row.file) : "";
+    const sourceMoved = row.kind === "page" && folderOf(sourcePath) !== folderOf(row.file);
+    if (!retargeted && !sourceMoved) continue;
+    const newHref = buildLinkValue(row.parsed, retargeted ? newPath : row.parsed.resolved, sourcePath);
+    if (newHref !== row.oldHref) changes.push({ row, newHref });
+  }
+  return changes;
+}
+
+function currentRenamePath() {
+  return buildPagePath(document.getElementById("renameFolder").value, document.getElementById("renameName").value);
+}
+
+async function openRenameDialog(oldPath) {
+  const slash = oldPath.lastIndexOf("/");
+  document.getElementById("renameOldName").textContent = oldPath;
+  document.getElementById("renameFolder").value = slash === -1 ? "" : oldPath.slice(0, slash);
+  document.getElementById("renameName").value = slash === -1 ? oldPath : oldPath.slice(slash + 1);
+  document.getElementById("renameUpdateLinks").checked = true;
+  document.getElementById("renameRedirect").checked = true;
+  document.getElementById("renameLinksSummary").textContent = "Scanning for links…";
+  document.getElementById("renameLinksDetails").classList.add("hidden");
+  document.getElementById("renameLinksList").innerHTML = "";
+  document.getElementById("renameTemplateNote").textContent = "";
+  document.getElementById("renameRedirectNote").textContent = "";
+  document.getElementById("renamePreview").textContent = "";
+  document.getElementById("renameSave").disabled = true;
+  renameState = { oldPath, rows: [], templateHits: [], redirects: [], changes: [], token: 0 };
+  document.getElementById("renameDialog").showModal();
+
+  // Scan reads from disk, so land any edit still in the save debounce first.
+  await queueFlush();
+  const [scan, redirectsData] = await Promise.all([scanRenameLinks(oldPath), getRedirectsData()]);
+  if (!renameState || renameState.oldPath !== oldPath) return;
+  Object.assign(renameState, scan, { redirects: redirectsData.redirects || [], ready: true });
+  document.getElementById("renameTemplateNote").textContent = scan.templateHits.length
+    ? `Also linked from template ${scan.templateHits.join(", ")} — not changed automatically; edit it yourself if needed.`
+    : "";
+  await updateRenameDialog();
+}
+
+// Re-evaluates everything that depends on the typed name: the resolved path,
+// whether it's allowed, the reviewable link list and the redirect note.
+async function updateRenameDialog() {
+  if (!renameState) return;
+  const token = ++renameState.token;
+  const { oldPath } = renameState;
+  const newPath = currentRenamePath();
+  const preview = document.getElementById("renamePreview");
+  const saveBtn = document.getElementById("renameSave");
+
+  let problem = "";
+  const unchanged = newPath.toLowerCase() === oldPath.toLowerCase();
+  if (unchanged) {
+    problem = "Choose a different name or folder.";
+  } else {
+    const exclude = await getPageExcludeSet();
+    const firstSegment = newPath.split("/")[0].toLowerCase();
+    if (newPath.includes("/") && [...exclude].some((e) => e.toLowerCase() === firstSegment)) {
+      problem = `"${newPath.split("/")[0]}/" is reserved for site elements and can't contain pages.`;
+    } else {
+      try {
+        await getNestedFileHandle(dirHandle, newPath, { create: false });
+        problem = `A page already exists at "${newPath}".`;
+      } catch {
+        // Not found — the name is free.
+      }
+    }
+  }
+  if (token !== renameState.token) return; // a newer keystroke superseded this one
+
+  preview.classList.toggle("warning", !!problem || oldPath === "index.html");
+  preview.textContent = problem
+    || (oldPath === "index.html"
+      ? `Will move to: ${newPath}. Note: index.html is the home page — the site root will have no page.`
+      : `Will move to: ${newPath}`);
+  saveBtn.disabled = !!problem || !renameState.ready;
+
+  renameState.changes = problem ? [] : computeRenameChanges(newPath);
+  renderRenameLinks();
+
+  const shadowed = problem ? 0 : renameState.redirects.filter((r) => redirectPathMatches(r.from, newPath)).length;
+  document.getElementById("renameRedirectNote").textContent = shadowed
+    ? "An existing redirect from the new address will be removed, since it would hide this page."
+    : "";
+}
+
+function renderRenameLinks() {
+  const { changes } = renameState;
+  const updateLinks = document.getElementById("renameUpdateLinks").checked;
+  const details = document.getElementById("renameLinksDetails");
+  const list = document.getElementById("renameLinksList");
+  list.innerHTML = "";
+  details.classList.toggle("hidden", !updateLinks || !changes.length);
+
+  const groups = new Map();
+  const groupTitle = (row) => (row.kind === "nav" ? `Menu: ${row.menu}` : row.kind === "list" ? `List: ${row.listName}` : row.file);
+  const rank = { nav: 0, list: 1, page: 2 };
+  for (const change of [...changes].sort((a, b) => rank[a.row.kind] - rank[b.row.kind])) {
+    const title = groupTitle(change.row);
+    if (!groups.has(title)) groups.set(title, []);
+    groups.get(title).push(change);
+  }
+
+  for (const [title, items] of groups) {
+    const group = document.createElement("div");
+    group.className = "rename-links-group";
+    const headLabel = document.createElement("label");
+    headLabel.className = "checkbox-label";
+    const headBox = document.createElement("input");
+    headBox.type = "checkbox";
+    headBox.checked = items.every((c) => c.row.selected);
+    headLabel.append(headBox, document.createTextNode(` ${title} (${items.length})`));
+    group.appendChild(headLabel);
+    const boxes = [];
+    for (const change of items) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "rename-link-row";
+      const label = document.createElement("label");
+      label.className = "checkbox-label";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = change.row.selected;
+      box.addEventListener("change", () => {
+        change.row.selected = box.checked;
+        headBox.checked = items.every((c) => c.row.selected);
+        updateRenameSummary();
+      });
+      boxes.push([box, change]);
+      const text = document.createElement("span");
+      text.className = "rename-link-text";
+      text.textContent = `“${change.row.label}” `;
+      const oldEl = document.createElement("span");
+      oldEl.className = "rename-link-old";
+      oldEl.textContent = change.row.oldHref;
+      const newEl = document.createElement("span");
+      newEl.className = "rename-link-new";
+      newEl.textContent = change.newHref;
+      label.append(box, document.createElement("span"));
+      label.lastChild.append(text, oldEl, document.createTextNode(" → "), newEl);
+      rowEl.appendChild(label);
+      group.appendChild(rowEl);
+    }
+    headBox.addEventListener("change", () => {
+      for (const [box, change] of boxes) {
+        box.checked = headBox.checked;
+        change.row.selected = headBox.checked;
+      }
+      updateRenameSummary();
+    });
+    list.appendChild(group);
+  }
+  updateRenameSummary();
+}
+
+function updateRenameSummary() {
+  const { changes } = renameState;
+  const summary = document.getElementById("renameLinksSummary");
+  if (!changes.length) {
+    summary.textContent = "No links to this page were found.";
+    return;
+  }
+  const selected = changes.filter((c) => c.row.selected);
+  const places = new Set(selected.map((c) => (c.row.kind === "page" ? c.row.file : c.row.kind === "nav" ? "nav:" + c.row.menu : "list:" + c.row.slug)));
+  summary.textContent = document.getElementById("renameUpdateLinks").checked
+    ? `${selected.length} of ${changes.length} link(s) in ${places.size} place(s) will be updated.`
+    : `${changes.length} link(s) found; none will be changed.`;
+}
+
+document.getElementById("renameFolder").addEventListener("input", updateRenameDialog);
+document.getElementById("renameName").addEventListener("input", updateRenameDialog);
+document.getElementById("renameUpdateLinks").addEventListener("change", () => renameState && renderRenameLinks());
+document.getElementById("renameCancel").addEventListener("click", () => {
+  renameState = null;
+  document.getElementById("renameDialog").close();
+});
+document.getElementById("renameDialog").addEventListener("close", () => {
+  renameState = null;
+});
+
+document.getElementById("renameSave").addEventListener("click", async () => {
+  if (!renameState) return;
+  const state = renameState;
+  const newPath = currentRenamePath();
+  const updateLinks = document.getElementById("renameUpdateLinks").checked;
+  const addRedirect = document.getElementById("renameRedirect").checked;
+  const edits = updateLinks ? state.changes.filter((c) => c.row.selected) : [];
+  document.getElementById("renameSave").disabled = true;
+  try {
+    await performRename(state.oldPath, newPath, edits, addRedirect);
+  } catch (err) {
+    console.error("Rename failed:", err);
+    setStatus(`Rename failed: ${err.message}. Backups of anything changed are in .webhaste/backups/_rename/.`);
+    await refreshFileList();
+  } finally {
+    document.getElementById("renameDialog").close();
+  }
+});
+
+async function performRename(oldPath, newPath, edits, addRedirect) {
+  // Land any queued edit first so every read below sees current disk content.
+  await queueFlush();
+  try {
+    await getNestedFileHandle(dirHandle, newPath, { create: false });
+    setStatus(`Not renamed: a page already exists at ${newPath}.`);
+    return;
+  } catch {
+    // Free — carry on.
+  }
+
+  const wasOpen = currentFileName === oldPath && !codeOnlyKind;
+  const changedFiles = new Set();
+  let linksUpdated = 0;
+  let linksSkipped = 0;
+  const skippedFiles = [];
+
+  // 1. Move the page first, so a failure later can't leave links pointing at
+  // a name that was never created. Its own link edits are applied on the way.
+  const oldHandle = await getNestedFileHandle(dirHandle, oldPath, { create: false });
+  const original = await (await oldHandle.getFile()).text();
+  const own = applyHrefEdits(original, edits.filter((c) => c.row.kind === "page" && c.row.file === oldPath));
+  linksUpdated += own.applied;
+  linksSkipped += own.skipped;
+  await writeConflictBackup(`_rename/${oldPath}`, original);
+  const newHandle = await getNestedFileHandle(dirHandle, newPath, { create: true });
+  const writable = await newHandle.createWritable();
+  await writable.write(own.text);
+  await writable.close();
+  const { dir: oldDir, name: oldLeaf } = await getNestedParentDirHandle(dirHandle, oldPath);
+  await oldDir.removeEntry(oldLeaf);
+  fileCache.delete(oldPath);
+  knownFileMeta.delete(oldPath);
+
+  // 2. pages.json follows the file.
+  const pagesData = await getPagesData();
+  if (pagesData[oldPath]) {
+    pagesData[newPath] = pagesData[oldPath];
+    delete pagesData[oldPath];
+    await writeJSONFile(await getConfigDir(true), "pages.json", pagesData);
+  }
+
+  // 3. Links inside other pages.
+  const byFile = new Map();
+  for (const c of edits) {
+    if (c.row.kind !== "page" || c.row.file === oldPath) continue;
+    if (!byFile.has(c.row.file)) byFile.set(c.row.file, []);
+    byFile.get(c.row.file).push(c);
+  }
+  for (const [path, fileEdits] of byFile) {
+    const handle = await getNestedFileHandle(dirHandle, path, { create: false });
+    const file = await handle.getFile();
+    if (fileMetaChanged(path, file)) {
+      skippedFiles.push(path);
+      linksSkipped += fileEdits.length;
+      continue;
+    }
+    const text = await file.text();
+    const result = applyHrefEdits(text, fileEdits);
+    linksSkipped += result.skipped;
+    if (!result.applied) continue;
+    await writeConflictBackup(`_rename/${path}`, text);
+    const w = await handle.createWritable();
+    await w.write(result.text);
+    await w.close();
+    if (knownFileMeta.has(path)) recordFileMeta(path, await handle.getFile());
+    fileCache.delete(path);
+    changedFiles.add(path);
+    linksUpdated += result.applied;
+  }
+
+  // 4. nav.json.
+  const navEdits = edits.filter((c) => c.row.kind === "nav");
+  if (navEdits.length) {
+    const nav = await getNavData();
+    await writeConflictBackup("_rename/.webhaste/nav.json", JSON.stringify(nav, null, 2));
+    for (const { row, newHref } of navEdits) {
+      const items = (nav.menus || {})[row.menu] || [];
+      const node = row.idx.length === 2 ? (items[row.idx[0]]?.children || [])[row.idx[1]] : items[row.idx[0]];
+      if (node && node.href === row.oldHref) {
+        node.href = newHref;
+        linksUpdated++;
+      } else {
+        linksSkipped++;
+      }
+    }
+    await writeJSONFile(await getConfigDir(true), "nav.json", nav);
+  }
+
+  // 5. Lists' link fields.
+  const bySlug = new Map();
+  for (const c of edits) {
+    if (c.row.kind !== "list") continue;
+    if (!bySlug.has(c.row.slug)) bySlug.set(c.row.slug, []);
+    bySlug.get(c.row.slug).push(c);
+  }
+  for (const [slug, listEdits] of bySlug) {
+    const data = await getListData(slug);
+    if (!data) continue;
+    await writeConflictBackup(`_rename/.webhaste/lists/${slug}.json`, JSON.stringify(data, null, 2));
+    for (const { row, newHref } of listEdits) {
+      const entry = (data.entries || [])[row.entryIndex];
+      if (entry && entry[row.key] === row.oldHref) {
+        entry[row.key] = newHref;
+        linksUpdated++;
+      } else {
+        linksSkipped++;
+      }
+    }
+    await saveListData(slug, data);
+  }
+
+  // 6. Redirects. A rule *from* the new address would hide the renamed page
+  // (Cloudflare applies redirects even when a file exists), so it always goes;
+  // the new old->new rule is the checkbox's job, and rules that already
+  // pointed at the old address are retargeted so they don't chain.
+  const redirectsData = await getRedirectsData();
+  const before = redirectsData.redirects || [];
+  let after = before.filter((r) => !redirectPathMatches(r.from, newPath));
+  if (addRedirect) {
+    after = after
+      .filter((r) => !redirectPathMatches(r.from, oldPath))
+      .map((r) => (redirectPathMatches(r.to, oldPath) ? { ...r, to: "/" + newPath } : r));
+    after.push({ from: "/" + oldPath, to: "/" + newPath, type: 301 });
+  }
+  if (JSON.stringify(after) !== JSON.stringify(before)) {
+    await writeJSONFile(await getConfigDir(true), "redirects.json", { ...redirectsData, redirects: after });
+  }
+
+  // 7. Editor state.
+  if (previewPage && previewPage.name === oldPath) previewPage = null;
+  const reopen = wasOpen ? [newPath, newHandle] : !codeOnlyKind && changedFiles.has(currentFileName) ? [currentFileName, null] : null;
+  if (wasOpen) {
+    pendingSave = null;
+    currentFileHandle = null;
+    currentFileName = null;
+  }
+  await refreshFileList();
+  if (reopen) await openFile(reopen[0], reopen[1] || (await getNestedFileHandle(dirHandle, reopen[0], { create: false })));
+
+  const parts = [`Renamed ${oldPath} to ${newPath}`];
+  if (linksUpdated) parts.push(`updated ${linksUpdated} link(s)`);
+  if (addRedirect) parts.push("added a redirect");
+  let msg = parts.join("; ") + ".";
+  if (linksSkipped || skippedFiles.length) {
+    msg += ` ${linksSkipped} link(s) skipped${skippedFiles.length ? ` (${skippedFiles.join(", ")} changed elsewhere)` : " (changed since the scan)"}.`;
+  }
+  setStatus(msg);
 }
 
 // Flushes whatever edit is still queued for the file that was open before

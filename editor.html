@@ -364,7 +364,7 @@
   </dialog>
 
   <dialog id="pagePropertiesDialog">
-    <h3>Page Properties: <span class="hint" id="pagePropsFileName"></span></h3>
+    <h3>Page Properties: <span class="hint" id="pagePropsFileName"></span> <button type="button" id="pagePropsRename" title="Rename or move this page">Rename…</button></h3>
     <label>Title <input type="text" id="pagePropsTitle" placeholder="Leave blank to use the default title" /></label>
     <label>Meta Description <textarea id="pagePropsDescription" rows="3"></textarea></label>
     <label>Language <select id="pagePropsLanguage"></select></label>
@@ -400,6 +400,30 @@
     <div class="dialog-actions">
       <button id="newFileCancel">Cancel</button>
       <button id="newFileSave" class="primary">Create</button>
+    </div>
+  </dialog>
+
+  <dialog id="renameDialog" class="rename-dialog">
+    <h3>Rename Page: <span class="hint" id="renameOldName"></span></h3>
+    <label>Folder <input type="text" id="renameFolder" placeholder="leave blank for site root" /></label>
+    <label>File name <input type="text" id="renameName" placeholder="e.g. team.html" /></label>
+    <p class="hint" id="renamePreview"></p>
+
+    <label class="checkbox-label"><input type="checkbox" id="renameUpdateLinks" checked /> Update links to this page</label>
+    <p class="hint" id="renameLinksSummary"></p>
+    <details id="renameLinksDetails" class="hidden">
+      <summary>Review links</summary>
+      <div id="renameLinksList" class="rename-links-list"></div>
+    </details>
+    <p class="hint" id="renameTemplateNote"></p>
+
+    <label class="checkbox-label"><input type="checkbox" id="renameRedirect" checked /> Redirect old address to the new one</label>
+    <p class="hint">Sends visitors and search engines from the old address to the new one. Uncheck both boxes if you're renaming this page so you can build a new page at the old address &mdash; a redirect there would override the new page.</p>
+    <p class="hint" id="renameRedirectNote"></p>
+
+    <div class="dialog-actions">
+      <button id="renameCancel">Cancel</button>
+      <button id="renameSave" class="primary">Rename</button>
     </div>
   </dialog>
 

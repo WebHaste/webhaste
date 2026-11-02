@@ -1101,6 +1101,40 @@ The "seen" flag is `chrome.storage.local` → `tourSeen`, per device and global
 (not per project), written when the tour *starts*, so Exit or a reload both
 count as seen. Site Admin → Take the Tour replays it.
 
+### 18c. Rename / move page
+
+The ✎ sidebar button and Page Properties' "Rename…" open `#renameDialog`
+(`openRenameDialog()` in `editor.js`). It's a separate dialog rather than a
+Page Properties field because it changes the published URL and rewrites other
+files. A page's path is its identity (no separate ID), so `performRename()`
+moves the file (copy + `removeEntry`, like Clone — never overwrites; a
+case-only rename is refused since it'd delete the file on a case-insensitive
+disk) and then fixes up `pages.json`, links and redirects. The move happens
+first so a later failure can't leave links pointing at a name that was never
+created. Every file it changes is first copied to
+`.webhaste/backups/_rename/<path>` — that's the undo.
+
+Two independent checkboxes, both on by default: **Update links** and
+**Redirect old address**. They're separate because renaming a page *to build a
+new one at the old address* needs both off (a redirect there would hide the new
+page — Cloudflare applies redirects even when a file exists). A redirect rule
+*from* the new address is always removed (it'd hide the renamed page), and
+rules already pointing at the old address are retargeted so they don't chain.
+
+Links are scanned once when the dialog opens (`scanRenameLinks()`: `<a href>`
+in every page, `nav.json`, Lists' `link` fields) and re-evaluated against the
+typed name on every keystroke (`computeRenameChanges()`). Each is listed with a
+checkbox; only ticked ones are written. `parseInternalLink()`/
+`buildLinkValue()` resolve a link relative to its own page (unlike
+`isInternalHrefBroken()`, which treats everything as root-relative) and rewrite
+it in the author's original style (`/about` stays extensionless, `#frag`/
+`?query` kept, relative stays relative). Page edits splice the original string
+at recorded offsets (`applyHrefEdits()`) rather than re-serializing the DOM, and
+a link whose text changed since the scan, or a file changed elsewhere, is
+skipped and reported. If the page changes folder, its own relative links are
+rebased too. Links in templates are only flagged, not rewritten. Only
+`<a href>` is covered — not `<img src>`, `<form action>` or script URLs.
+
 ### 19. Releases — `CHANGELOG.md`
 
 `CHANGELOG.md` at the repo root is the single source of truth for what

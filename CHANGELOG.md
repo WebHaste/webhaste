@@ -13,6 +13,12 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+### Fixed
+- Cloning a page now keeps the source page's template, sitemap/search exclusions, "hide from search engines" setting and header code, not just its description and language. A clone of a draft still starts as active.
+
+### Added
+- Rename or move a page from the sidebar (✎) or Page Properties. You can choose to update links to it (menus, other pages and Lists, with a reviewable list where each link can be unticked) and to redirect the old address to the new one. Untick both when you're renaming a page to build a new one at the old address.
+
 ## [0.6.6] - 2026-10-29
 
 ### Added
