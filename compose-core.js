@@ -118,8 +118,17 @@
     return `<div class="cs-menu cs-menu-${name}" style="display:flex;gap:2rem;">${cols}</div>`;
   }
 
+  // True for any Bootstrap major version ("bootstrap5", a future "bootstrap6").
+  // Use this for "is this Bootstrap at all?" checks so adding a version doesn't
+  // mean hunting down every `=== "bootstrap5"`. Exact-version lookups (block
+  // markup, image presets) stay keyed by the full cssFramework string, since
+  // class names differ between majors.
+  function isBootstrap(framework) {
+    return typeof framework === "string" && framework.indexOf("bootstrap") === 0;
+  }
+
   function renderMenuColumns(items, framework, name) {
-    if (framework === "bootstrap5") return renderColumnsBootstrap5(items, name);
+    if (isBootstrap(framework)) return renderColumnsBootstrap5(items, name);
     if (framework === "tailwind") return renderColumnsTailwind(items, name);
     return renderColumnsPlain(items, name);
   }
@@ -133,7 +142,7 @@
   function renderMenu(items, framework, layout, name) {
     if (!items || !items.length) return "";
     if (layout === "columns") return renderMenuColumns(items, framework, name);
-    if (framework === "bootstrap5") return renderNavBootstrap5(items, name);
+    if (isBootstrap(framework)) return renderNavBootstrap5(items, name);
     if (framework === "tailwind") return renderNavTailwind(items, name);
     return renderNavPlain(items, name);
   }
@@ -663,6 +672,7 @@
 
   return {
     renderMenu,
+    isBootstrap,
     composePage,
     isFullDocument,
     isDraftPage,
