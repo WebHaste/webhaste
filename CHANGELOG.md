@@ -13,6 +13,8 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-07
+
 ### Added
 - **Import** button: bring a Word document (.docx) into the page you have open, at the cursor. Headings, lists, tables, links, bold and italic come across as clean markup, and embedded images are saved to `assets/`. Create the page first, then import into it. For a Google Doc, use File → Download → Microsoft Word (.docx).
 - The `.webhaste/compose.js` command-line tool can now check a site without rendering it: `--check-links` finds broken internal links (the same check as Check Links), and `--validate` flags mistakes in `site.config.json`, `nav.json`, `pages.json` and `redirects.json`, such as a missing template or a stale page entry. Handy for AI assistants editing the site's files directly. Publishing is still done from the editor.
