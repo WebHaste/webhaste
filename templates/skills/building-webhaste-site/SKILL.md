@@ -104,7 +104,9 @@ my-site/
 6. **Verify the result** — read
    [references/site-config-and-testing.md](references/site-config-and-testing.md)'s
    "Testing your changes" section and run
-   `node .webhaste/compose.js --out .agent-preview`.
+   `node .webhaste/compose.js --out .agent-preview`, then
+   `node .webhaste/compose.js --validate` and `--check-links` (no output
+   folder; each exits 1 on problems).
 
 ## Reference Documents
 

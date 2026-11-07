@@ -670,7 +670,217 @@
     return lines.join("\n") + "\n";
   }
 
+  // ---- Internal link checking (Menu editor validation, Check Links dialog,
+  // and `compose.js --check-links`) ----
+  // Lives here, not in editor.js, so the extension and the headless CLI use
+  // one definition of "broken" and can't drift. Callers gather the
+  // environment-specific part (the set of paths that exist) themselves, the
+  // same split buildSitemap()'s lastmod uses.
+
+  // A link "looks internal" if it isn't an absolute URL or a special-scheme/
+  // anchor-only href — those are left alone entirely, since there's nothing
+  // verifiable about an off-site URL or a same-page anchor.
+  function looksInternalHref(href) {
+    const trimmed = (href || "").trim();
+    if (!trimmed || trimmed === "#") return false;
+    return !/^(https?:|mailto:|tel:)/i.test(trimmed) && !trimmed.startsWith("#");
+  }
+
+  // knownPaths: Set of lowercased, leading-"/" paths ("/about.html",
+  // "/assets/brochure.pdf"). True when href looks internal but resolves to
+  // none of them — checked both as typed and with ".html" appended, since
+  // Cloudflare Pages/Netlify serve the extensionless form of every page.
+  function isInternalHrefBroken(href, knownPaths) {
+    if (!looksInternalHref(href)) return false;
+    let p = href.trim().split("#")[0].split("?")[0];
+    if (!p || p === "/") p = "/index.html";
+    if (!p.startsWith("/")) p = "/" + p;
+    p = p.toLowerCase();
+    return !knownPaths.has(p) && !knownPaths.has(p + ".html");
+  }
+
+  // Regex-based (not DOMParser) so it runs identically under Node. Comments,
+  // <script> and <style> are blanked first — a DOM parser wouldn't see an
+  // <a> inside any of them either. Returns [{ href, label }].
+  function extractAnchorLinks(html) {
+    const clean = String(html || "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, "");
+    const links = [];
+    const openTag = /<a\b[^>]*>/gi;
+    let m;
+    while ((m = openTag.exec(clean))) {
+      const attr = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(m[0]);
+      if (!attr) continue;
+      const href = decodeEntities(attr[1] ?? attr[2] ?? attr[3] ?? "");
+      const rest = clean.slice(openTag.lastIndex, openTag.lastIndex + 400);
+      const end = rest.search(/<\/a\b/i);
+      const label = decodeEntities((end === -1 ? rest : rest.slice(0, end)).replace(/<[^>]*>/g, ""))
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 60);
+      links.push({ href, label: label || "(no text)" });
+    }
+    return links;
+  }
+
+  // pages: [{ path, rawContent }] (raw, pre-composition — composed output
+  // would repeat every nav link on every page). Nav links are checked once
+  // per menu from navData instead. Returns [{ source, href, label }].
+  function findBrokenLinks({ pages, navData, knownPaths }) {
+    const results = [];
+    for (const { path, rawContent } of pages) {
+      for (const { href, label } of extractAnchorLinks(rawContent)) {
+        if (isInternalHrefBroken(href, knownPaths)) results.push({ source: path, href, label });
+      }
+    }
+    for (const [menuName, items] of Object.entries((navData && navData.menus) || {})) {
+      const flat = [];
+      (items || []).forEach((item) => {
+        flat.push(item);
+        ((item && item.children) || []).forEach((child) => flat.push(child));
+      });
+      for (const item of flat) {
+        if (item && isInternalHrefBroken(item.href, knownPaths)) {
+          results.push({ source: `Menu: ${menuName}`, href: item.href, label: item.label || "(no label)" });
+        }
+      }
+    }
+    return results;
+  }
+
+  // ---- Project validation (`compose.js --validate`) ----
+  // Catches the mistakes hand-editing the JSON config files makes easy and
+  // that otherwise surface only as a silently wrong render. Returns
+  // [{ level: "error" | "warning", file, message }]. Callers supply what's on
+  // disk: pagePaths (every page file, drafts included), templateTexts
+  // ({ "name.html": text }) and — only the caller can know — nothing else.
+  function validateProject({ config, navData, pagesData, redirectsData, pagePaths, templateTexts }) {
+    const issues = [];
+    const add = (level, file, message) => issues.push({ level, file, message });
+    const pageSet = new Set(pagePaths);
+    const templateNames = Object.keys(templateTexts || {});
+    const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
+
+    // site.config.json
+    if (!isObj(config)) {
+      add("error", "site.config.json", "Must be a JSON object.");
+      config = {};
+    }
+    if (config.activeTemplate && !templateNames.includes(config.activeTemplate)) {
+      add("error", "site.config.json", `activeTemplate "${config.activeTemplate}" not found in .webhaste/templates/.`);
+    }
+    if (config.cssFramework && !["bootstrap5", "tailwind", "none"].includes(config.cssFramework)) {
+      add("error", "site.config.json", `cssFramework "${config.cssFramework}" must be bootstrap5, tailwind or none.`);
+    }
+    if (config.deploymentTarget && !["cloudflare", "netlify", "local", "packaged"].includes(config.deploymentTarget)) {
+      add("error", "site.config.json", `deploymentTarget "${config.deploymentTarget}" must be cloudflare, netlify, local or packaged.`);
+    }
+    if (config.domain && /\s/.test(config.domain)) {
+      add("warning", "site.config.json", `domain "${config.domain}" contains whitespace.`);
+    }
+
+    // pages.json
+    if (!isObj(pagesData)) {
+      add("error", "pages.json", "Must be a JSON object keyed by page path.");
+      pagesData = {};
+    }
+    for (const [key, meta] of Object.entries(pagesData)) {
+      if (!pageSet.has(key)) {
+        add("warning", "pages.json", `Entry "${key}" doesn't match any page file (renamed or deleted?).`);
+      }
+      if (!isObj(meta)) {
+        add("error", "pages.json", `Entry "${key}" must be an object.`);
+        continue;
+      }
+      if (meta.status !== undefined && meta.status !== "active" && meta.status !== "draft") {
+        add("warning", "pages.json", `"${key}": status "${meta.status}" is neither "active" nor "draft".`);
+      }
+      if (meta.template && !templateNames.includes(meta.template)) {
+        add("error", "pages.json", `"${key}": template "${meta.template}" not found in .webhaste/templates/.`);
+      }
+    }
+
+    // nav.json
+    if (!isObj(navData) || !isObj(navData.menus)) {
+      add("error", "nav.json", 'Must be an object with a "menus" object.');
+      navData = { menus: {} };
+    }
+    const checkItem = (menu, item, where) => {
+      if (!isObj(item)) return add("error", "nav.json", `${menu}: ${where} must be an object.`);
+      if (typeof item.label !== "string" || !item.label.trim()) {
+        add("error", "nav.json", `${menu}: ${where} has no label.`);
+      }
+      const hasKids = Array.isArray(item.children) && item.children.length > 0;
+      if (!item.href && !hasKids) {
+        add("warning", "nav.json", `${menu}: "${item.label || where}" has neither href nor children.`);
+      }
+      if (item.children !== undefined && !Array.isArray(item.children)) {
+        add("error", "nav.json", `${menu}: "${item.label || where}" children must be an array.`);
+      }
+      (Array.isArray(item.children) ? item.children : []).forEach((c, i) =>
+        checkItem(menu, c, `${item.label || where} > item ${i + 1}`)
+      );
+    };
+    for (const [menu, items] of Object.entries(navData.menus)) {
+      if (!Array.isArray(items)) {
+        add("error", "nav.json", `Menu "${menu}" must be an array.`);
+        continue;
+      }
+      items.forEach((item, i) => checkItem(menu, item, `item ${i + 1}`));
+    }
+    // A {{NAV:name}} in a template with no such menu renders as nothing.
+    for (const [tName, text] of Object.entries(templateTexts || {})) {
+      const seen = new Set();
+      for (const m of String(text).matchAll(/{{NAV:(\w+)}}/g)) {
+        if (!seen.has(m[1]) && !(m[1] in navData.menus)) {
+          add("warning", `templates/${tName}`, `{{NAV:${m[1]}}} references a menu that isn't in nav.json.`);
+        }
+        seen.add(m[1]);
+      }
+    }
+
+    // redirects.json
+    const rules = redirectsData && redirectsData.redirects;
+    if (rules !== undefined && !Array.isArray(rules)) {
+      add("error", "redirects.json", '"redirects" must be an array.');
+    } else {
+      const froms = new Map();
+      (rules || []).forEach((r, i) => {
+        const n = `Rule ${i + 1}`;
+        if (!isObj(r) || !r.from || !r.to) return add("error", "redirects.json", `${n} needs both "from" and "to".`);
+        if (!String(r.from).startsWith("/")) add("error", "redirects.json", `${n}: "from" (${r.from}) must start with "/".`);
+        if (r.type !== undefined && r.type !== 301 && r.type !== 302) {
+          add("error", "redirects.json", `${n}: type ${r.type} must be 301 or 302.`);
+        }
+        if (froms.has(r.from)) add("warning", "redirects.json", `${n}: duplicate "from" ${r.from} (also rule ${froms.get(r.from)}).`);
+        froms.set(r.from, i + 1);
+        if (r.from === r.to) add("error", "redirects.json", `${n}: redirects ${r.from} to itself.`);
+        // A real page at "from" means a Cloudflare redirect hides it (and on
+        // Netlify the unforced rule is ignored) — usually a stale rule.
+        const asPage = String(r.from).replace(/^\//, "");
+        if (pageSet.has(asPage) || pageSet.has(asPage + ".html")) {
+          add("warning", "redirects.json", `${n}: "from" ${r.from} is also an existing page.`);
+        }
+      });
+      for (const [from, n] of froms) {
+        for (const r of rules) {
+          if (r && r.to === from) {
+            add("warning", "redirects.json", `Rule ${n} (${from}) is the target of another rule — redirect chain.`);
+            break;
+          }
+        }
+      }
+    }
+    return issues;
+  }
+
   return {
+    looksInternalHref,
+    isInternalHrefBroken,
+    extractAnchorLinks,
+    findBrokenLinks,
+    validateProject,
     renderMenu,
     isBootstrap,
     composePage,

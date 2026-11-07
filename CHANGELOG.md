@@ -13,6 +13,13 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+### Added
+- **Import** button: bring a Word document (.docx) into the page you have open, at the cursor. Headings, lists, tables, links, bold and italic come across as clean markup, and embedded images are saved to `assets/`. Create the page first, then import into it. For a Google Doc, use File → Download → Microsoft Word (.docx).
+- The `.webhaste/compose.js` command-line tool can now check a site without rendering it: `--check-links` finds broken internal links (the same check as Check Links), and `--validate` flags mistakes in `site.config.json`, `nav.json`, `pages.json` and `redirects.json`, such as a missing template or a stale page entry. Handy for AI assistants editing the site's files directly. Publishing is still done from the editor.
+
+### Changed
+- Lottie animations now use player version 5.13.0 (was 5.12.2), with gradient and performance fixes. New projects get it automatically; an existing site keeps its current `scripts/lottie.min.js` until you replace that file with the new one.
+
 ## [0.6.7] - 2026-11-02
 
 ### Fixed

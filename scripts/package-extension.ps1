@@ -66,6 +66,7 @@ $includePaths = @(
     "manifest.json",
     "background.js",
     "compose-core.js",
+    "docx-import.js",
     "editor.css",
     "editor.html",
     "editor.js",

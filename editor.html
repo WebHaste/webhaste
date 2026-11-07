@@ -91,9 +91,11 @@
           <button id="openAssetsBtn" title="Insert Asset"><span class="icon-inline" style="--icon: url('icons/assets.svg')"></span> Assets</button>
           <button id="insertTableBtn" title="Insert Table"><span class="icon-inline" style="--icon: url('icons/table.svg')"></span> Table</button>
           <button id="openBlocksBtn" title="Insert Block"><span class="icon-inline" style="--icon: url('icons/blocks.svg')"></span> Blocks</button>
+          <button id="importDocxBtn" title="Import a Word document (.docx) at the cursor"><span class="icon-inline" style="--icon: url('icons/import-doc.svg')"></span> Import</button>
           <button id="openSymbolsBtn" title="Insert Symbol or Emoji"><span class="icon-inline" style="--icon: url('icons/emoji.svg')"></span> Symbols</button>
         </div>
         <input type="file" id="imageFastPathInput" accept="image/*" class="hidden" />
+        <input type="file" id="importDocxInput" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="hidden" />
       </div>
       <div id="visualArea" contenteditable="true" class="visual-area"></div>
       <textarea id="codeArea" spellcheck="false" class="code-area hidden" placeholder="Select or create a file to start editing..."></textarea>
@@ -609,7 +611,9 @@
   <script src="vendor/codemirror/addon/lint/lint.js"></script>
   <script src="vendor/sortablejs/Sortable.min.js"></script>
   <script src="vendor/hash-wasm/blake3.umd.min.js"></script>
+  <script src="vendor/mammoth/mammoth.browser.min.js"></script>
   <script src="compose-core.js"></script>
+  <script src="docx-import.js"></script>
   <script src="editor.js"></script>
 </body>
 </html>

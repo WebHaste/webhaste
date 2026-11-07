@@ -444,7 +444,15 @@ It skips both the folder it's writing to *and* `site.config.json`'s
 `templates/CLAUDE.md` tells agents to use), an existing `dist/` otherwise got
 walked as source and re-composed into `.agent-preview/dist/` — matching
 `editor.js`, whose own walk always skips the configured deploy folder.
-The point: a site is composable with just Node, with no dependency on this
+`--check-links` and `--validate` are non-rendering modes of the same CLI
+(they exit before anything is written): `WebhasteCompose.findBrokenLinks()`
+and `validateProject()` in `compose-core.js`, with the CLI gathering the
+environment-specific inputs (page list, files under `assets/`/`scripts/`/
+`elements/`, template texts) as `buildSitemap()`'s `lastmod` does. Check
+Links and the Menu editor in `editor.js` delegate to the same functions
+(see section 16), so "broken" has one definition. Deliberately **no CLI
+publish**: the docs promise the final publish is a user step, and
+credentials live in `chrome.storage.local` anyway. The point: a site is composable with just Node, with no dependency on this
 extension's source repo being checked out anywhere — see `templates/CLAUDE.md`'s
 "Testing your changes" section, which is what actually points agents at it.
 
@@ -894,6 +902,15 @@ tradeoff is really a Netlify-specific one.
 
 ### 16. Broken link detection — Menu editor validation + Check Links dialog
 
+**Update:** `looksInternalHref()`, `isInternalHrefBroken()` and the page/menu
+scan now live in `compose-core.js` (`findBrokenLinks()`, with regex-based
+`extractAnchorLinks()` replacing `DOMParser` so it runs under Node too —
+comments and `<script>`/`<style>` are blanked first, as a DOM parser would
+ignore them) and `cli/compose.js --check-links` uses them. `editor.js` keeps
+thin wrappers and `getKnownLinkTargets()` (it needs directory handles). The
+CLI's known-path set is recursive; the editor's is flat, as before. The rest
+of this section describes the original editor-only design.
+
 Both features are built on the same three shared functions in `editor.js`
 (placed just above the Menu editor dialog, their first consumer):
 `looksInternalHref()` filters out anything that isn't checkable at all —
@@ -1134,6 +1151,42 @@ a link whose text changed since the scan, or a file changed elsewhere, is
 skipped and reported. If the page changes folder, its own relative links are
 rebased too. Links in templates are only flagged, not rewritten. Only
 `<a href>` is covered — not `<img src>`, `<form action>` or script URLs.
+
+### 18d. Import Word document (.docx) — GitHub #5
+
+The toolbar's Import button (`#importDocxBtn`, next to Blocks) converts a
+`.docx` and inserts it **at the cursor of the open page**, like a paste. It
+is deliberately not "import as new page": the author creates the page first
+(name/path decided there), then imports into it. Google Docs is supported
+only by downloading as .docx; the Google HTML-export zip was considered and
+skipped.
+
+Conversion is [mammoth.js](https://github.com/mwilliamson/mammoth.js)
+(BSD-2, `vendor/mammoth/`, the unmodified 1.13.0 browser build, exposes a
+global `mammoth`). Its bundle contains `new Function` only in helper
+libraries (underscore's `_.template`, bluebird) that mammoth never calls, so
+it loads fine under the extension's no-`unsafe-eval` CSP. `docx-import.js`
+(UMD, like `compose-core.js`, so it can be tested in Node) wraps it: a style
+map (Title/Quote), an image handler, and cleanup (skipped-image leftovers,
+lone `<p>` inside table cells). It touches neither the DOM nor the file
+system; `editor.js` passes in a `saveImage()` callback. The HTML then goes
+through `sanitizePastedHtml()`, so a document can introduce nothing a paste
+couldn't (no styles, classes, or ids).
+
+Images are written to `assets/<docname>-image-N.<ext>`. An existing file
+with identical bytes is reused (re-importing the same document adds no
+duplicates); different bytes bump N, so nothing is ever overwritten. Only
+png/jpg/gif/webp/svg are kept: embedded EMF/WMF can't display in an `<img>`
+and are skipped and counted in the status message. Oversized images prompt
+**once per import** (resize all or none, using `imageResizeMaxDimension`)
+rather than once per image; `warnIfLarge()` still applies per image. Image
+callbacks are serialized so two can't race for a file name. If the author
+switches pages while a long import runs, nothing is inserted.
+
+Known limits, by design ("good enough, hand-editable afterward"): visual
+formatting (fonts, colours, sizes), comments, footnotes and headers/footers
+are dropped; `paragraphMode: "div"` is not applied (same as paste); tables
+get no framework classes (same as paste).
 
 ### 19. Releases — `CHANGELOG.md`
 

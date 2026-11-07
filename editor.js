@@ -4082,6 +4082,128 @@ document.getElementById("imageFastPathInput").addEventListener("change", async (
   setStatus(`Uploaded and inserted ${prepared.name}.`);
 });
 
+// ---- Import a Word document (.docx) at the cursor (GitHub #5) ----
+// Deliberately an insert-into-the-open-page action, like a paste, rather
+// than "import as new page": the author creates the page first (name/path
+// are decided there), then imports into it. Google Docs authors use File →
+// Download → .docx; the Google HTML export isn't supported.
+// Conversion is mammoth (vendor/mammoth/) via docx-import.js; the result
+// then goes through the same whitelist sanitizer as a paste, so a document
+// can't introduce tags/attributes a paste couldn't.
+document.getElementById("importDocxBtn").addEventListener("click", () => {
+  if (!dirHandle) {
+    setStatus("Open a project folder first.");
+    return;
+  }
+  if (!currentFileName || codeOnlyKind) {
+    setStatus("Open a page first, then import into it.");
+    return;
+  }
+  captureSelection();
+  document.getElementById("importDocxInput").click();
+});
+
+// Embedded images are written to assets/ as "<docname>-image-N.<ext>". If a
+// file of that name already exists with identical bytes (re-importing the
+// same document) it's reused; with different bytes the number is bumped, so
+// an import never overwrites an existing asset.
+async function saveImportedImage(assetsDir, baseName, n, extension, bytes) {
+  for (let i = n; ; i++) {
+    const name = `${baseName}-image-${i}.${extension}`;
+    let existing = null;
+    try {
+      existing = await (await assetsDir.getFileHandle(name)).getFile();
+    } catch {
+      // Not there yet — free to use.
+    }
+    if (existing) {
+      const old = new Uint8Array(await existing.arrayBuffer());
+      if (old.length === bytes.length && old.every((b, k) => b === bytes[k])) return name;
+      continue;
+    }
+    const writable = await (await assetsDir.getFileHandle(name, { create: true })).createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    return name;
+  }
+}
+
+document.getElementById("importDocxInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ""; // allow picking the same file again later
+  if (!file) return;
+  if (!/\.docx$/i.test(file.name)) {
+    setStatus("Import supports Word .docx files only. In Google Docs use File → Download → Microsoft Word (.docx).");
+    return;
+  }
+  const targetFile = currentFileName;
+  setStatus(`Importing ${file.name}...`);
+
+  const baseName = WebhasteDocx.imageBaseName(file.name);
+  const maxDimension = await getImageResizeMaxDimension();
+  let resizeAll = null; // asked once per import, on the first oversized image
+  let imageNumber = 0;
+  let assetsDir = null;
+  // mammoth may run image callbacks concurrently; serialize them so two
+  // images can't race for the same file name.
+  let queue = Promise.resolve();
+  const saveImage = ({ bytes, extension }) => {
+    const run = async () => {
+      let imageFile = new File([bytes], `${baseName}-image.${extension}`, { type: assetMimeType(`x.${extension}`) });
+      if (canResizeImage(imageFile.name) && resizeAll !== false) {
+        const resized = await resizeImageFile(imageFile, maxDimension);
+        if (resized !== imageFile) {
+          if (resizeAll === null) {
+            resizeAll = confirm(
+              `This document has images larger than ${maxDimension}px on their long edge. Resize all of ` +
+                `them for web use? OK = resize, Cancel = keep full size.`
+            );
+          }
+          if (resizeAll) imageFile = resized;
+        }
+      }
+      if (!(await warnIfLarge(imageFile))) return null; // author declined a very large image
+      assetsDir = assetsDir || (await getAssetsDirHandle(true));
+      imageNumber++;
+      const name = await saveImportedImage(
+        assetsDir,
+        baseName,
+        imageNumber,
+        extension,
+        new Uint8Array(await imageFile.arrayBuffer())
+      );
+      return `/assets/${name}`;
+    };
+    queue = queue.then(run, run);
+    return queue;
+  };
+
+  let result;
+  try {
+    result = await WebhasteDocx.convertDocxToHtml(mammoth, await file.arrayBuffer(), saveImage);
+  } catch (err) {
+    console.error("DOCX import failed", err);
+    setStatus(`Couldn't read ${file.name} — is it a valid .docx? (${err.message})`);
+    return;
+  }
+  // The conversion can take a while with many images; if the author moved
+  // to another page meanwhile, inserting now would put it in the wrong one.
+  if (currentFileName !== targetFile) {
+    setStatus(`Import of ${file.name} finished after you switched pages — nothing was inserted.`);
+    return;
+  }
+  const clean = sanitizePastedHtml(result.html);
+  if (!clean.trim()) {
+    setStatus(`${file.name} had no importable content.`);
+    return;
+  }
+  insertSnippet(clean);
+  const notes = [];
+  if (result.imageCount) notes.push(`${result.imageCount} image(s) saved to assets/`);
+  if (result.skippedImages) notes.push(`${result.skippedImages} image(s) skipped (unsupported format or declined)`);
+  setStatus(`Imported ${file.name}${notes.length ? ": " + notes.join(", ") : ""}.`);
+});
+
 // ---- Assets dialog — browse/upload/reuse everything in assets/ ----
 const assetsDialog = document.getElementById("assetsDialog");
 let assetObjectUrls = [];
@@ -5735,13 +5857,11 @@ document.getElementById("openPreviewWindowBtn").addEventListener("click", () => 
 });
 
 // ---- Shared internal-link resolution (Menu editor validation + Check Links) ----
-// A link "looks internal" if it isn't an absolute URL or a special-scheme/
-// anchor-only href — those are left alone entirely, since there's nothing
-// this extension can verify about an off-site URL or a same-page anchor.
+// looksInternalHref()/isInternalHrefBroken() live in compose-core.js so the
+// headless `compose.js --check-links` uses the identical definition of
+// "broken". Only gathering the set of existing paths is environment-specific.
 function looksInternalHref(href) {
-  const trimmed = (href || "").trim();
-  if (!trimmed || trimmed === "#") return false;
-  return !/^(https?:|mailto:|tel:)/i.test(trimmed) && !trimmed.startsWith("#");
+  return WebhasteCompose.looksInternalHref(href);
 }
 
 // Walked fresh every time rather than cached — fileCache only fills in as
@@ -5775,18 +5895,8 @@ async function getKnownLinkTargets() {
   return paths;
 }
 
-// True when href looks internal but doesn't resolve to a real page — checked
-// both as typed and with ".html" appended, since Cloudflare Pages/Netlify
-// both serve the extensionless form of every page by default (see the
-// Redirects feature's buildRedirectsFile() in compose-core.js), so a site
-// owner typing the clean URL isn't flagged as broken just for that.
 function isInternalHrefBroken(href, knownPaths) {
-  if (!looksInternalHref(href)) return false;
-  let path = href.trim().split("#")[0].split("?")[0];
-  if (!path || path === "/") path = "/index.html";
-  if (!path.startsWith("/")) path = "/" + path;
-  path = path.toLowerCase();
-  return !knownPaths.has(path) && !knownPaths.has(path + ".html");
+  return WebhasteCompose.isInternalHrefBroken(href, knownPaths);
 }
 
 // ---- Menu editor dialog — drag-and-drop tree, backed by SortableJS ----
@@ -6593,42 +6703,16 @@ document.getElementById("checkLinksClose").addEventListener("click", () =>
 );
 
 // Scans each page's raw (pre-composition) content rather than composed
-// output — composed output would duplicate every nav-rendered link into
-// every single page's scan, drowning real per-page findings in noise. Nav
-// links are still covered, just once each per menu, via the separate
-// navData pass below rather than once per page.
+// output, plus each menu once from nav.json — see
+// WebhasteCompose.findBrokenLinks() (shared with `compose.js --check-links`).
 async function scanForBrokenLinks() {
   const knownPaths = await getKnownLinkTargets();
   const exclude = await getPageExcludeSet();
-  const results = [];
-
+  const pages = [];
   for await (const { path, handle } of walkPages(dirHandle, exclude)) {
-    const file = await handle.getFile();
-    const rawContent = await file.text();
-    const doc = new DOMParser().parseFromString(rawContent, "text/html");
-    for (const a of doc.querySelectorAll("a[href]")) {
-      const href = a.getAttribute("href");
-      if (isInternalHrefBroken(href, knownPaths)) {
-        results.push({ source: path, href, label: a.textContent.trim().slice(0, 60) || "(no text)" });
-      }
-    }
+    pages.push({ path, rawContent: await (await handle.getFile()).text() });
   }
-
-  const navData = await getNavData();
-  for (const [menuName, items] of Object.entries(navData.menus || {})) {
-    const flat = [];
-    (items || []).forEach((item) => {
-      flat.push(item);
-      (item.children || []).forEach((child) => flat.push(child));
-    });
-    for (const item of flat) {
-      if (isInternalHrefBroken(item.href, knownPaths)) {
-        results.push({ source: `Menu: ${menuName}`, href: item.href, label: item.label || "(no label)" });
-      }
-    }
-  }
-
-  return results;
+  return WebhasteCompose.findBrokenLinks({ pages, navData: await getNavData(), knownPaths });
 }
 
 // Built via DOM methods rather than innerHTML template strings — a link's

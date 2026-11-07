@@ -46,6 +46,16 @@
  *               sitemap.xml/robots.txt/404.html are omitted, since none are
  *               meaningful without a real domain/server.
  *
+ *   --check-links  Don't render. Scan every page (raw, pre-composition) and every
+ *               menu for internal links that don't resolve to a page or a file
+ *               under assets/, scripts/ or elements/. Same check as the
+ *               extension's Check Links dialog. Exits 1 if any are broken.
+ *   --validate  Don't render. Sanity-check site.config.json, nav.json,
+ *               pages.json, redirects.json and the templates against each
+ *               other (missing templates, stale pages.json entries, malformed
+ *               menus, bad redirect rules). Exits 1 on errors; warnings alone
+ *               exit 0.
+ *
  * Exits non-zero with an error if site.config.json/nav.json/pages.json
  * exist but fail to parse — unlike the browser extension, which silently
  * falls back to defaults (see readJSON() below for why that's the wrong
@@ -170,34 +180,100 @@ function collectHtmlFiles(dir, exclude, prefix = "") {
 function parseArgs(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(
-      "Usage: node compose.js [siteDir] [--out outDir] [--packaged]\n\n" +
+      "Usage: node compose.js [siteDir] [--out outDir] [--packaged] [--check-links] [--validate]\n\n" +
         "  siteDir     Project folder to compose (default: this site's own root if\n" +
         "              run from a scaffolded .webhaste/compose.js, else cwd)\n" +
         "  --out       Output folder, relative to siteDir (default: deployDirectory\n" +
         "              from .webhaste/site.config.json, or \"dist\")\n" +
         "  --packaged  Render for opening straight from disk (file://) instead of a\n" +
         "              server — rewrites root-relative paths, embeds search/Lottie/\n" +
-        "              List data per page, and omits sitemap.xml/robots.txt/404.html"
+        "              List data per page, and omits sitemap.xml/robots.txt/404.html\n" +
+        "  --check-links  Don't render; list internal links that don't resolve to a\n" +
+        "              page or asset. Exits 1 if any are broken\n" +
+        "  --validate  Don't render; check config/nav/pages/redirects/templates for\n" +
+        "              mistakes. Exits 1 on errors (warnings alone exit 0)"
     );
     process.exit(0);
   }
   let siteDir = null;
   let outDir = null;
   let packaged = false;
+  let checkLinks = false;
+  let validate = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") {
       outDir = argv[++i];
     } else if (argv[i] === "--packaged") {
       packaged = true;
+    } else if (argv[i] === "--check-links") {
+      checkLinks = true;
+    } else if (argv[i] === "--validate") {
+      validate = true;
     } else if (!siteDir) {
       siteDir = argv[i];
     }
   }
-  return { siteDir: siteDir || scaffoldedSiteRoot || process.cwd(), outDir, packaged };
+  return { siteDir: siteDir || scaffoldedSiteRoot || process.cwd(), outDir, packaged, checkLinks, validate };
+}
+
+// Every file under dir as "/"-joined paths relative to it (recursive).
+function listFilesRecursive(dir, prefix = "") {
+  if (!fs.existsSync(dir)) return [];
+  let out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out = out.concat(listFilesRecursive(path.join(dir, entry.name), rel));
+    else if (entry.isFile()) out.push(rel);
+  }
+  return out;
+}
+
+// Everything a link can legitimately point at: every page (drafts included,
+// matching the extension's Check Links) plus every file under assets/,
+// scripts/ and elements/. Lowercased, leading-"/" — what isInternalHrefBroken()
+// expects.
+function collectKnownPaths(root, pageFiles) {
+  const known = new Set(pageFiles.map((p) => "/" + p.toLowerCase()));
+  for (const folder of ["assets", "scripts", "elements"]) {
+    for (const f of listFilesRecursive(path.join(root, folder))) known.add(`/${folder}/${f}`.toLowerCase());
+  }
+  return known;
+}
+
+function runCheckLinks({ root, config, navData, exclude }) {
+  const pageFiles = collectHtmlFiles(root, exclude);
+  const pages = pageFiles.map((p) => ({ path: p, rawContent: fs.readFileSync(path.join(root, p), "utf8") }));
+  const broken = WebhasteCompose.findBrokenLinks({ pages, navData, knownPaths: collectKnownPaths(root, pageFiles) });
+  for (const r of broken) console.log(`${r.source}: "${r.label}" -> ${r.href}`);
+  console.log(broken.length ? `\n${broken.length} broken internal link(s).` : "No broken internal links found.");
+  process.exit(broken.length ? 1 : 0);
+}
+
+function runValidate({ root, cfgDir, config, navData, pagesData, redirectsData, exclude }) {
+  const templateTexts = {};
+  const tplDir = path.join(cfgDir, "templates");
+  if (fs.existsSync(tplDir)) {
+    for (const name of fs.readdirSync(tplDir)) {
+      if (name.endsWith(".html")) templateTexts[name] = fs.readFileSync(path.join(tplDir, name), "utf8");
+    }
+  }
+  const issues = WebhasteCompose.validateProject({
+    config,
+    navData,
+    pagesData,
+    redirectsData,
+    pagePaths: collectHtmlFiles(root, exclude),
+    templateTexts,
+  });
+  for (const i of issues) console.log(`${i.level.toUpperCase()} ${i.file}: ${i.message}`);
+  const errors = issues.filter((i) => i.level === "error").length;
+  const warnings = issues.length - errors;
+  console.log(issues.length ? `\n${errors} error(s), ${warnings} warning(s).` : "No problems found.");
+  process.exit(errors ? 1 : 0);
 }
 
 function main() {
-  const { siteDir, outDir, packaged } = parseArgs(process.argv.slice(2));
+  const { siteDir, outDir, packaged, checkLinks, validate } = parseArgs(process.argv.slice(2));
   const root = path.resolve(siteDir);
   const cfgDir = path.join(root, ".webhaste");
 
@@ -232,7 +308,7 @@ function main() {
 
   const distName = sanitizeDeployDirectory(outDir || config.deployDirectory);
   const distDir = path.join(root, distName);
-  fs.mkdirSync(distDir, { recursive: true });
+  if (!checkLinks && !validate) fs.mkdirSync(distDir, { recursive: true });
 
   // Both the folder being written to AND the configured deploy folder are
   // build output, never source pages. They differ when --out points at a
@@ -248,6 +324,10 @@ function main() {
     distName,
     sanitizeDeployDirectory(config.deployDirectory),
   ]);
+  if (checkLinks || validate) {
+    if (validate) runValidate({ root, cfgDir, config, navData, pagesData, redirectsData, exclude });
+    runCheckLinks({ root, config, navData, exclude });
+  }
   // Drafts (pages.json status: "draft", set via the extension's Page
   // Properties dialog) are skipped here the same way Publish/Render to
   // Local Folder skip them — WebhasteCompose.isDraftPage() is the single

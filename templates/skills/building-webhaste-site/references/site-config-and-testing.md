@@ -78,6 +78,25 @@ ones, search data embedded per page, `sitemap.xml`/`robots.txt`/
 `file://` without installing the extension. Run
 `node .webhaste/compose.js --help` for the full option list.
 
+Two further checks render nothing and write nothing — run them after
+editing pages, `nav.json`, `pages.json` or `redirects.json`:
+
+```
+node .webhaste/compose.js --check-links
+node .webhaste/compose.js --validate
+```
+
+`--check-links` lists internal links (pages and menus) that resolve to no
+page or file under `assets/`/`scripts/`/`elements/` (same check as the
+editor's Check Links dialog; off-site, `mailto:`, `tel:` and `#anchor`
+links are skipped) and exits 1 if any are broken. `--validate` checks the
+config files against each other — missing templates, stale `pages.json`
+entries, malformed menu items, `{{NAV:name}}` with no such menu, bad or
+chained redirects — and exits 1 on errors (warnings alone exit 0). The
+editor silently falls back to defaults on a broken config file, so this is
+how to catch a hand-edit mistake. Publishing stays a manual step in the
+editor; the CLI has no publish.
+
 If Node isn't available in this environment, fall back to reasoning from
 the template's placeholders and this skill's conventions — there's no
 other way to render a page outside the extension itself.
