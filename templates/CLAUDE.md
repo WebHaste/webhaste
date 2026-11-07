@@ -277,6 +277,15 @@ Neither does anything until the template actually references both:
 <script src="/scripts/lottie-init.js"></script>
 ```
 
+**Accessibility:** lottie-web's generated `<svg>` has no accessible name, so
+checkers flag it. The block's ♿ toolbar button (or `data-lottie-label="What
+the animation shows"` on the `data-lottie-src` element, in Code view) sets
+the description, and `lottie-init.js` sets
+`role="img"` + `aria-label` on the svg. With no label the svg is marked
+`aria-hidden` (decorative). To control the text, edit that attribute.
+(`lottie-init.js` is copy-once: a project scaffolded earlier needs the
+current file pasted over `scripts/lottie-init.js`.)
+
 **The block only ever shows a static placeholder in the WebHaste editor** —
 in Visual view and in live Preview alike — never the real animation. This
 is deliberate, not a bug to chase: `scripts/*.js` can't execute inside the

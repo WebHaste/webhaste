@@ -13,6 +13,17 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 
 ## [Unreleased]
 
+### Added
+- The Insert/Edit Link dialog has **CSS classes** (e.g. `btn btn-primary` to make a link look like a button) and **Accessible label** (`aria-label`) fields, so neither needs Code view anymore.
+
+- The link dialog warns (without blocking) when an Accessible label doesn't contain the link's visible text, which accessibility scanners flag and which breaks voice control (WCAG 2.5.3). Image-only links never warn.
+
+### Changed
+- Clicking **Edit** on a link now highlights the whole link while the dialog is open, so it's clear the edit applies to the entire link, not just the word you clicked.
+
+### Fixed
+- Lottie animations no longer fail accessibility checks ("SVG element has no accessible name"). Use the new ♿ button on a Lottie block's toolbar to enter alt text; without any it is marked decorative. Existing sites need the new `scripts/lottie-init.js` copied in by hand.
+
 ## [0.7.0] - 2026-11-07
 
 ### Added

@@ -2794,7 +2794,8 @@ function decorateBlocks() {
     // Same idea as embedBtn above, but for the Lottie block's [data-lottie-src]
     // placeholder div instead of an iframe — see openLottieAssetPicker().
     const lottieBtn = block.querySelector("[data-lottie-src]")
-      ? '<button type="button" data-action="edit-lottie" title="Choose animation file (.json)">🎞️</button>'
+      ? '<button type="button" data-action="edit-lottie" title="Choose animation file (.json)">🎞️</button>' +
+        '<button type="button" data-action="edit-lottie-label" title="Alt text (accessibility description)">♿</button>'
       : "";
     // Same idea again, for a List block's [data-list-src] placeholder —
     // see openListPicker().
@@ -3023,6 +3024,9 @@ document.getElementById("visualArea").addEventListener("click", (e) => {
   } else if (btn.dataset.action === "edit-lottie") {
     openLottieAssetPicker(block);
     return;
+  } else if (btn.dataset.action === "edit-lottie-label") {
+    openLottieLabelDialog(block);
+    return;
   } else if (btn.dataset.action === "edit-list") {
     openListPicker(block);
     return;
@@ -3160,6 +3164,36 @@ document.getElementById("embedSave").addEventListener("click", () => {
     scheduleSave();
   }
   embedDialog.close();
+});
+
+// ---- Lottie alt text ----
+// Edits data-lottie-label on the block's [data-lottie-src] placeholder, which
+// scripts/lottie-init.js turns into role="img" + aria-label on the rendered
+// <svg>. Blank removes the attribute (animation is then treated as decorative).
+let editingLottiePlaceholder = null;
+const lottieLabelDialog = document.getElementById("lottieLabelDialog");
+
+function openLottieLabelDialog(block) {
+  editingLottiePlaceholder = block.querySelector("[data-lottie-src]");
+  document.getElementById("lottieLabelInput").value =
+    editingLottiePlaceholder?.getAttribute("data-lottie-label") || "";
+  lottieLabelDialog.showModal();
+}
+
+document.getElementById("lottieLabelCancel").addEventListener("click", () => lottieLabelDialog.close());
+
+lottieLabelDialog.addEventListener("close", () => {
+  editingLottiePlaceholder = null;
+});
+
+document.getElementById("lottieLabelSave").addEventListener("click", () => {
+  if (editingLottiePlaceholder) {
+    const text = document.getElementById("lottieLabelInput").value.trim();
+    if (text) editingLottiePlaceholder.setAttribute("data-lottie-label", text);
+    else editingLottiePlaceholder.removeAttribute("data-lottie-label");
+    scheduleSave();
+  }
+  lottieLabelDialog.close();
 });
 
 // ---- Table structural editing (rows/columns) ----
@@ -3606,6 +3640,31 @@ function getEnclosingLink(node) {
   return el ? el.closest("#visualArea a") : null;
 }
 
+// WCAG 2.5.3 (Label in Name): a link's accessible name should contain its
+// visible text, or voice-control users can't activate it by saying what they
+// see. Non-blocking — warns only when the link has visible text and the
+// aria-label doesn't contain it. Image-only links have no visible text, so
+// they never warn. Compared case/punctuation/whitespace-insensitively.
+function normalizeLinkLabel(s) {
+  return (s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function updateLinkAriaWarning() {
+  const warning = document.getElementById("linkAriaWarning");
+  const label = normalizeLinkLabel(document.getElementById("linkAriaLabelInput").value);
+  const visible = normalizeLinkLabel(editingLinkEl ? editingLinkEl.textContent : savedLinkRange ? savedLinkRange.toString() : "");
+  const mismatch = label && visible && !label.includes(visible);
+  warning.classList.toggle("hidden", !mismatch);
+  if (mismatch) {
+    warning.textContent =
+      "This label doesn't contain the link's visible text (\"" +
+      (editingLinkEl ? editingLinkEl.textContent : savedLinkRange.toString()).trim() +
+      "\"). Voice-control users may not be able to activate the link, and accessibility scanners will flag it. Start the label with the visible text.";
+  }
+}
+
+document.getElementById("linkAriaLabelInput").addEventListener("input", updateLinkAriaWarning);
+
 function openLinkDialog(existingLink) {
   editingLinkEl = existingLink || null;
   document.getElementById("linkDialogTitle").textContent = editingLinkEl ? "Edit Link" : "Insert Link";
@@ -3622,15 +3681,25 @@ function openLinkDialog(existingLink) {
     selection.removeAllRanges();
     selection.addRange(range);
     savedLinkRange = range.cloneRange();
+    // Visibly mark the whole link (the selection itself isn't drawn once
+    // focus moves into the dialog). Only on Edit, never while typing.
+    if (window.CSS && CSS.highlights && typeof Highlight !== "undefined") {
+      CSS.highlights.set("link-edit", new Highlight(range.cloneRange()));
+    }
     document.getElementById("linkUrlInput").value = editingLinkEl.getAttribute("href") || "";
     document.getElementById("linkTargetSelect").value = editingLinkEl.getAttribute("target") === "_blank" ? "_blank" : "_self";
+    document.getElementById("linkClassInput").value = editingLinkEl.getAttribute("class") || "";
+    document.getElementById("linkAriaLabelInput").value = editingLinkEl.getAttribute("aria-label") || "";
   } else {
     const selection = document.getSelection();
     if (!selection.rangeCount) return; // nothing selected/focused in the editor to link
     savedLinkRange = selection.getRangeAt(0).cloneRange();
     document.getElementById("linkUrlInput").value = "";
     document.getElementById("linkTargetSelect").value = "_self";
+    document.getElementById("linkClassInput").value = "";
+    document.getElementById("linkAriaLabelInput").value = "";
   }
+  updateLinkAriaWarning();
   // Offer this page's IDs as "#id" suggestions so anchors are linkable
   // without remembering what they were called.
   const anchorList = document.getElementById("linkAnchorList");
@@ -3645,6 +3714,11 @@ function openLinkDialog(existingLink) {
 
 document.getElementById("linkCancel").addEventListener("click", () => linkDialog.close());
 
+// Covers Save, Cancel, Remove and Escape alike.
+linkDialog.addEventListener("close", () => {
+  if (window.CSS && CSS.highlights) CSS.highlights.delete("link-edit");
+});
+
 document.getElementById("linkRemove").addEventListener("click", () => {
   const link = editingLinkEl;
   linkDialog.close();
@@ -3656,10 +3730,20 @@ document.getElementById("linkRemove").addEventListener("click", () => {
 document.getElementById("linkSave").addEventListener("click", () => {
   const url = document.getElementById("linkUrlInput").value.trim();
   const target = document.getElementById("linkTargetSelect").value;
+  const classes = document.getElementById("linkClassInput").value.trim().replace(/\s+/g, " ");
+  const ariaLabel = document.getElementById("linkAriaLabelInput").value.trim();
   const range = savedLinkRange;
   const link = editingLinkEl;
   linkDialog.close();
   if (!url || !range) return;
+
+  // Blank removes the attribute rather than leaving class="" / aria-label="".
+  const applyExtras = (a) => {
+    if (classes) a.setAttribute("class", classes);
+    else a.removeAttribute("class");
+    if (ariaLabel) a.setAttribute("aria-label", ariaLabel);
+    else a.removeAttribute("aria-label");
+  };
 
   const visualArea = document.getElementById("visualArea");
   visualArea.focus();
@@ -3675,6 +3759,7 @@ document.getElementById("linkSave").addEventListener("click", () => {
       link.removeAttribute("target");
       link.removeAttribute("rel");
     }
+    applyExtras(link);
     scheduleSave();
     return;
   }
@@ -3698,6 +3783,7 @@ document.getElementById("linkSave").addEventListener("click", () => {
       newLink.removeAttribute("target");
       newLink.removeAttribute("rel");
     }
+    applyExtras(newLink);
   }
   scheduleSave();
 });

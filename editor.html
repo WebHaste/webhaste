@@ -439,6 +439,10 @@
         <option value="_blank">New Window</option>
       </select>
     </label>
+    <label>CSS classes <input type="text" id="linkClassInput" placeholder="e.g. btn btn-primary" /></label>
+    <label>Accessible label (aria-label) <input type="text" id="linkAriaLabelInput" placeholder="Optional — e.g. Read more about our services" /></label>
+    <p id="linkAriaWarning" class="link-aria-warning hidden" role="status"></p>
+    <p class="hint">Classes turn a link into a button (use your framework's button classes). An accessible label replaces the link text for screen readers, so only use it when the visible text isn't descriptive on its own, and keep the visible words at the start of it.</p>
     <div class="dialog-actions">
       <button id="linkRemove" class="hidden">Remove Link</button>
       <button id="linkCancel">Cancel</button>
@@ -490,6 +494,18 @@
     <div class="dialog-actions">
       <button id="embedCancel">Cancel</button>
       <button id="embedSave" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="lottieLabelDialog">
+    <h3>Animation Alt Text</h3>
+    <p class="hint">Describe what the animation shows, for screen reader users
+      (e.g. "A rocket launching"). Leave blank if it's purely decorative — it will
+      then be hidden from assistive technology.</p>
+    <label>Description <input type="text" id="lottieLabelInput" /></label>
+    <div class="dialog-actions">
+      <button id="lottieLabelCancel">Cancel</button>
+      <button id="lottieLabelSave" class="primary">Save</button>
     </div>
   </dialog>
 

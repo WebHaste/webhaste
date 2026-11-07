@@ -15,6 +15,12 @@
      <script src="/scripts/lottie.min.js"></script>
      <script src="/scripts/lottie-init.js"></script>
 
+   Accessibility: the block's ♿ toolbar button in the editor (alt text) sets
+   data-lottie-label="What the animation shows" on the data-lottie-src
+   element (also editable in Code view), and the generated <svg> gets
+   role="img" + aria-label. Without it the svg is marked aria-hidden
+   (decorative).
+
    Nothing about this runs inside the WebHaste editor's own preview — the
    iframe's script-src 'self' CSP blocks any scripts/*.js there, the same
    restriction that blocks a site's own scripts/main.js (see editor.js's
@@ -55,7 +61,33 @@
       } else {
         options.path = src;
       }
-      lottie.loadAnimation(options);
+      var anim = lottie.loadAnimation(options);
+      // lottie-web's generated <svg> has no accessible name (accessibility
+      // checkers flag it). DOMLoaded fires once the svg exists, for both
+      // animationData and path loading.
+      anim.addEventListener("DOMLoaded", function () {
+        labelSvg(el);
+      });
     });
+  }
+
+  // data-lottie-label="Description" -> role="img" + aria-label (meaningful
+  // animation). No label -> treated as decorative: aria-hidden, hidden from
+  // assistive tech. The label text is whatever the author puts in that
+  // attribute (edit it in Code view).
+  function labelSvg(el) {
+    var svg = el.querySelector("svg");
+    if (!svg) return;
+    var label = (el.getAttribute("data-lottie-label") || "").trim();
+    if (label) {
+      // The editor's placeholder markup carries aria-hidden="true"; it would
+      // hide the labelled svg from assistive tech on the live site too.
+      el.removeAttribute("aria-hidden");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", label);
+    } else {
+      svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("role", "presentation");
+    }
   }
 })();

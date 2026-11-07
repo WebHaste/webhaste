@@ -38,6 +38,11 @@ every `[data-lottie-src]` element and plays it) are already scaffolded;
 the template needs both `<script>` tags added by hand, same as
 `lunr.min.js`/`search.js` in "SEO & Search" — nothing auto-injected.
 
+Accessibility: lottie-web's `<svg>` has no accessible name. The block's ♿
+toolbar button (or `data-lottie-label="What it shows"` on the
+`data-lottie-src` element) sets it and the svg gets `role="img"` + `aria-label`; with no label it's
+marked `aria-hidden` (decorative). To control the text, edit that attribute.
+
 This block **only ever shows a static placeholder in the WebHaste
 editor** — Visual view and live Preview alike — never the real animation.
 `scripts/*.js` can't execute inside the preview iframe (same restriction

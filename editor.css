@@ -549,6 +549,23 @@ body.resizing-columns { cursor: col-resize; user-select: none; }
    <a>'s getBoundingClientRect() — it lives at the body level (not inside
    #visualArea) specifically so it never needs stripping out of saved
    content the way .cs-block-toolbar/.cs-div-toolbar do. */
+/* Marks the whole link being edited while the Edit Link dialog is open (the
+   real text selection isn't drawn once focus moves into the dialog). Uses the
+   CSS Custom Highlight API so nothing is added to the page's DOM/saved HTML. */
+.link-aria-warning {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-left: 3px solid #d98e04;
+  background: #fff4d6;
+  color: #5c3d00;
+  font-size: 12px;
+}
+
+::highlight(link-edit) {
+  background-color: #ffe08a;
+  color: #000;
+}
+
 .link-bubble {
   position: fixed;
   display: flex;
