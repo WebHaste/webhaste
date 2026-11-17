@@ -24,6 +24,7 @@
         <button id="editRedirects">↪️ Redirects</button>
         <button id="editLists">📋 Lists</button>
         <button id="checkLinksBtn">🔍 Check Links</button>
+        <button id="cpPullBtn" class="hidden">📥 Pull from Content Porter<span id="cpPullBadge" class="cp-badge hidden"></span></button>
         <button id="tourBtn">🧭 Take the Tour</button>
         <button id="aboutBtn">ℹ️ About WebHaste</button>
       </div>
@@ -233,6 +234,14 @@
     </div>
   </dialog>
 
+  <dialog id="cpPullDialog">
+    <h3>Pull from Content Porter</h3>
+    <div id="cpPullResults" class="check-links-results"></div>
+    <div class="dialog-actions">
+      <button id="cpPullClose" class="primary">Close</button>
+    </div>
+  </dialog>
+
   <dialog id="checkLinksDialog">
     <h3>Check Links</h3>
     <p class="hint">
@@ -305,6 +314,11 @@
       <label>Country <input id="cfgSchemaCountry" type="text" placeholder="US" /></label>
       <label>Social Profile URLs (one per line) <textarea id="cfgSchemaSameAs" rows="3" placeholder="https://facebook.com/yourpage&#10;https://instagram.com/yourhandle"></textarea></label>
     </div>
+
+    <h4>Content Porter</h4>
+    <label>Pull token <input id="cfgCpToken" type="password" placeholder="cpx_..." autocomplete="off" /></label>
+    <label>Server URL <input id="cfgCpUrl" type="text" placeholder="https://contentporter.com" /></label>
+    <p class="hint">Optional. Lets you pull blog posts published to this site from <a href="https://contentporter.com" target="_blank" rel="noopener noreferrer">Content Porter</a> (Site Admin → Pull from Content Porter). It's a separate service, so you'll need to <a href="https://contentporter.com" target="_blank" rel="noopener noreferrer">sign up at contentporter.com</a> to get a pull token. Stored on this device only, never in the site folder. Clear the token to turn it off.</p>
 
     <div class="dialog-actions">
       <button id="siteSettingsCancel">Cancel</button>

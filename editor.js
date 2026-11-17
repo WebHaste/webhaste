@@ -350,6 +350,7 @@ document.getElementById("recentProjects").addEventListener("change", async (e) =
   await refreshFileList();
   await recordRecentProject(dirHandle, await getSiteConfig());
   await populateRecentProjectsDropdown();
+  updateCpPullButton();
 });
 
 // ---- Folder picking + listing ----
@@ -364,6 +365,7 @@ document.getElementById("pickFolder").addEventListener("click", async () => {
     await refreshFileList();
     await recordRecentProject(dirHandle, await getSiteConfig());
     await populateRecentProjectsDropdown();
+    updateCpPullButton();
   } catch (err) {
     setStatus("Folder selection cancelled or failed: " + err.message);
   }
@@ -1455,6 +1457,7 @@ async function tryRestoreFolder() {
     await refreshFileList();
     await recordRecentProject(dirHandle, await getSiteConfig());
     await populateRecentProjectsDropdown();
+    updateCpPullButton();
   } else {
     // Chrome requires a user gesture to re-request; show a reconnect hint
     setStatus(`Folder "${handle.name}" needs to be reconnected — click "Open Project Folder".`);
@@ -6829,6 +6832,258 @@ function renderCheckLinksResults(results) {
   }
 }
 
+// ---- Content Porter pull ----
+// The extension-side port of Content Porter's tools/contentporter-pull.mjs:
+// the site folder is already open through the File System Access API, so
+// there's no script or config file in the site. The token lives in
+// chrome.storage.local namespaced by projectId (like Cloudflare/Netlify
+// credentials), never in the site folder — sites are often git repos.
+const CP_DEFAULT_URL = "https://contentporter.com";
+let cpBadgeCheckedFor = null;
+
+async function getCpSettings(config) {
+  const cfg = config || (await getSiteConfig());
+  const tokenKey = projectStorageKey(cfg, "cpToken");
+  const urlKey = projectStorageKey(cfg, "cpUrl");
+  const stored = await chrome.storage.local.get([tokenKey, urlKey]);
+  return {
+    token: stored[tokenKey] || "",
+    url: (stored[urlKey] || CP_DEFAULT_URL).replace(/\/+$/, ""),
+  };
+}
+
+async function cpApi(settings, method, path) {
+  const res = await fetch(`${settings.url}/api/pull/v1/${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${settings.token}`, Accept: "application/json" },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.message || `Content Porter answered HTTP ${res.status}`);
+  return body;
+}
+
+// Shows the Pull action only when a token is set, and (once per opened
+// project, never polled) badges it with the count of ready posts.
+async function updateCpPullButton() {
+  const btn = document.getElementById("cpPullBtn");
+  const badge = document.getElementById("cpPullBadge");
+  if (!dirHandle) {
+    btn.style.display = "none";
+    return;
+  }
+  try {
+    const config = await getSiteConfig();
+    const settings = await getCpSettings(config);
+    btn.style.display = settings.token ? "block" : "none";
+    if (!settings.token) {
+      cpBadgeCheckedFor = null;
+      return;
+    }
+    if (cpBadgeCheckedFor === config.projectId) return;
+    cpBadgeCheckedFor = config.projectId;
+    const site = await cpApi(settings, "GET", "site");
+    badge.textContent = String(site.ready || 0);
+    badge.classList.toggle("hidden", !site.ready);
+  } catch (err) {
+    console.info("Content Porter ready-count check failed:", err.message);
+  }
+}
+
+async function cpFileExists(dir, name) {
+  try {
+    await dir.getFileHandle(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function cpWriteBytes(dir, name, bytes) {
+  const writable = await (await dir.getFileHandle(name, { create: true })).createWritable();
+  await writable.write(bytes);
+  await writable.close();
+}
+
+async function cpBytesEqual(dir, name, bytes) {
+  const existing = new Uint8Array(await (await (await dir.getFileHandle(name)).getFile()).arrayBuffer());
+  if (existing.length !== bytes.length) return false;
+  for (let i = 0; i < bytes.length; i++) if (existing[i] !== bytes[i]) return false;
+  return true;
+}
+
+const cpSameHref = (a, b) => (a || "").replace(/\.html$/, "") === (b || "").replace(/\.html$/, "");
+
+// A filename from the API is used as one path segment — refuse anything that
+// could escape assets/ or the project folder.
+function cpSafeName(name) {
+  return typeof name === "string" && name && !/[\\/]/.test(name) && name !== "." && name !== "..";
+}
+function cpSafePath(path) {
+  return typeof path === "string" && path && !path.startsWith("/") && !path.split("/").some((p) => !p || p === "." || p === "..");
+}
+
+// Writes one bundle into the site (same order as the reference script).
+// Returns the list of change lines for the results dialog.
+async function cpWriteItem(settings, item) {
+  const changes = [];
+  if (!cpSafePath(item.page && item.page.path)) throw new Error(`Unsafe page path "${item.page && item.page.path}".`);
+  let html = item.page.html;
+
+  // Images: flat into assets/. Identical bytes reuse the file, different bytes pick name-2.ext, ...
+  for (const asset of item.assets || []) {
+    if (!cpSafeName(asset.filename)) throw new Error(`Unsafe image filename "${asset.filename}".`);
+    const res = await fetch(asset.url);
+    if (!res.ok) throw new Error(`Couldn't download ${asset.url} (HTTP ${res.status})`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const assetsDir = await getAssetsDirHandle(true);
+    const dot = asset.filename.lastIndexOf(".");
+    const ext = dot > 0 ? asset.filename.slice(dot) : "";
+    const stem = asset.filename.slice(0, asset.filename.length - ext.length);
+    let name = asset.filename;
+    for (let n = 2; ; n++) {
+      if (!(await cpFileExists(assetsDir, name))) {
+        await cpWriteBytes(assetsDir, name, bytes);
+        changes.push({ mark: "+", text: `assets/${name}` });
+        break;
+      }
+      if (await cpBytesEqual(assetsDir, name, bytes)) break; // already there
+      name = `${stem}-${n}${ext}`;
+    }
+    if (name !== asset.filename) {
+      html = html.split(`/assets/${asset.filename}"`).join(`/assets/${name}"`);
+    }
+  }
+
+  // Page
+  let existed = true;
+  try {
+    await getNestedFileHandle(dirHandle, item.page.path);
+  } catch {
+    existed = false;
+  }
+  const pageHandle = await getNestedFileHandle(dirHandle, item.page.path, { create: true });
+  const pageWritable = await pageHandle.createWritable();
+  await pageWritable.write(html);
+  await pageWritable.close();
+  fileCache.delete(item.page.path);
+  changes.push({ mark: existed ? "~" : "+", text: item.page.path });
+
+  // pages.json — keep keys WebHaste added (headCode, status, ...)
+  const cfgDir = await getConfigDir(true);
+  const pages = await readJSONFile(cfgDir, "pages.json", {});
+  pages[item.pages.key] = { ...(pages[item.pages.key] || {}), ...item.pages.set };
+  await writeJSONFile(cfgDir, "pages.json", pages);
+  changes.push({ mark: "~", text: ".webhaste/pages.json" });
+
+  // nav.json
+  if (item.nav) {
+    const nav = await readJSONFile(cfgDir, "nav.json", { menus: {} });
+    const menus = nav.menus || (nav.menus = {});
+    const menu = menus[item.nav.menu] || (menus[item.nav.menu] = []);
+    const found = menu.find((e) => cpSameHref(e.href, item.nav.href));
+    if (found) found.label = item.nav.label;
+    else menu.unshift({ label: item.nav.label, href: item.nav.href });
+    await writeJSONFile(cfgDir, "nav.json", nav);
+    changes.push({ mark: "~", text: `.webhaste/nav.json (${item.nav.menu} menu)` });
+  }
+
+  // list
+  if (item.list) {
+    const slug = item.list.slug;
+    const listsDir = cpSafeName(slug) ? await getListsDirHandle(false) : null;
+    if (!listsDir || !(await cpFileExists(listsDir, `${slug}.json`))) {
+      changes.push({ mark: "!", text: `no list .webhaste/lists/${slug}.json; skipped`, warn: true });
+    } else {
+      const data = await readJSONFile(listsDir, `${slug}.json`, {});
+      const keys = new Set((data.fields || []).map((f) => f.key));
+      const entry = Object.fromEntries(
+        Object.entries(item.list.entry).filter(([k]) => keys.size === 0 || keys.has(k))
+      );
+      const entries = data.entries || (data.entries = []);
+      const i = entries.findIndex((e) => cpSameHref(e.link, item.list.entry.link));
+      if (i >= 0) entries[i] = { ...entries[i], ...entry };
+      else entries.unshift(entry);
+      await writeJSONFile(listsDir, `${slug}.json`, data);
+      changes.push({ mark: "~", text: `.webhaste/lists/${slug}.json` });
+    }
+  }
+
+  await cpApi(settings, "POST", `items/${item.id}/pulled`);
+  return changes;
+}
+
+function renderCpPullResults(results, summary) {
+  const el = document.getElementById("cpPullResults");
+  el.innerHTML = "";
+  const add = (cls, text, parent = el) => {
+    const p = document.createElement("div");
+    if (cls) p.className = cls;
+    p.textContent = text;
+    parent.appendChild(p);
+    return p;
+  };
+  for (const r of results) {
+    const row = document.createElement("div");
+    row.className = "check-links-row";
+    add("cp-post-title", r.title, row);
+    for (const c of r.changes || []) add(c.warn ? "cp-file cp-warn" : "cp-file", `${c.mark} ${c.text}`, row);
+    if (r.error) add("cp-error", `✗ ${r.error}`, row);
+    el.appendChild(row);
+  }
+  add("check-links-ok", summary);
+}
+
+let cpPulling = false;
+document.getElementById("cpPullBtn").addEventListener("click", async () => {
+  if (!dirHandle || cpPulling) return;
+  cpPulling = true;
+  try {
+    const settings = await getCpSettings();
+    if (!settings.token) {
+      setStatus("Set a Content Porter pull token in Site Settings first.");
+      return;
+    }
+    setStatus("Pulling from Content Porter...");
+    await queueFlush();
+    const { items } = await cpApi(settings, "GET", "items");
+    if (!items.length) {
+      renderCpPullResults([], "Nothing ready to pull.");
+      document.getElementById("cpPullDialog").showModal();
+      setStatus("Content Porter: nothing ready to pull.");
+      document.getElementById("cpPullBadge").classList.add("hidden");
+      return;
+    }
+    const results = [];
+    let done = 0;
+    for (const item of items) {
+      try {
+        results.push({ title: item.title, changes: await cpWriteItem(settings, item) });
+        done++;
+      } catch (err) {
+        results.push({ title: item.title, error: err.message });
+      }
+    }
+    await refreshFileList();
+    renderCpPullResults(
+      results,
+      done === 0
+        ? "Nothing was pulled."
+        : `Pulled ${done} of ${items.length}. Check the posts, then Publish the site.`
+    );
+    document.getElementById("cpPullDialog").showModal();
+    setStatus(`Content Porter: pulled ${done} of ${items.length}.`);
+    const badge = document.getElementById("cpPullBadge");
+    const remaining = items.length - done;
+    badge.textContent = String(remaining);
+    badge.classList.toggle("hidden", !remaining);
+  } catch (err) {
+    setStatus(`Content Porter: ${err.message}`);
+  } finally {
+    cpPulling = false;
+  }
+});
+document.getElementById("cpPullClose").addEventListener("click", () => document.getElementById("cpPullDialog").close());
+
 // ---- Site Settings dialog ----
 const siteSettingsDialog = document.getElementById("siteSettingsDialog");
 document.getElementById("siteSettingsBtn").addEventListener("click", async () => {
@@ -6862,6 +7117,9 @@ document.getElementById("siteSettingsBtn").addEventListener("click", async () =>
   document.getElementById("cfgSchemaCountry").value = schemaAddr.addressCountry || "";
   document.getElementById("cfgSchemaSameAs").value = (schema.sameAs || []).join("\n");
   document.getElementById("cfgTemplateEditing").checked = await isTemplateEditingEnabled();
+  const cp = await getCpSettings(config);
+  document.getElementById("cfgCpToken").value = cp.token;
+  document.getElementById("cfgCpUrl").value = cp.url === CP_DEFAULT_URL ? "" : cp.url;
   toggleSchemaFields();
   siteSettingsDialog.showModal();
 });
@@ -6948,7 +7206,46 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
   siteSettingsDialog.close();
   renderPreview();
   setStatus("Site settings saved (.webhaste/site.config.json).");
+  await saveContentPorterSettings(config);
 });
+
+// Saves/clears the Content Porter token (per device, namespaced by projectId)
+// and verifies it with GET site. A non-default server needs a runtime host
+// permission (optional_host_permissions in manifest.json). A failed check
+// keeps the token saved — it may just be a network blip — and shows the
+// API's message.
+async function saveContentPorterSettings(config) {
+  const token = document.getElementById("cfgCpToken").value.trim();
+  const typedUrl = document.getElementById("cfgCpUrl").value.trim().replace(/\/+$/, "");
+  const url = typedUrl || CP_DEFAULT_URL;
+  cpBadgeCheckedFor = null;
+  if (!token) {
+    await chrome.storage.local.remove([projectStorageKey(config, "cpToken"), projectStorageKey(config, "cpUrl")]);
+    await updateCpPullButton();
+    return;
+  }
+  try {
+    const origin = new URL(url).origin;
+    if (origin !== new URL(CP_DEFAULT_URL).origin) {
+      const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
+      if (!granted) throw new Error(`Permission to contact ${origin} was not granted.`);
+    }
+  } catch (err) {
+    setStatus(`Content Porter: ${err.message || "invalid server URL"}`);
+    return;
+  }
+  await chrome.storage.local.set({
+    [projectStorageKey(config, "cpToken")]: token,
+    [projectStorageKey(config, "cpUrl")]: url,
+  });
+  try {
+    const site = await cpApi({ url, token }, "GET", "site");
+    setStatus(`Connected to ${site.destination} (${site.project}).`);
+  } catch (err) {
+    setStatus(`Content Porter: ${err.message}`);
+  }
+  await updateCpPullButton();
+}
 
 function applyParagraphMode(mode) {
   try {

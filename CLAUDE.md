@@ -1220,3 +1220,30 @@ The same notes are also mirrored by hand into the chromecms.com docs site
 (`docs/changelog.html`, in the separate chromecms repo) and pasted into the
 Web Store "what's new" field — the package script's closing checklist lists
 every step. The About WebHaste dialog links to that page.
+
+### 20. Content Porter pull
+
+Content Porter (a separate content-generation/publishing app) publishes blog
+posts to a WebHaste site as bundles that **the site side pulls** — it never
+pushes. The spec is Content Porter's `docs/webhaste-pull.md`; the reference
+implementation is its `tools/contentporter-pull.mjs` (Node), which the
+`cp*` functions in `editor.js` port line for line so Chromebooks (no Node)
+can pull from the extension.
+
+Site Settings → Content Porter holds the pull token (`cpx_...`) and an
+optional server URL. Both live in `chrome.storage.local` under
+`projectStorageKey(config, "cpToken"/"cpUrl")` — per device, never in the
+site folder (sites are often git repos). Saving calls `GET site` to verify.
+The "Pull from Content Porter" Site Admin button (`#cpPullBtn`) is shown only
+when a token is set; `updateCpPullButton()` badges it with the ready count
+once per opened project (never polled). `cpWriteItem()` writes one bundle:
+images into flat `assets/` (identical bytes reused, otherwise `name-2.ext`),
+the page, `pages.json` (merged, keeping user-set keys), `nav.json` and the
+list (upsert by href ignoring `.html`, new first), then `POST pulled` — only
+after everything else succeeded. A failed item is reported and left unpulled.
+It never publishes. API-supplied paths/filenames are rejected if they could
+escape the project (`cpSafePath()`/`cpSafeName()`).
+
+`manifest.json` has `contentporter.com` and its Spaces image CDN in
+`host_permissions`. A self-hosted server URL uses
+`optional_host_permissions` + `chrome.permissions.request` on save.

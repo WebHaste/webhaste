@@ -14,6 +14,8 @@ Version boundaries for 0.4.0 – 0.6.2 were reconstructed from commit dates.
 ## [Unreleased]
 
 ### Added
+- **Pull from Content Porter.** Enter your Content Porter pull token under Site Settings → Content Porter, then use Site Admin → Pull from Content Porter to bring approved blog posts into the site: the page, its images, the page properties, the menu link and the list entry. Content Porter is a separate service (contentporter.com), so you need to sign up there to get a token. Nothing is published until you Publish. The token stays on this device, not in the site folder. No Node or scripts needed, so it works on Chromebooks.
+
 - The Insert/Edit Link dialog has **CSS classes** (e.g. `btn btn-primary` to make a link look like a button) and **Accessible label** (`aria-label`) fields, so neither needs Code view anymore.
 
 - The link dialog warns (without blocking) when an Accessible label doesn't contain the link's visible text, which accessibility scanners flag and which breaks voice control (WCAG 2.5.3). Image-only links never warn.

@@ -1078,3 +1078,12 @@ dialog label.checkbox-label input[type="checkbox"] { width: auto; }
 .tour-body a { color: #5eead4; }
 .tour-actions { display: flex; align-items: center; gap: 8px; }
 .tour-step { margin-right: auto; font-size: 12px; color: #999; }
+
+/* Content Porter pull */
+#siteSettingsDialog h4 { margin: 16px 0 6px; font-size: 13px; color: #bbb; }
+.cp-badge { display: inline-block; margin-left: 8px; padding: 0 7px; border-radius: 10px; background: #2563eb; color: #fff; font-size: 11px; }
+.cp-badge.hidden { display: none; }
+.cp-post-title { font-weight: 600; }
+.cp-file { font-family: monospace; font-size: 12px; color: #bbb; }
+.cp-error { color: #f87171; }
+.cp-warn { color: #fbbf24; }
