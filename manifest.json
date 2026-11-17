@@ -13,9 +13,6 @@
     "https://contentporter.com/*",
     "https://contentporter.nyc3.cdn.digitaloceanspaces.com/*"
   ],
-  "optional_host_permissions": [
-    "https://*/*"
-  ],
   "background": {
     "service_worker": "background.js"
   },

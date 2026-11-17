@@ -6844,12 +6844,8 @@ let cpBadgeCheckedFor = null;
 async function getCpSettings(config) {
   const cfg = config || (await getSiteConfig());
   const tokenKey = projectStorageKey(cfg, "cpToken");
-  const urlKey = projectStorageKey(cfg, "cpUrl");
-  const stored = await chrome.storage.local.get([tokenKey, urlKey]);
-  return {
-    token: stored[tokenKey] || "",
-    url: (stored[urlKey] || CP_DEFAULT_URL).replace(/\/+$/, ""),
-  };
+  const stored = await chrome.storage.local.get([tokenKey]);
+  return { token: stored[tokenKey] || "", url: CP_DEFAULT_URL };
 }
 
 async function cpApi(settings, method, path) {
@@ -7119,7 +7115,6 @@ document.getElementById("siteSettingsBtn").addEventListener("click", async () =>
   document.getElementById("cfgTemplateEditing").checked = await isTemplateEditingEnabled();
   const cp = await getCpSettings(config);
   document.getElementById("cfgCpToken").value = cp.token;
-  document.getElementById("cfgCpUrl").value = cp.url === CP_DEFAULT_URL ? "" : cp.url;
   toggleSchemaFields();
   siteSettingsDialog.showModal();
 });
@@ -7210,34 +7205,21 @@ document.getElementById("siteSettingsSave").addEventListener("click", async () =
 });
 
 // Saves/clears the Content Porter token (per device, namespaced by projectId)
-// and verifies it with GET site. A non-default server needs a runtime host
-// permission (optional_host_permissions in manifest.json). A failed check
-// keeps the token saved — it may just be a network blip — and shows the
-// API's message.
+// and verifies it with GET site. A failed check keeps the token saved — it
+// may just be a network blip — and shows the API's message. The server is
+// always CP_DEFAULT_URL; the old cpUrl key (from a short-lived custom-URL
+// option) is removed if present.
 async function saveContentPorterSettings(config) {
   const token = document.getElementById("cfgCpToken").value.trim();
-  const typedUrl = document.getElementById("cfgCpUrl").value.trim().replace(/\/+$/, "");
-  const url = typedUrl || CP_DEFAULT_URL;
+  const url = CP_DEFAULT_URL;
   cpBadgeCheckedFor = null;
+  await chrome.storage.local.remove([projectStorageKey(config, "cpUrl")]);
   if (!token) {
-    await chrome.storage.local.remove([projectStorageKey(config, "cpToken"), projectStorageKey(config, "cpUrl")]);
+    await chrome.storage.local.remove([projectStorageKey(config, "cpToken")]);
     await updateCpPullButton();
     return;
   }
-  try {
-    const origin = new URL(url).origin;
-    if (origin !== new URL(CP_DEFAULT_URL).origin) {
-      const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
-      if (!granted) throw new Error(`Permission to contact ${origin} was not granted.`);
-    }
-  } catch (err) {
-    setStatus(`Content Porter: ${err.message || "invalid server URL"}`);
-    return;
-  }
-  await chrome.storage.local.set({
-    [projectStorageKey(config, "cpToken")]: token,
-    [projectStorageKey(config, "cpUrl")]: url,
-  });
+  await chrome.storage.local.set({ [projectStorageKey(config, "cpToken")]: token });
   try {
     const site = await cpApi({ url, token }, "GET", "site");
     setStatus(`Connected to ${site.destination} (${site.project}).`);

@@ -1230,9 +1230,12 @@ implementation is its `tools/contentporter-pull.mjs` (Node), which the
 `cp*` functions in `editor.js` port line for line so Chromebooks (no Node)
 can pull from the extension.
 
-Site Settings → Content Porter holds the pull token (`cpx_...`) and an
-optional server URL. Both live in `chrome.storage.local` under
-`projectStorageKey(config, "cpToken"/"cpUrl")` — per device, never in the
+Site Settings → Content Porter holds the pull token (`cpx_...`). The server is
+always `https://contentporter.com` (`CP_DEFAULT_URL`); a custom-URL option
+existed briefly and was removed — no plan for another address, and it needed
+`optional_host_permissions` (`https://*/*`), which invites Web Store scrutiny.
+The token lives in `chrome.storage.local` under
+`projectStorageKey(config, "cpToken")` — per device, never in the
 site folder (sites are often git repos). Saving calls `GET site` to verify.
 The "Pull from Content Porter" Site Admin button (`#cpPullBtn`) is shown only
 when a token is set; `updateCpPullButton()` badges it with the ready count
@@ -1245,5 +1248,5 @@ It never publishes. API-supplied paths/filenames are rejected if they could
 escape the project (`cpSafePath()`/`cpSafeName()`).
 
 `manifest.json` has `contentporter.com` and its Spaces image CDN in
-`host_permissions`. A self-hosted server URL uses
+`host_permissions`. If a self-hosted server is ever wanted, re-add it with
 `optional_host_permissions` + `chrome.permissions.request` on save.
